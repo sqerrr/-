@@ -1,12 +1,18 @@
 # START HERE — roguelike / Black Archive handoff
 
 **Date:** 2026-09-18  
-**Design state:** **RIVAL DRAFT CONCEPT: DRAFT, NOT APPROVED FOR IMPLEMENTATION**  
+**Design state:** **CORE DECISIONS TAKEN; IMPLEMENTATION NOT YET AUTHORIZED**  
 **Executable reference:** `prototype/current/` remains the unchanged v0.10 experimental build.
 
-## Active concept discussion (2026-09-18)
+## Active concept state (2026-09-18)
 
-Start with `17_DECISIONS_AND_PROGRESS_2026-09-18.md` and `16_NEXT_SLICE_DRAFT_2026-09-18.md`. Read `15_RIVAL_DRAFT_CONCEPT_DISCUSSION_2026-09-18.md` for reasoning and exact owner statements, especially sections 29-32. Non-attacking phenomena are deferred; the previous candidate roster is not selected; rare deferred-reward actions must not replace the ordinary three choices. The v0.10 model below is an executable baseline, not a constraint on the new concept.
+Start with `21_SLICE_DECISIONS_2026-09-18.md`. It records the owner's decisions and **overrides proposals in documents 15, 16 and 20 wherever they disagree.**
+
+Headline decisions: architecture is rebuilt before content; the catalogue target is 18 phenomena and 20 catalysts with no per-run subset; refused cards go to elites in general rather than to a single named rival, with the carried set scaled by elite rarity; items are a shared power source for both sides, 20+ per run across five categories; every player upgrade must be designed together with a matching enemy upgrade; every catalogue entry must do something useful against crowds, not only against elites; mutations form a three-branch tree per phenomenon; once the build is full a level offers an item, an operator or carrier-wide growth; the player gets a dash with a short invulnerability window; the arena gains obstacle islands with destructible cover; runs stay at roughly eight minutes and are evaluated by manual play plus per-fight telemetry.
+
+Then read `17_DECISIONS_AND_PROGRESS_2026-09-18.md` for the open-decision registry and the code audit, and `20_CONTENT_GAME_DESIGN_STUDY_2026-09-18.md` for the proposed catalogue. Non-attacking phenomena and luck are deferred. The v0.10 model below is an executable baseline, not a constraint on the new concept.
+
+**Audit warning:** several v0.10 subsystems are dead code and are not described in document 18 — enemies never fire projectiles, elite affixes never roll, elite adaptations never trigger, and POI guardians never spawn. Do not attribute their absence to design.
 
 ## Historical v0.10 rationale
 
@@ -24,17 +30,19 @@ v0.10 is a focused attempt to test a different foundation rather than another re
 
 ## Read in this order
 
-1. `17_DECISIONS_AND_PROGRESS_2026-09-18.md`: accepted, deferred and open decisions; work status.
-2. `16_NEXT_SLICE_DRAFT_2026-09-18.md`: draft requirements, boundaries and future acceptance probes.
-3. `15_RIVAL_DRAFT_CONCEPT_DISCUSSION_2026-09-18.md`: detailed discussion and explicit status of proposals.
-4. `18_V010_SYSTEM_SNAPSHOT_2026-09-18.md`: the owner's factual snapshot, copied without content changes.
-5. `13_V010_CORE_REBUILD_SPEC.md` and `14_V010_IMPLEMENTATION_NOTES_2026-09-17.md`: historical v0.10 experiment and implementation details.
-6. `prototype/current/PLAYTEST_CHECKLIST.md`: old prototype checklist, not acceptance of the new concept.
-7. Documents 01-12, `docs/`, `reports/` and `legacy/` as historical evidence where needed.
+1. `21_SLICE_DECISIONS_2026-09-18.md`: **owner decisions. Highest authority among the design documents.**
+2. `17_DECISIONS_AND_PROGRESS_2026-09-18.md`: accepted, deferred and open decisions; work status; code audit findings.
+3. `20_CONTENT_GAME_DESIGN_STUDY_2026-09-18.md`: proposed catalogue of 18 phenomena and 20 catalysts, combination grammar, risks and engine cost. A proposal, not a decision.
+4. `16_NEXT_SLICE_DRAFT_2026-09-18.md`: draft requirements, boundaries and future acceptance probes.
+5. `15_RIVAL_DRAFT_CONCEPT_DISCUSSION_2026-09-18.md`: detailed discussion and explicit status of proposals.
+6. `18_V010_SYSTEM_SNAPSHOT_2026-09-18.md`: the owner's factual snapshot, copied without content changes. Known to omit the dead subsystems listed above.
+7. `13_V010_CORE_REBUILD_SPEC.md` and `14_V010_IMPLEMENTATION_NOTES_2026-09-17.md`: historical v0.10 experiment and implementation details.
+8. `prototype/current/PLAYTEST_CHECKLIST.md`: old prototype checklist, not acceptance of the new concept.
+9. Documents 01-12, `docs/`, `reports/` and `legacy/` as historical evidence where needed.
 
 ## Current source-of-truth order
 
-1. Latest explicit owner instructions in chat; accepted decisions are recorded in documents 15-17.
+1. Latest explicit owner instructions in chat; accepted decisions are recorded in document 21, with history in documents 15-17.
 2. Owner-provided factual snapshot: `18_V010_SYSTEM_SNAPSHOT_2026-09-18.md`.
 3. Project specifications, with proposals and approvals kept distinct.
 4. Implementation as evidence of existing behavior, not authority over the requested future design.

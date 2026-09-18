@@ -1,12 +1,16 @@
 # START HERE — roguelike / Black Archive handoff
 
 **Date:** 2026-09-18  
-**Design state:** **RIVAL DRAFT CONCEPT: DRAFT, NOT APPROVED FOR IMPLEMENTATION**  
+**Design state:** **CORE DECISIONS TAKEN; IMPLEMENTATION NOT YET AUTHORIZED**  
 **Executable reference:** `prototype/current/` remains the unchanged v0.10 experimental build.
 
 ## Current entry point
 
-Read `00_START_HERE.md`, `17_DECISIONS_AND_PROGRESS_2026-09-18.md` and `16_NEXT_SLICE_DRAFT_2026-09-18.md` before continuing. The owner permits a full concept reconsideration. Non-attacking phenomena are currently deferred; the earlier candidate roster is not selected. A rare deferred-reward action must be an additional fourth option, not one of the ordinary three rewards. New gameplay implementation has not been approved.
+Read `21_SLICE_DECISIONS_2026-09-18.md` first. It records the owner's decisions and overrides proposals in documents 15, 16 and 20 wherever they disagree. Then read `00_START_HERE.md` and `17_DECISIONS_AND_PROGRESS_2026-09-18.md`.
+
+Headline decisions: architecture is rebuilt before content; the catalogue target is 18 phenomena and 20 catalysts with no per-run subset; refused cards go to elites in general rather than to a single named rival, with the carried set scaled by elite rarity; items are a shared power source for both sides, 20+ per run across five categories; every player upgrade must be designed together with a matching enemy upgrade; every catalogue entry must do something useful against crowds, not only against elites; mutations form a three-branch tree per phenomenon, delivered in two passes; once the build is full a level offers an item, an operator or carrier-wide growth; the player gets a dash with a short invulnerability window; the arena gains obstacle islands with destructible cover; runs stay at roughly eight minutes and are evaluated by manual play plus per-fight telemetry. Non-attacking phenomena, luck and player actions against elites are deferred. New gameplay implementation has not been approved.
+
+**Audit warning:** several v0.10 subsystems are dead code and are not described in document 18 — enemies never fire projectiles, elite affixes never roll, elite adaptations never trigger, and POI guardians never spawn.
 
 ## Historical v0.10 rationale
 
@@ -24,12 +28,14 @@ v0.10 is a focused attempt to test a different foundation rather than another re
 
 ## Read in this order
 
-1. `17_DECISIONS_AND_PROGRESS_2026-09-18.md`: decisions, open questions and next work.
-2. `16_NEXT_SLICE_DRAFT_2026-09-18.md`: draft requirements and acceptance criteria.
-3. `15_RIVAL_DRAFT_CONCEPT_DISCUSSION_2026-09-18.md`: detailed reasoning and owner statements.
-4. `18_V010_SYSTEM_SNAPSHOT_2026-09-18.md`: unchanged copy of the owner's factual snapshot.
-5. `13_V010_CORE_REBUILD_SPEC.md` and `14_V010_IMPLEMENTATION_NOTES_2026-09-17.md`: historical executable baseline.
-6. Remaining handoff, rendering, research and playtest documents as history, not automatic instructions.
+1. `21_SLICE_DECISIONS_2026-09-18.md`: owner decisions. Highest authority among the design documents.
+2. `17_DECISIONS_AND_PROGRESS_2026-09-18.md`: decisions, open questions, code audit and next work.
+3. `20_CONTENT_GAME_DESIGN_STUDY_2026-09-18.md`: proposed catalogue of 18 phenomena and 20 catalysts. A proposal, not a decision.
+4. `16_NEXT_SLICE_DRAFT_2026-09-18.md`: draft requirements and acceptance criteria.
+5. `15_RIVAL_DRAFT_CONCEPT_DISCUSSION_2026-09-18.md`: detailed reasoning and owner statements.
+6. `18_V010_SYSTEM_SNAPSHOT_2026-09-18.md`: unchanged copy of the owner's factual snapshot; omits the dead subsystems listed above.
+7. `13_V010_CORE_REBUILD_SPEC.md` and `14_V010_IMPLEMENTATION_NOTES_2026-09-17.md`: historical executable baseline.
+8. Remaining handoff, rendering, research and playtest documents as history, not automatic instructions.
 
 ## Current source-of-truth order
 
