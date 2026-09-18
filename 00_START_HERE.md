@@ -32,13 +32,14 @@ v0.10 is a focused attempt to test a different foundation rather than another re
 
 1. `21_SLICE_DECISIONS_2026-09-18.md`: **owner decisions. Highest authority among the design documents.**
 2. `17_DECISIONS_AND_PROGRESS_2026-09-18.md`: accepted, deferred and open decisions; work status; code audit findings.
-3. `20_CONTENT_GAME_DESIGN_STUDY_2026-09-18.md`: proposed catalogue of 18 phenomena and 20 catalysts, combination grammar, risks and engine cost. A proposal, not a decision.
-4. `16_NEXT_SLICE_DRAFT_2026-09-18.md`: draft requirements, boundaries and future acceptance probes.
-5. `15_RIVAL_DRAFT_CONCEPT_DISCUSSION_2026-09-18.md`: detailed discussion and explicit status of proposals.
-6. `18_V010_SYSTEM_SNAPSHOT_2026-09-18.md`: the owner's factual snapshot, copied without content changes. Known to omit the dead subsystems listed above.
-7. `13_V010_CORE_REBUILD_SPEC.md` and `14_V010_IMPLEMENTATION_NOTES_2026-09-17.md`: historical v0.10 experiment and implementation details.
-8. `prototype/current/PLAYTEST_CHECKLIST.md`: old prototype checklist, not acceptance of the new concept.
-9. Documents 01-12, `docs/`, `reports/` and `legacy/` as historical evidence where needed.
+3. `22_CATALOG_D29_AUDIT_2026-09-18.md`: audit of the catalogue against the owner's rules and rework of the twelve entries that failed. A proposal; only the parts accepted as D39-D48 are binding.
+4. `20_CONTENT_GAME_DESIGN_STUDY_2026-09-18.md`: proposed catalogue of 18 phenomena and 20 catalysts, combination grammar, risks and engine cost. A proposal, not a decision. Sections 7.1, 7.2 and build Ж are obsolete under D33.
+5. `16_NEXT_SLICE_DRAFT_2026-09-18.md`: draft requirements, boundaries and future acceptance probes.
+6. `15_RIVAL_DRAFT_CONCEPT_DISCUSSION_2026-09-18.md`: detailed discussion and explicit status of proposals.
+7. `18_V010_SYSTEM_SNAPSHOT_2026-09-18.md`: the owner's factual snapshot, copied without content changes. Known to omit the dead subsystems listed above.
+8. `13_V010_CORE_REBUILD_SPEC.md` and `14_V010_IMPLEMENTATION_NOTES_2026-09-17.md`: historical v0.10 experiment and implementation details.
+9. `prototype/current/PLAYTEST_CHECKLIST.md`: old prototype checklist, not acceptance of the new concept.
+10. Documents 01-12, `docs/`, `reports/` and `legacy/` as historical evidence where needed.
 
 ## Current source-of-truth order
 
