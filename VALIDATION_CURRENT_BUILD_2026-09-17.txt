@@ -1,0 +1,32 @@
+Black Archive v0.10 CORE REBUILD validation — 2026-09-17
+
+prototype/current npm test: PASS
+
+Key technical checks:
+- TypeScript build: PASS
+- 60 s deterministic headless (seed 12345): PASS
+  - max simultaneous enemies: 63
+  - free Elites spawned/killed: 2 / 1
+  - Phenomenon levels remained 1
+- choice regression: PASS
+- Chain deterministic regression: PASS
+- Planning/Archive swap regression: PASS
+- content contract: PASS (8 active Phenomena, 9 Catalysts, 6 Core Axes)
+- presentation regression: PASS
+- v0.10 core cadence regression: PASS
+  - 1 active Phenomenon / 10 s: 9 activations
+  - 4 active Phenomena / 10 s: 39 activations
+  - ratio: 4.33
+
+Additional pressure smoke:
+- seed 777, 200 s: PASS without runtime assertion failure
+- max simultaneous enemies: 110
+- Elites spawned/killed: 10 / 9
+- player survived at full HP after healing/barrier in automated path
+
+Earlier long pressure signal after density changes:
+- seed 12345 automated run ended around 319 s
+- max simultaneous enemies about 118
+- Elites spawned/killed: 18 / 17
+
+These are technical/pressure signals only. v0.10 is NOT balance calibrated.

@@ -1,0 +1,14 @@
+# Machine-local dependencies, indexes and secrets.
+node_modules/
+.codegraph/
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.key
+id_rsa*
+id_ed25519*
+
+# Keep the packaged dist/ files: they belong to the unchanged v0.10 baseline.

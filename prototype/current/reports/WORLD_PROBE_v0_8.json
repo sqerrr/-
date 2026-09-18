@@ -1,0 +1,110 @@
+{
+  "seeds": [
+    11,
+    22,
+    33,
+    44,
+    55
+  ],
+  "out": [
+    {
+      "t": 15,
+      "enemies": 14,
+      "elites": 0,
+      "enemyProjectiles": 0.8,
+      "hp": 173,
+      "kills": 4.2,
+      "samples": 5
+    },
+    {
+      "t": 30,
+      "enemies": 18,
+      "elites": 1,
+      "enemyProjectiles": 0.2,
+      "hp": 173,
+      "kills": 5,
+      "samples": 5
+    },
+    {
+      "t": 60,
+      "enemies": 34.4,
+      "elites": 1,
+      "enemyProjectiles": 0.4,
+      "hp": 148,
+      "kills": 6.2,
+      "samples": 5
+    },
+    {
+      "t": 90,
+      "enemies": 46,
+      "elites": 1,
+      "enemyProjectiles": 0,
+      "hp": 168,
+      "kills": 8.3,
+      "samples": 3
+    },
+    {
+      "t": 120,
+      "enemies": 42.7,
+      "elites": 2,
+      "enemyProjectiles": 7.3,
+      "hp": 151,
+      "kills": 19,
+      "samples": 3
+    },
+    {
+      "t": 180,
+      "enemies": 81,
+      "elites": 2,
+      "enemyProjectiles": 0,
+      "hp": 142,
+      "kills": 36.5,
+      "samples": 2
+    },
+    {
+      "t": 240,
+      "enemies": 88.5,
+      "elites": 2,
+      "enemyProjectiles": 0,
+      "hp": 142,
+      "kills": 43,
+      "samples": 2
+    },
+    {
+      "t": 300,
+      "enemies": 116,
+      "elites": 3,
+      "enemyProjectiles": 0,
+      "hp": 142,
+      "kills": 47,
+      "samples": 2
+    },
+    {
+      "t": 360,
+      "enemies": 129,
+      "elites": 3,
+      "enemyProjectiles": 0,
+      "hp": 6,
+      "kills": 79,
+      "samples": 1
+    },
+    {
+      "t": 420,
+      "enemies": 153,
+      "elites": 3,
+      "enemyProjectiles": 3,
+      "hp": 6,
+      "kills": 83,
+      "samples": 1
+    },
+    {
+      "t": 480,
+      "enemies": 180,
+      "elites": 3,
+      "enemyProjectiles": 4,
+      "hp": 6,
+      "kills": 83,
+      "samples": 1
+    }
+  ]
+}

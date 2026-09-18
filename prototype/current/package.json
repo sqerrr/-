@@ -1,0 +1,14 @@
+{
+  "name": "roguelike-web-prototype-v0-10-core-rebuild",
+  "version": "0.10.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && npm run test:technical",
+    "test:technical": "node dist/tools/headless.js --ticks 3600 --seed 12345 --assert && node dist/tools/choice_regression.js && node dist/tools/chain_regression.js && node dist/tools/planning_regression.js && node dist/tools/content_regression.js && node dist/tools/presentation_regression.js && node dist/tools/core_rebuild_regression.js",
+    "headless": "npm run build && node dist/tools/headless.js",
+    "serve": "node server.mjs",
+    "legacy:calibrate": "npm run build && node dist/tools/world_probe.js --assert && node dist/tools/build_matrix.js --assert"
+  }
+}

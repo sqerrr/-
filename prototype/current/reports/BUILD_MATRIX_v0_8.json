@@ -1,0 +1,216 @@
+{
+  "duration": 240,
+  "hz": 30,
+  "seeds": [
+    101,
+    202,
+    303,
+    404,
+    505
+  ],
+  "summary": [
+    {
+      "id": "close_guard",
+      "name": "Close Guard / Barrier",
+      "survivalMedian": 240,
+      "finishRate": 1,
+      "killsMean": 671.2,
+      "eliteKillsMean": 21.6,
+      "damageMean": 193109,
+      "eliteDamageMean": 57892,
+      "damageTakenMean": 0,
+      "healingMean": 0,
+      "barrierMean": 610,
+      "reactionsMean": 383.2,
+      "avgEnemies": 37.4,
+      "maxEnemies": 75,
+      "enemyShots": 599,
+      "shotHitRate": 0,
+      "topSources": [
+        "toxic_mist:33%",
+        "frost_ring:22%",
+        "toxin_dot:14%",
+        "cleaver:10%",
+        "repulse_halo:8%"
+      ],
+      "activeSkillShares": {
+        "repulse_halo": 0.08,
+        "cleaver": 0.099,
+        "frost_ring": 0.22,
+        "orbit_blades": 0.034,
+        "toxic_mist": 0.329,
+        "ember_lance": 0.079
+      }
+    },
+    {
+      "id": "thermal_state",
+      "name": "State Engine / Thermal",
+      "survivalMedian": 240,
+      "finishRate": 1,
+      "killsMean": 479.6,
+      "eliteKillsMean": 17.8,
+      "damageMean": 152765,
+      "eliteDamageMean": 45080,
+      "damageTakenMean": 409,
+      "healingMean": 347,
+      "barrierMean": 204,
+      "reactionsMean": 329.4,
+      "avgEnemies": 41,
+      "maxEnemies": 76,
+      "enemyShots": 594,
+      "shotHitRate": 0.012,
+      "topSources": [
+        "rail_spear:40%",
+        "chain_arc:18%",
+        "frost_ring:18%",
+        "ember_lance:9%",
+        "repulse_halo:7%"
+      ],
+      "activeSkillShares": {
+        "ember_lance": 0.089,
+        "frost_ring": 0.179,
+        "chain_arc": 0.184,
+        "rail_spear": 0.4,
+        "cleaver": 0.044,
+        "repulse_halo": 0.07
+      }
+    },
+    {
+      "id": "artillery",
+      "name": "Artillery / Elite Focus",
+      "survivalMedian": 240,
+      "finishRate": 1,
+      "killsMean": 526.2,
+      "eliteKillsMean": 36.6,
+      "damageMean": 238828,
+      "eliteDamageMean": 122489,
+      "damageTakenMean": 447,
+      "healingMean": 368,
+      "barrierMean": 0,
+      "reactionsMean": 27.4,
+      "avgEnemies": 22.7,
+      "maxEnemies": 77,
+      "enemyShots": 188,
+      "shotHitRate": 0.014,
+      "topSources": [
+        "mortar_bloom:28%",
+        "sentry:28%",
+        "mass_driver:17%",
+        "rail_spear:12%",
+        "ember_lance:9%"
+      ],
+      "activeSkillShares": {
+        "mortar_bloom": 0.282,
+        "sentry": 0.281,
+        "rail_spear": 0.116,
+        "mass_driver": 0.165,
+        "ember_lance": 0.094,
+        "chain_arc": 0.062
+      }
+    },
+    {
+      "id": "field_control",
+      "name": "Fields / Control",
+      "survivalMedian": 240,
+      "finishRate": 1,
+      "killsMean": 690.4,
+      "eliteKillsMean": 29,
+      "damageMean": 228155,
+      "eliteDamageMean": 84234,
+      "damageTakenMean": 26,
+      "healingMean": 26,
+      "barrierMean": 395,
+      "reactionsMean": 182,
+      "avgEnemies": 25.3,
+      "maxEnemies": 66,
+      "enemyShots": 368,
+      "shotHitRate": 0.012,
+      "topSources": [
+        "sentry:31%",
+        "mortar_bloom:29%",
+        "toxic_mist:14%",
+        "toxin_dot:7%",
+        "fire_field:6%"
+      ],
+      "activeSkillShares": {
+        "toxic_mist": 0.14,
+        "frost_ring": 0.043,
+        "mortar_bloom": 0.289,
+        "repulse_halo": 0.019,
+        "sentry": 0.314,
+        "chain_arc": 0.057
+      }
+    },
+    {
+      "id": "volley",
+      "name": "Volley / Multi-hit",
+      "survivalMedian": 240,
+      "finishRate": 1,
+      "killsMean": 651.4,
+      "eliteKillsMean": 29,
+      "damageMean": 223684,
+      "eliteDamageMean": 88470,
+      "damageTakenMean": 468,
+      "healingMean": 417,
+      "barrierMean": 0,
+      "reactionsMean": 121.8,
+      "avgEnemies": 22.2,
+      "maxEnemies": 75,
+      "enemyShots": 297,
+      "shotHitRate": 0.022,
+      "topSources": [
+        "mortar_bloom:29%",
+        "mass_driver:24%",
+        "sentry:23%",
+        "rail_spear:13%",
+        "chain_arc:6%"
+      ],
+      "activeSkillShares": {
+        "ember_lance": 0.041,
+        "rail_spear": 0.134,
+        "mortar_bloom": 0.293,
+        "sentry": 0.231,
+        "chain_arc": 0.059,
+        "mass_driver": 0.241
+      }
+    },
+    {
+      "id": "mixed_baseline",
+      "name": "Mixed Baseline",
+      "survivalMedian": 240,
+      "finishRate": 1,
+      "killsMean": 560.2,
+      "eliteKillsMean": 23.4,
+      "damageMean": 206155,
+      "eliteDamageMean": 62428,
+      "damageTakenMean": 444,
+      "healingMean": 389,
+      "barrierMean": 0,
+      "reactionsMean": 250.6,
+      "avgEnemies": 38.2,
+      "maxEnemies": 75,
+      "enemyShots": 468,
+      "shotHitRate": 0.006,
+      "topSources": [
+        "mortar_bloom:35%",
+        "frost_ring:23%",
+        "rail_spear:15%",
+        "chain_arc:10%",
+        "ember_lance:6%"
+      ],
+      "activeSkillShares": {
+        "ember_lance": 0.057,
+        "frost_ring": 0.231,
+        "cleaver": 0.02,
+        "chain_arc": 0.101,
+        "rail_spear": 0.154,
+        "mortar_bloom": 0.352
+      }
+    }
+  ],
+  "spread": {
+    "damageRatio": 1.56,
+    "killRatio": 1.44
+  },
+  "diagnostics": []
+}
