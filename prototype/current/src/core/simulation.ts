@@ -31,7 +31,6 @@ import type {
   MutationOffer,
   PoiKind,
   PoiState,
-  ProjectileSnapshot,
   Rarity,
   ResonanceId,
   ResonanceRuntime,
@@ -77,8 +76,6 @@ type Ent = {
   guardianPoi: number;
   adaptCooldown: number;
   adaptStage: number;
-  adaptX: number;
-  adaptZ: number;
   bossPhase: number;
   bossPattern: string;
   orderX: number;
@@ -101,15 +98,6 @@ type Ent = {
   sentryTouchedUntil: number;
 };
 type Pickup = { id: number; x: number; z: number; value: number; kind: 'xp' | 'core' | 'heal' };
-type Projectile = {
-  id: number;
-  x: number;
-  z: number;
-  vx: number;
-  vz: number;
-  ttl: number;
-  damage: number;
-};
 type Field = {
   id: number;
   x: number;
@@ -295,7 +283,6 @@ export class Simulation {
   private nextId = 1;
   private ents: Ent[] = [];
   private pickups: Pickup[] = [];
-  private projectiles: Projectile[] = [];
   private fields: Field[] = [];
   private constructs: Construct[] = [];
   private readonly world = { minX: -48, maxX: 48, minZ: -36, maxZ: 36 };
@@ -477,96 +464,6 @@ export class Simulation {
     }
   }
 
-  private spawnGuardian(p: Poi) {
-    const map: Record<PoiKind, [EliteChassis, EliteAffix]> = {
-      phenomenon: ['hunter', 'shielded'],
-      catalyst: ['architect', 'vanguard'],
-      resonance: ['bulwark', 'temporal'],
-      vital: ['harvester', 'brood']
-    };
-    let [chassis, affix] = map[p.kind];
-    if (p.id === 5) {
-      chassis = 'shepherd';
-      affix = 'vanguard';
-    }
-    if (p.id === 6) {
-      chassis = 'archivist';
-      affix = 'shielded';
-    }
-    const scale = this.worldScale(),
-      hp = eliteHp[chassis] * scale * 0.92,
-      e: Ent = {
-        id: this.nextId++,
-        kind: 'elite',
-        x: p.x,
-        z: p.z,
-        hp,
-        maxHp: hp,
-        radius: chassis === 'bulwark' ? 1.02 : 0.9,
-        speed: eliteSpeed[chassis],
-        contactDps: eliteDps[chassis] * this.damageScale(),
-        facingX: 0,
-        facingZ: 1,
-        state: 'normal',
-        stateTimer: 0,
-        cooldown: this.rng.range(1.6, 3.0),
-        lockedX: 0,
-        lockedZ: 0,
-        linkedTo: 0,
-        linkTimer: 0,
-        revivesLeft: 0,
-        revived: false,
-        buffUntil: 0,
-        orbitHitAt: -99,
-        chassis,
-        affix,
-        adaptation: 'none',
-        adaptAt: hp * 0.62,
-        lastDamageAt: -99,
-        shieldAngle: 0,
-        boss: false,
-        guardianPoi: p.id,
-        adaptCooldown: 0,
-        adaptStage: 0,
-        adaptX: 0,
-        adaptZ: 0,
-        bossPhase: 0,
-        bossPattern: '',
-        orderX: 0,
-        orderZ: 0,
-        orderUntil: 0,
-        regenTick: 0,
-        affixTimer: 0,
-        affixPulse: 0,
-        markUntil: 0,
-        igniteUntil: 0,
-        chillUntil: 0,
-        woundUntil: 0,
-        woundDps: 0,
-        toxinUntil: 0,
-        toxinDps: 0,
-        exposedUntil: 0,
-        displacedUntil: 0,
-        embedded: 0,
-        lastArcAt: -99,
-        sentryTouchedUntil: -99
-      };
-    this.ents.push(e);
-    this.metrics.spawned++;
-    this.metrics.eliteSpawned++;
-    this.events.push({
-      type: 'EntitySpawned',
-      tick: this.tick,
-      entity: e.id,
-      kind: 'elite',
-      x: e.x,
-      z: e.z,
-      chassis,
-      affix,
-      guardianPoi: p.id
-    });
-    return e.id;
-  }
   private completePoi(id: number) {
     const p = this.pois.find((q) => q.id === id);
     if (!p || p.state === 'cleared') return;
@@ -665,8 +562,6 @@ export class Simulation {
         guardianPoi: -1,
         adaptCooldown: 0,
         adaptStage: 0,
-        adaptX: 0,
-        adaptZ: 0,
         bossPhase: 0,
         bossPattern: '',
         orderX: 0,
@@ -740,8 +635,6 @@ export class Simulation {
       guardianPoi: 0,
       adaptCooldown: 0,
       adaptStage: 0,
-      adaptX: 0,
-      adaptZ: 0,
       bossPhase: 1,
       bossPattern: '',
       orderX: 0,
@@ -864,7 +757,6 @@ export class Simulation {
     this.eliteDirector();
     this.recycleFarEnemies();
     this.updateEnemyAI();
-    this.updateProjectiles();
     this.updateFields();
     this.updateConstructs();
     this.updateDots();
@@ -1053,8 +945,6 @@ export class Simulation {
       guardianPoi: 0,
       adaptCooldown: 0,
       adaptStage: 0,
-      adaptX: 0,
-      adaptZ: 0,
       bossPhase: 0,
       bossPattern: '',
       orderX: 0,
@@ -1105,13 +995,6 @@ export class Simulation {
       this.eliteAcc -= interval;
       this.spawnElite();
     }
-  }
-  private rollEliteAffix(): EliteAffix {
-    const r = this.rng.float();
-    if (r < 0.28) return 'shielded';
-    if (r < 0.53) return 'vanguard';
-    if (r < 0.77) return 'brood';
-    return 'temporal';
   }
   private spawnElite() {
     const pool: EliteChassis[] = [
@@ -1167,8 +1050,6 @@ export class Simulation {
       guardianPoi: 0,
       adaptCooldown: 0,
       adaptStage: 0,
-      adaptX: 0,
-      adaptZ: 0,
       bossPhase: 0,
       bossPattern: '',
       orderX: 0,
@@ -1316,8 +1197,6 @@ export class Simulation {
         e.speed *
         (e.chillUntil > this.time ? (e.kind === 'elite' ? 0.88 : 0.72) : 1) *
         (e.buffUntil > this.time ? 1.32 : 1);
-      if (e.adaptation === 'intercept') speed *= 1.22;
-      if (e.adaptation === 'anchored') speed *= 0.9;
       if (e.affix === 'regenerating' && this.time - e.lastDamageAt > 3) {
         e.regenTick += dt;
         if (e.regenTick >= 0.5) {
@@ -1325,13 +1204,10 @@ export class Simulation {
           e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.016);
         }
       } else e.regenTick = 0;
-      if (e.kind === 'elite' && (e.affix === 'shielded' || e.adaptation === 'screening')) {
+      if (e.kind === 'elite' && e.affix === 'shielded') {
         const target = Math.atan2(this.pz - e.z, this.px - e.x);
         let diff = this.angleDiff(target, e.shieldAngle);
-        e.shieldAngle += Math.max(
-          -(e.adaptation === 'screening' ? 0.62 : 0.82) * dt,
-          Math.min((e.adaptation === 'screening' ? 0.62 : 0.82) * dt, diff)
-        );
+        e.shieldAngle += Math.max(-0.82 * dt, Math.min(0.82 * dt, diff));
       }
       if (e.kind !== 'elite' && e.orderUntil > this.time) {
         this.steerTo(e, e.orderX, e.orderZ, speed, 1.15);
@@ -1459,10 +1335,7 @@ export class Simulation {
         this.steerTo(e, tx, tz, speed, 1.08);
       } else if (e.kind === 'elite') {
         if (e.boss) this.updateBossAI(e, speed, d, nx, nz);
-        else {
-          this.updateEliteAI(e, speed, d, nx, nz);
-          this.updateEliteAdaptation(e, d, nx, nz);
-        }
+        else this.updateEliteAI(e, speed, d, nx, nz);
       } else if (d > 0.68) {
         e.x += nx * speed * dt;
         e.z += nz * speed * dt;
@@ -1608,116 +1481,6 @@ export class Simulation {
       } else if (d > 4.8) this.steerTo(e, this.px, this.pz, speed, 1.05);
     } else {
       if (d > 3.6) this.steerTo(e, this.px, this.pz, speed);
-    }
-  }
-
-  private updateEliteAdaptation(e: Ent, d: number, nx: number, nz: number) {
-    if (e.adaptation === 'none' || e.adaptation === 'screening') return;
-    if (e.adaptation === 'repulsor') {
-      if (e.adaptStage === 1 && e.stateTimer <= 0) {
-        if (d < 4.35) {
-          this.px += nx * 2.0;
-          this.pz += nz * 2.0;
-          this.clampWorld();
-          this.hitPlayer(13 * this.damageScale());
-        }
-        e.exposedUntil = this.time + 1.35;
-        e.adaptStage = 0;
-        e.adaptCooldown = 4.2;
-        return;
-      }
-      if (e.adaptStage === 0 && e.adaptCooldown <= 0) {
-        e.adaptStage = 1;
-        e.stateTimer = 0.82;
-        this.events.push({
-          type: 'CombatShape',
-          tick: this.tick,
-          source: 'telegraph_repulsor',
-          intent: 'control',
-          shape: { kind: 'circle', x: e.x, z: e.z, radius: 4.25 }
-        });
-        return;
-      }
-    }
-    if (e.adaptation === 'intercept') {
-      if (e.adaptStage === 2) {
-        e.x += e.lockedX * 9.8 * this.dt;
-        e.z += e.lockedZ * 9.8 * this.dt;
-        if (e.stateTimer <= 0) {
-          e.adaptStage = 0;
-          e.adaptCooldown = 4.0;
-          e.exposedUntil = this.time + 1.1;
-        }
-        return;
-      }
-      if (e.adaptStage === 1 && e.stateTimer <= 0) {
-        e.adaptStage = 2;
-        e.stateTimer = 0.55;
-        return;
-      }
-      if (e.adaptStage === 0 && e.adaptCooldown <= 0) {
-        const tx = this.px + this.playerVX * 0.62,
-          tz = this.pz + this.playerVZ * 0.62,
-          dx = tx - e.x,
-          dz = tz - e.z,
-          m = Math.hypot(dx, dz) || 1;
-        e.lockedX = dx / m;
-        e.lockedZ = dz / m;
-        e.adaptStage = 1;
-        e.stateTimer = 0.82;
-        this.events.push({
-          type: 'CombatShape',
-          tick: this.tick,
-          source: 'telegraph_intercept',
-          intent: 'control',
-          shape: {
-            kind: 'ray',
-            x: e.x,
-            z: e.z,
-            aimX: e.lockedX,
-            aimZ: e.lockedZ,
-            range: 11.5,
-            halfWidth: 0.78
-          }
-        });
-        return;
-      }
-    }
-    if (e.adaptation === 'anchored') {
-      if (e.adaptStage === 1 && e.stateTimer <= 0) {
-        if (Math.hypot(this.px - e.adaptX, this.pz - e.adaptZ) < 2.55)
-          this.hitPlayer(17 * this.damageScale());
-        e.exposedUntil = this.time + 1.45;
-        e.adaptStage = 0;
-        e.adaptCooldown = 4.7;
-        return;
-      }
-      if (e.adaptStage === 0 && e.adaptCooldown <= 0) {
-        let best: Field | undefined,
-          bestD = 999;
-        for (const f of this.fields) {
-          if (f.kind === 'ink' || f.kind === 'index' || f.kind === 'architect') continue;
-          const fd = Math.hypot(f.x - e.x, f.z - e.z);
-          if (fd < 8 && fd < bestD) {
-            best = f;
-            bestD = fd;
-          }
-        }
-        if (best) {
-          best.ttl = Math.min(best.ttl, 0.08);
-          e.adaptX = best.x;
-          e.adaptZ = best.z;
-          e.adaptStage = 1;
-          e.stateTimer = 0.78;
-          this.events.push({
-            type: 'CombatShape',
-            tick: this.tick,
-            source: 'telegraph_purge',
-            intent: 'control',
-            shape: { kind: 'circle', x: e.adaptX, z: e.adaptZ, radius: 2.5 }
-          });
-        } else e.adaptCooldown = 1.0;
-      }
     }
   }
   private playerInSector(
@@ -1879,43 +1642,6 @@ export class Simulation {
     }
   }
 
-  private spawnShot(e: Ent, nx: number, nz: number) {
-    if (this.projectiles.length >= 14) return;
-    const speed = 5.0;
-    this.projectiles.push({
-      id: this.nextId++,
-      x: e.x + nx * 0.6,
-      z: e.z + nz * 0.6,
-      vx: nx * speed,
-      vz: nz * speed,
-      ttl: 2.75,
-      damage: 11 * this.damageScale()
-    });
-    this.metrics.enemyShotsSpawned++;
-    this.events.push({ type: 'EnemyShot', tick: this.tick, x: e.x, z: e.z, vx: nx, vz: nz });
-  }
-  private updateProjectiles() {
-    const alive: Projectile[] = [];
-    const guard =
-      this.skillsRuntime.get('orbit_blades')?.mutation === 'orbit_guard' &&
-      this.isActiveSkill('orbit_blades');
-    for (const p of this.projectiles) {
-      p.ttl -= this.dt;
-      p.x += p.vx * this.dt;
-      p.z += p.vz * this.dt;
-      const d = Math.hypot(p.x - this.px, p.z - this.pz);
-      if (guard && d < 1.85) {
-        continue;
-      }
-      if (d < 0.42) {
-        this.metrics.enemyShotsHit++;
-        this.hitPlayer(p.damage);
-        continue;
-      }
-      if (p.ttl > 0) alive.push(p);
-    }
-    this.projectiles = alive;
-  }
   private hitPlayer(amount: number) {
     if (amount <= 0 || this.php <= 0) return;
     const reduction = this.armor / (this.armor + 100),
@@ -2187,9 +1913,6 @@ export class Simulation {
     return 1;
   }
   private levelImpact(_st: SkillRuntime) {
-    return 1;
-  }
-  private levelGeometry(_st: SkillRuntime) {
     return 1;
   }
   private levelExtra(_st: SkillRuntime) {
@@ -3382,11 +3105,6 @@ export class Simulation {
         diff = Math.abs(this.angleDiff(incoming, e.shieldAngle));
       actual *= diff < 0.95 ? 0.42 : 1.2;
     }
-    if (e.kind === 'elite' && e.adaptation === 'screening' && directional) {
-      const incoming = Math.atan2(sourceZ - e.z, sourceX - e.x),
-        diff = Math.abs(this.angleDiff(incoming, e.shieldAngle));
-      actual *= diff < 1.08 ? 0.34 : 1.32;
-    }
     const before = e.hp;
     e.hp -= actual;
     e.lastDamageAt = this.time;
@@ -3446,20 +3164,6 @@ export class Simulation {
       }
     }
     return killed;
-  }
-  private chooseAdaptation(): Adaptation {
-    const total = Math.max(1, this.metrics.damage),
-      dir = this.directionalDamage / total,
-      close = this.closeDamage / total,
-      field = this.fieldDamage / total,
-      move = this.movementSamples ? this.movementSum / this.movementSamples : 0;
-    const r = this.rng.float();
-    if (dir > 0.5 && r < 0.68) return 'screening';
-    if (close > 0.32 && r < 0.72) return 'repulsor';
-    if (move > 0.68 && r < 0.68) return 'intercept';
-    if (field > 0.3 && r < 0.72) return 'anchored';
-    const pool: Adaptation[] = ['screening', 'repulsor', 'intercept', 'anchored'];
-    return pool[this.rng.int(pool.length)];
   }
   private angleDiff(a: number, b: number) {
     let d = a - b;
@@ -3764,37 +3468,6 @@ export class Simulation {
         } as Record<string, string>
       )[stat] ?? stat
     );
-  }
-  private weightedSkillStat(
-    st: SkillRuntime,
-    pool: (keyof typeof statBase)[]
-  ): keyof typeof statBase {
-    const weights = new Map<keyof typeof statBase, number>(pool.map((x) => [x, 1]));
-    if (st.mutation) {
-      const def = skills[st.id].mutations.find((m) => m.id === st.mutation),
-        tag = def?.tag ?? '';
-      const boost = (names: (keyof typeof statBase)[], m: number) => {
-        for (const n of names) if (weights.has(n)) weights.set(n, (weights.get(n) ?? 1) * m);
-      };
-      if (['зачистка', 'геометрия'].includes(tag)) boost(['coverage', 'count', 'range'], 1.75);
-      if (['фокус', 'элита', 'добивание'].includes(tag))
-        boost(['power', 'eliteDamage', 'crit', 'range'], 1.75);
-      if (['поле', 'DoT'].includes(tag))
-        boost(['duration', 'coverage', 'statusPotency', 'power'], 1.65);
-      if (['контроль', 'поддержка'].includes(tag))
-        boost(['control', 'statusPotency', 'coverage'], 1.65);
-      if (['связка', 'комбо'].includes(tag))
-        boost(['statusPotency', 'range', 'duration', 'power'], 1.45);
-      if (['темп', 'движение', 'мобильность'].includes(tag)) boost(['count', 'range', 'crit'], 1.4);
-    }
-    const entries = [...weights].filter(([, w]) => w > 0);
-    let total = entries.reduce((a, [, w]) => a + w, 0),
-      r = this.rng.float() * total;
-    for (const [name, w] of entries) {
-      r -= w;
-      if (r <= 0) return name;
-    }
-    return entries[entries.length - 1]?.[0] ?? pool[0];
   }
   private makeResonanceOffer(id?: ResonanceId): RewardOffer {
     const rid = id ?? resonanceOrder[this.rng.int(resonanceOrder.length)],
@@ -4167,7 +3840,6 @@ export class Simulation {
       avgEnemies: this.metrics.enemySamples
         ? this.metrics.enemyCountSum / this.metrics.enemySamples
         : 0,
-      projectilesAlive: this.projectiles.length,
       fieldsAlive: this.fields.length,
       constructsAlive: this.constructs.length
     };
@@ -4236,9 +3908,6 @@ export class Simulation {
         }
       })),
       pickups: this.pickups.map((p) => ({ ...p })),
-      projectiles: this.projectiles.map(
-        (p) => ({ id: p.id, x: p.x, z: p.z, vx: p.vx, vz: p.vz, ttl: p.ttl }) as ProjectileSnapshot
-      ),
       fields: this.fields.map(
         (f) =>
           ({

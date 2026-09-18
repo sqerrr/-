@@ -61,7 +61,6 @@ export type PresentationCue =
       amount?: number;
     }
   | { type: 'eliteSpawn'; time: number; x: number; z: number; chassis?: EliteChassis }
-  | { type: 'eliteAdapted'; time: number; x: number; z: number; adaptation: Adaptation }
   | { type: 'playerHit'; time: number; amount: number; x: number; z: number }
   | {
       type: 'eliteOrder';
@@ -125,7 +124,6 @@ export function isPresentationRelevantEvent(e: GameEvent) {
     e.type === 'DamageResolved' ||
     e.type === 'Reaction' ||
     e.type === 'EntitySpawned' ||
-    e.type === 'EliteAdapted' ||
     e.type === 'EntityDied' ||
     e.type === 'PlayerHit' ||
     e.type === 'EliteOrder'

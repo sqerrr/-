@@ -163,14 +163,6 @@ export interface PickupSnapshot {
   value: number;
   kind: 'xp' | 'core' | 'heal';
 }
-export interface ProjectileSnapshot {
-  id: number;
-  x: number;
-  z: number;
-  vx: number;
-  vz: number;
-  ttl: number;
-}
 export interface FieldSnapshot {
   id: number;
   x: number;
@@ -280,7 +272,6 @@ export interface Snapshot {
   };
   entities: SnapshotEntity[];
   pickups: PickupSnapshot[];
-  projectiles: ProjectileSnapshot[];
   fields: FieldSnapshot[];
   constructs: ConstructSnapshot[];
   world: WorldSnapshot;
@@ -360,14 +351,6 @@ export type GameEvent =
       elite: boolean;
       boss?: boolean;
     }
-  | {
-      type: 'EliteAdapted';
-      tick: number;
-      entity: number;
-      adaptation: Adaptation;
-      x: number;
-      z: number;
-    }
   | { type: 'EliteReacquired'; tick: number; entity: number; x: number; z: number }
   | {
       type: 'PoiAwakened';
@@ -400,7 +383,6 @@ export type GameEvent =
   | { type: 'LevelUp'; tick: number; level: number }
   | { type: 'MutationChosen'; tick: number; skill: SkillId; mutation: MutationId }
   | { type: 'RewardChosen'; tick: number; title: string }
-  | { type: 'EnemyShot'; tick: number; x: number; z: number; vx: number; vz: number }
   | { type: 'PlayerHit'; tick: number; amount: number; x: number; z: number }
   | { type: 'EnemyRevived'; tick: number; entity: number; x: number; z: number }
   | {

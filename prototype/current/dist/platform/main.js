@@ -335,8 +335,6 @@ function eventText(e) {
         return e.boss
             ? 'ФИНАЛЬНЫЙ БОСС: Хранитель вошёл на карту.'
             : `ЭЛИТА: ${chassisName[e.chassis ?? 'marshal']}.`;
-    if (e.type === 'EliteAdapted')
-        return `АДАПТАЦИЯ: ${adaptName[e.adaptation]}.`;
     if (e.type === 'EliteReacquired')
         return 'Элитка вернулась в боевую зону: от неё нельзя просто уйти.';
     if (e.type === 'PoiAwakened')
@@ -434,8 +432,6 @@ function eliteAlert(e) {
             chassisRole[c]
         ];
     }
-    if (e.type === 'EliteAdapted')
-        return ['АДАПТАЦИЯ ЭЛИТЫ', adaptName[e.adaptation]];
     if (e.type === 'EliteReacquired')
         return [
             'ЭЛИТА ПЕРЕХВАТИЛА ТЕБЯ',

@@ -113,8 +113,6 @@ export class PresentationBridge {
                 });
             else if (e.type === 'EntitySpawned' && e.kind === 'elite')
                 cues.push({ type: 'eliteSpawn', time, x: e.x, z: e.z, chassis: e.chassis });
-            else if (e.type === 'EliteAdapted')
-                cues.push({ type: 'eliteAdapted', time, x: e.x, z: e.z, adaptation: e.adaptation });
             else if (e.type === 'PlayerHit')
                 cues.push({ type: 'playerHit', time, amount: e.amount, x: e.x, z: e.z });
             else if (e.type === 'EliteOrder')

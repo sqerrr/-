@@ -642,24 +642,7 @@ export class WebGLRenderer {
           r: 2.2,
           color: [c[0], c[1], c[2], 0.38]
         });
-      } else if (e.type === 'eliteAdapted')
-        this.fx.push({
-          kind: 'ring',
-          start: time,
-          ttl: 1.0,
-          x: e.x,
-          z: e.z,
-          r: 3.2,
-          color:
-            e.adaptation === 'screening'
-              ? rgba('#5bbcff', 0.9)
-              : e.adaptation === 'repulsor'
-                ? rgba('#ff7d52', 0.9)
-                : e.adaptation === 'intercept'
-                  ? rgba('#ff4f91', 0.9)
-                  : rgba('#7fe46f', 0.9)
-        });
-      else if (e.type === 'death' && e.elite) {
+      } else if (e.type === 'death' && e.elite) {
         this.fx.push({
           kind: 'ring',
           start: time,
@@ -1437,7 +1420,6 @@ export class WebGLRenderer {
       const size = p.kind === 'heal' ? 42 : p.kind === 'core' ? 30 : 20;
       add(p.x, p.z, size, size, cellFor[p.kind], [1, 1, 1, 0.98]);
     }
-    for (const p of s.projectiles) add(p.x, p.z, 18, 18, cellFor.bullet, [1, 1, 1, 0.95]);
     for (const c of s.constructs) add(c.x, c.z, 58, 68, cellFor.sentry, [1, 1, 1, 0.95]);
 
     const hitById = new Map(presentation.hits.map((h) => [h.entity, h]));

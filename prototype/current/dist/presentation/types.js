@@ -5,7 +5,6 @@ export function isPresentationRelevantEvent(e) {
         e.type === 'DamageResolved' ||
         e.type === 'Reaction' ||
         e.type === 'EntitySpawned' ||
-        e.type === 'EliteAdapted' ||
         e.type === 'EntityDied' ||
         e.type === 'PlayerHit' ||
         e.type === 'EliteOrder');
