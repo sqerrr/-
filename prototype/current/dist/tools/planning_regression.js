@@ -3,7 +3,9 @@ function assert(c, m) {
     if (!c)
         throw new Error('planning regression: ' + m);
 }
-// v0.10 invariant: Archive contents never "age" and swapping in Planning has no cold-start tax.
+// Invariant: Archive contents never "age" and a swapped-in Phenomenon fires without any
+// start-up tax. The former per-skill Cold counter is gone, so the tax is now structurally
+// impossible; the behavioural half of the invariant is asserted below via sawMortar.
 const sim = new Simulation({ seed: 424242, hz: 60, mode: 'showcase' });
 let s = sim.snapshot();
 assert(s.chain.slots[3] === 'chain_arc', 'showcase active slot 4 should contain Chain Arc');
@@ -12,8 +14,6 @@ assert(sim.swapSkillLocations('reserve', 0, 'active', 3), 'Archive -> active swa
 s = sim.snapshot();
 assert(s.chain.slots[3] === 'mortar_bloom', 'Mortar not moved active');
 assert(s.chain.skillReserve[0] === 'chain_arc', 'Archive did not receive Chain Arc');
-const mortar = s.skills.find((x) => x.id === 'mortar_bloom');
-assert(mortar.cold === 0, 'Planning swap must not impose Cold');
 let sawMortar = false;
 for (let i = 0; i < 300; i++) {
     sim.step({ moveX: 0, moveZ: 0, aimX: 1, aimZ: 0 });

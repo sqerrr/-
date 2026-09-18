@@ -84,8 +84,6 @@ export class Simulation {
         damageTaken: 0,
         healingReceived: 0,
         barrierGenerated: 0,
-        enemyShotsSpawned: 0,
-        enemyShotsHit: 0,
         reactions: 0,
         maxEnemies: 0,
         enemyCountSum: 0,
@@ -237,8 +235,7 @@ export class Simulation {
             count: 1,
             control: 0,
             statusPotency: 0,
-            mutation: null,
-            cold: 0
+            mutation: null
         };
     }
     get time() {
@@ -389,7 +386,6 @@ export class Simulation {
             orbitHitAt: -99,
             chassis,
             affix,
-            adaptation: 'none',
             adaptAt: hp * 0.55,
             lastDamageAt: -99,
             shieldAngle: 0,
@@ -460,7 +456,6 @@ export class Simulation {
             orbitHitAt: -99,
             chassis: 'warden',
             affix: 'none',
-            adaptation: 'none',
             adaptAt: -1,
             lastDamageAt: -99,
             shieldAngle: 0,
@@ -768,7 +763,6 @@ export class Simulation {
             buffUntil: buffedFor > 0 ? this.time + buffedFor : 0,
             orbitHitAt: -99,
             affix: 'none',
-            adaptation: 'none',
             adaptAt: -1,
             lastDamageAt: -99,
             shieldAngle: 0,
@@ -868,7 +862,6 @@ export class Simulation {
             orbitHitAt: -99,
             chassis,
             affix,
-            adaptation: 'none',
             adaptAt: hp * 0.6,
             lastDamageAt: -99,
             shieldAngle: 0,
@@ -1738,11 +1731,6 @@ export class Simulation {
         const st = this.skillsRuntime.get(id);
         if (!st)
             return;
-        if (st.cold > 0) {
-            st.cold--;
-            this.previousHits.clear();
-            return;
-        }
         this.currentSlot = slot;
         this.currentHits.clear();
         this.currentActivationDamage = 0;
@@ -2733,24 +2721,6 @@ export class Simulation {
             if (e.chassis === 'shepherd' && e.bossPattern === 'null' && this.activationDerived)
                 actual *= 0.48;
         }
-        if (skill &&
-            this.currentSlot >= 0 &&
-            this.incomingCatalyst(this.currentSlot) === 'detonator' &&
-            this.lastContext.state &&
-            this.stateActive(e, this.lastContext.state)) {
-            const bonus = actual * 0.6 * this.catalystPotency('detonator');
-            actual += bonus;
-            this.consumeState(e, this.lastContext.state);
-            this.metrics.reactions++;
-            this.events.push({
-                type: 'Reaction',
-                tick: this.tick,
-                reaction: 'detonation',
-                x: e.x,
-                z: e.z,
-                amount: bonus
-            });
-        }
         if (source !== 'ember_lance' && e.markUntil > this.time) {
             actual *= 1.35;
             e.markUntil = 0;
@@ -3556,7 +3526,6 @@ export class Simulation {
                 guardianPoi: e.guardianPoi,
                 chassis: e.chassis,
                 affix: e.affix,
-                adaptation: e.adaptation,
                 facingX: e.facingX,
                 facingZ: e.facingZ,
                 telegraph: e.state === 'telegraph' ? Math.max(0, e.stateTimer / 0.72) : 0,
@@ -3631,46 +3600,71 @@ export class Simulation {
             choiceSerial: this.choiceSerial
         };
     }
-    canonicalHash() {
-        const parts = [
-            this.mode,
-            this.tick,
-            this.rng.state(),
-            this.px,
-            this.pz,
-            this.php,
-            this.maxHp,
-            this.barrier,
-            this.armor,
-            this.level,
-            this.xp,
-            this.xpNeed,
-            this.beat,
-            this.cycle,
-            this.tempo,
-            this.globalPower,
-            this.fortune,
-            ...resonanceOrder.map((id) => this.resonance[id]),
-            this.eliteCore,
-            this.rerolls,
-            this.mutationRefusalToken ? 1 : 0,
-            this.bossSpawned ? 1 : 0,
-            this.bossDefeated ? 1 : 0,
-            ...this.slots.map((s) => s ?? '-'),
-            ...this.skillReserve.map((s) => s ?? '-'),
-            ...this.catalysts.map((s) => s ?? '-'),
-            ...this.catalystReserve.map((s) => s ?? '-')
-        ];
+    /**
+     * Version of the canonical-state layout below.
+     *
+     * Bump this whenever a field is added, removed, renamed or reordered. The version is
+     * folded into the hash, so a stale baseline fails loudly instead of silently matching
+     * a different layout. Never change the layout without bumping.
+     */
+    static CANONICAL_SCHEMA_VERSION = 2;
+    /**
+     * Explicit, ordered schema of everything that defines a run.
+     *
+     * Each field is emitted as its own name followed by its value, so the hash input is
+     * self-describing: a renamed or reordered field changes the result on purpose, and a
+     * dropped field cannot be masked by a neighbour of the same type.
+     *
+     * Only include state the simulation actually reads back. Derived values, presentation
+     * state and diagnostics that never feed a later decision do not belong here.
+     */
+    canonicalState() {
+        const parts = [];
+        const put = (name, ...values) => {
+            parts.push(name);
+            for (const v of values)
+                parts.push(v === null || v === undefined ? '-' : typeof v === 'boolean' ? (v ? 1 : 0) : v);
+        };
+        put('schema', Simulation.CANONICAL_SCHEMA_VERSION);
+        put('mode', this.mode);
+        put('tick', this.tick);
+        put('rng', this.rng.state());
+        put('player.pos', this.px, this.pz);
+        put('player.hp', this.php, this.maxHp);
+        put('player.mitigation', this.barrier, this.armor);
+        put('player.xp', this.level, this.xp, this.xpNeed);
+        put('chain.beat', this.beat, this.cycle);
+        put('chain.charges', this.capacitorCharge, this.overflowCharge, this.aegisCharge);
+        put('growth.tempo', this.tempo);
+        put('growth.power', this.globalPower);
+        put('growth.fortune', this.fortune);
+        put('growth.axes', ...resonanceOrder.map((id) => this.resonance[id]));
+        put('economy.eliteCore', this.eliteCore);
+        put('economy.rerolls', this.rerolls);
+        put('economy.mutationRefusal', this.mutationRefusalToken);
+        put('boss.spawned', this.bossSpawned);
+        put('boss.defeated', this.bossDefeated);
+        put('loadout.slots', ...this.slots.map((s) => s ?? '-'));
+        put('loadout.skillReserve', ...this.skillReserve.map((s) => s ?? '-'));
+        put('loadout.catalysts', ...this.catalysts.map((s) => s ?? '-'));
+        put('loadout.catalystReserve', ...this.catalystReserve.map((s) => s ?? '-'));
         for (const p of this.pois)
-            parts.push(p.id, p.kind, p.state, p.guardianId, p.x, p.z);
+            put('poi', p.id, p.kind, p.state, p.guardianId, p.x, p.z);
         for (const s of [...this.skillsRuntime.values()].sort((a, b) => a.id.localeCompare(b.id)))
-            parts.push(s.id, s.level, s.power, s.coverage, s.range, s.duration, s.crit, s.eliteDamage, s.count, s.control, s.statusPotency, s.mutation ?? '-', s.cold);
+            put('skill', s.id, s.level, s.power, s.coverage, s.range, s.duration, s.crit, s.eliteDamage, s.count, s.control, s.statusPotency, s.mutation);
         for (const c of [...this.catalystRuntime.values()].sort((a, b) => a.id.localeCompare(b.id)))
-            parts.push(c.id);
+            put('catalyst', c.id);
         for (const e of this.ents)
-            parts.push(e.id, e.kind, e.x, e.z, e.hp, e.adaptation, e.chassis ?? '-', e.affix, e.boss ? 1 : 0, e.guardianPoi, e.adaptStage, e.adaptCooldown, e.bossPhase, e.bossPattern, e.affixTimer, e.affixPulse, e.markUntil, e.igniteUntil, e.chillUntil, e.woundUntil, e.toxinUntil, e.displacedUntil, e.embedded, e.orderUntil);
-        parts.push(this.metrics.spawned, this.metrics.killed, this.metrics.eliteSpawned, this.metrics.eliteKilled, this.metrics.damage, this.metrics.levels, this.metrics.mutations, this.metrics.healsPicked, this.metrics.damageTaken, this.metrics.healingReceived, this.metrics.barrierGenerated, this.metrics.enemyShotsSpawned, this.metrics.enemyShotsHit, this.metrics.reactions, this.metrics.maxEnemies);
-        parts.push(this.capacitorCharge, this.overflowCharge, this.aegisCharge);
-        return fnv1a(parts);
+            put('ent', e.id, e.kind, e.x, e.z, e.hp, e.chassis, e.affix, e.boss, e.guardianPoi, e.adaptStage, e.adaptCooldown, e.bossPhase, e.bossPattern, e.affixTimer, e.affixPulse, e.markUntil, e.igniteUntil, e.chillUntil, e.woundUntil, e.toxinUntil, e.displacedUntil, e.embedded, e.orderUntil);
+        const m = this.metrics;
+        put('metrics.population', m.spawned, m.killed, m.maxEnemies);
+        put('metrics.elites', m.eliteSpawned, m.eliteKilled);
+        put('metrics.output', m.damage, m.reactions);
+        put('metrics.progression', m.levels, m.mutations);
+        put('metrics.survival', m.damageTaken, m.healingReceived, m.barrierGenerated, m.healsPicked);
+        return parts;
+    }
+    canonicalHash() {
+        return fnv1a(this.canonicalState());
     }
 }

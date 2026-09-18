@@ -547,22 +547,6 @@ export const initialSlots = [
 ];
 export const initialSkillReserve = ['mortar_bloom', 'sentry', 'mass_driver'];
 export const catalysts = {
-    amplifier: {
-        id: 'amplifier',
-        name: 'Усилитель',
-        shortName: 'УСИЛ',
-        desc: 'Правый Skill получает сильный Amplification, но чуть хуже procs.',
-        color: '#ffb56b',
-        scope: 'направленный'
-    },
-    accelerator: {
-        id: 'accelerator',
-        name: 'Ускоритель',
-        shortName: 'ТЕМП',
-        desc: 'Правый Skill слабее, но получает шанс повторной активации.',
-        color: '#ffe06b',
-        scope: 'направленный'
-    },
     capacitor: {
         id: 'capacitor',
         name: 'Преобразователь массы',
@@ -570,14 +554,6 @@ export const catalysts = {
         desc: 'Число целей, задетых слева, превращается в дополнительные instances правого феномена. Не переносит урон.',
         color: '#70d8ff',
         scope: 'converter'
-    },
-    hunter: {
-        id: 'hunter',
-        name: 'Охотник',
-        shortName: 'ЭЛИТА',
-        desc: 'Правый Skill сильнее по Elite, слабее по обычным.',
-        color: '#ff6eb6',
-        scope: 'направленный'
     },
     anchor: {
         id: 'anchor',
@@ -587,30 +563,6 @@ export const catalysts = {
         color: '#8ce5c7',
         scope: 'router'
     },
-    splitter: {
-        id: 'splitter',
-        name: 'Расщепитель',
-        shortName: '+СНАР',
-        desc: 'Projectile справа получает +1 projectile с penalty к каждому.',
-        color: '#d5a6ff',
-        scope: 'projectile'
-    },
-    lens: {
-        id: 'lens',
-        name: 'Линза',
-        shortName: 'ЛИНЗА',
-        desc: 'Area справа становится меньше и заметно интенсивнее.',
-        color: '#ff8e66',
-        scope: 'area'
-    },
-    diffuser: {
-        id: 'diffuser',
-        name: 'Диффузор',
-        shortName: 'ШИРЕ',
-        desc: 'Area справа получает большой Coverage ценой силы.',
-        color: '#76d7ff',
-        scope: 'area'
-    },
     reservoir: {
         id: 'reservoir',
         name: 'Резервуар событий',
@@ -619,30 +571,6 @@ export const catalysts = {
         color: '#79e19b',
         scope: 'memory'
     },
-    executioner: {
-        id: 'executioner',
-        name: 'Палач',
-        shortName: 'ДОБИВ',
-        desc: 'Правый Skill слабее по полной цели, но получает до +45% Amplification ниже 40% HP.',
-        color: '#ff776e',
-        scope: 'направленный'
-    },
-    gyroscope: {
-        id: 'gyroscope',
-        name: 'Гироскоп',
-        shortName: 'ХОД',
-        desc: 'Правый Skill усиливается во время активного движения игрока.',
-        color: '#7de7f4',
-        scope: 'направленный'
-    },
-    brake: {
-        id: 'brake',
-        name: 'Тормоз',
-        shortName: 'СТОЙ',
-        desc: 'Правый Skill сильнее, пока игрок почти не двигается.',
-        color: '#b4a6ff',
-        scope: 'направленный'
-    },
     echo_shard: {
         id: 'echo_shard',
         name: 'Эхо-отпечаток',
@@ -650,14 +578,6 @@ export const catalysts = {
         desc: 'Запоминает результат слева и один раз отражает часть результата правого в точке предыдущего воздействия. Базовый понятный proc-оператор.',
         color: '#86d8ff',
         scope: 'imprint'
-    },
-    detonator: {
-        id: 'detonator',
-        name: 'Детонатор',
-        shortName: 'ДЕТОН',
-        desc: 'Правый феномен потребляет подходящий state, оставленный левым, и превращает его в заметный burst.',
-        color: '#ff8b58',
-        scope: 'state-мост'
     },
     relay: {
         id: 'relay',

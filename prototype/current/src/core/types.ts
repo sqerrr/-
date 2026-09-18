@@ -11,20 +11,10 @@ export type SkillId =
   | 'mass_driver'
   | 'repulse_halo';
 export type CatalystId =
-  | 'amplifier'
-  | 'accelerator'
   | 'capacitor'
-  | 'hunter'
   | 'anchor'
-  | 'splitter'
-  | 'lens'
-  | 'diffuser'
   | 'reservoir'
-  | 'executioner'
-  | 'gyroscope'
-  | 'brake'
   | 'echo_shard'
-  | 'detonator'
   | 'relay'
   | 'conduit'
   | 'overflow'
@@ -61,7 +51,6 @@ export type EliteAffix =
   | 'brood'
   | 'crowned'
   | 'none';
-export type Adaptation = 'none' | 'screening' | 'repulsor' | 'intercept' | 'anchored';
 export type MutationId = string;
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 export type RunMode = 'clean' | 'showcase';
@@ -112,7 +101,6 @@ export interface SkillRuntime {
   control: number;
   statusPotency: number;
   mutation: MutationId | null;
-  cold: number;
 }
 export interface CatalystRuntime {
   id: CatalystId;
@@ -139,7 +127,6 @@ export interface SnapshotEntity {
   guardianPoi: number;
   chassis?: EliteChassis;
   affix?: EliteAffix;
-  adaptation: Adaptation;
   facingX: number;
   facingZ: number;
   telegraph: number;
@@ -220,8 +207,6 @@ export interface Metrics {
   damageTaken: number;
   healingReceived: number;
   barrierGenerated: number;
-  enemyShotsSpawned: number;
-  enemyShotsHit: number;
   reactions: number;
   maxEnemies: number;
   enemyCountSum: number;

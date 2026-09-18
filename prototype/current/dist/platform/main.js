@@ -323,13 +323,6 @@ const affixName = {
     brood: 'Роевой',
     crowned: 'Коронованный'
 };
-const adaptName = {
-    none: 'адаптация ещё не раскрыта',
-    screening: 'ЗЕРКАЛЬНЫЙ ЭКРАН: фронт почти закрыт; обходи и бей с тыла',
-    repulsor: 'УДАРНАЯ ВОЛНА: большое кольцо отбрасывает; после импульса окно уязвимости',
-    intercept: 'ПЕРЕХВАТ: линия предсказывает рывок по траектории движения; после рывка окно уязвимости',
-    anchored: 'ПУРГАЦИЯ: элита съедает твоё поле и отвечает опасной зоной в той же точке'
-};
 function eventText(e) {
     if (e.type === 'EntitySpawned' && e.kind === 'elite')
         return e.boss
@@ -514,7 +507,7 @@ function updateChain(s) {
         '#' +
         s.chain.catalysts.join('|') +
         '#' +
-        s.skills.map((x) => `${x.id}:${x.mutation}:${x.cold}`).join('|') +
+        s.skills.map((x) => `${x.id}:${x.mutation}`).join('|') +
         '#' +
         s.chain.catalystRuntime.map((c) => c.id).join('|') +
         '#' +
@@ -533,7 +526,7 @@ function updateChain(s) {
             slot.title = 'Для перестановки нажмите Tab.';
             if (id) {
                 const st = rt.get(id), md = st.mutation ? mutationDef(id, st.mutation) : null;
-                slot.innerHTML = `<img src="${skillVisualIcon(id, !!st.mutation)}" alt=""><div style="min-width:0"><div class="slotnum">ТАКТ ${i + 1}</div><div class="slotname">${esc(skills[id].name)}</div><div class="slotlvl ${st.cold ? 'cold' : ''}">Core ${s.player.level}${st.cold ? ' · COLD' : ''}</div><div class="slotmut">${md ? '↳ ' + esc(md.name) : 'базовая форма'}</div></div>`;
+                slot.innerHTML = `<img src="${skillVisualIcon(id, !!st.mutation)}" alt=""><div style="min-width:0"><div class="slotnum">ТАКТ ${i + 1}</div><div class="slotname">${esc(skills[id].name)}</div><div class="slotlvl">Core ${s.player.level}</div><div class="slotmut">${md ? '↳ ' + esc(md.name) : 'базовая форма'}</div></div>`;
             }
             else
                 slot.innerHTML = `<div class="noicon">—</div><div><div class="slotnum">ТАКТ ${i + 1}</div><div class="slotname">Пусто</div><div class="slotlvl">пустой хвост не тратит такт</div></div>`;
@@ -637,7 +630,7 @@ function updatePlanner(s) {
         '#' +
         s.chain.catalystReserve.join('|') +
         '#' +
-        s.skills.map((x) => `${x.id}:${x.mutation}:${x.cold}`).join('|') +
+        s.skills.map((x) => `${x.id}:${x.mutation}`).join('|') +
         '#' +
         s.chain.catalystRuntime.map((x) => x.id).join('|') +
         '#' +
@@ -665,7 +658,7 @@ function updatePlanner(s) {
 }
 function eliteName(e) {
     const aff = e.affix ?? 'none';
-    return `${e.boss ? 'ХРАНИТЕЛЬ' : chassisName[e.chassis ?? 'marshal']}${aff !== 'none' ? ' · ' + affixName[aff] : ''}${e.adaptation !== 'none' ? ' · ' + adaptName[e.adaptation].split(':')[0] : ''}`;
+    return `${e.boss ? 'ХРАНИТЕЛЬ' : chassisName[e.chassis ?? 'marshal']}${aff !== 'none' ? ' · ' + affixName[aff] : ''}`;
 }
 function resize2d(c) {
     const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1)), w = Math.max(1, Math.floor(c.clientWidth * dpr)), h = Math.max(1, Math.floor(c.clientHeight * dpr));
@@ -778,11 +771,6 @@ function drawCombatHud(s) {
             ctx.font = e.boss ? '800 14px system-ui' : '700 11px system-ui';
             ctx.fillStyle = '#fff';
             ctx.fillText(e.boss ? 'ХРАНИТЕЛЬ' : eliteName(e), p.x, y - 9);
-            if (e.adaptation !== 'none' && !e.boss) {
-                ctx.font = '700 9px system-ui';
-                ctx.fillStyle = '#9eeaff';
-                ctx.fillText(adaptName[e.adaptation].split(':')[0], p.x, y + 15);
-            }
         }
     }
     const now = s.time;
@@ -822,7 +810,7 @@ function updateThreatPanel(s) {
     box.classList.add('visible');
     const title = e.boss ? `ХРАНИТЕЛЬ · ФАЗА ${e.bossPhase}` : eliteName(e), body = e.boss
         ? 'Красная геометрия = реальный паттерн атаки. После тарана/разрыва есть окно уязвимости.'
-        : `${chassisRole[e.chassis ?? 'marshal']} · ${adaptName[e.adaptation]}`;
+        : chassisRole[e.chassis ?? 'marshal'];
     $('threatTitle').textContent = title;
     $('threatBody').textContent = body;
     $('threatHp').style.width = `${Math.max(0, (e.hp / e.maxHp) * 100)}%`;

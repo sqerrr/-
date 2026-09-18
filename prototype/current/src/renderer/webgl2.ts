@@ -942,7 +942,7 @@ export class WebGLRenderer {
         });
         shapes.push({ x: e.x, z: e.z, r: 8.5, mode: 1, color: rgba('#ff525e', 0.15) });
       }
-      if (e.elite && (e.affix === 'shielded' || e.adaptation === 'screening')) {
+      if (e.elite && e.affix === 'shielded') {
         const sx = e.x + Math.cos(e.shieldAngle) * 1.1,
           sz = e.z + Math.sin(e.shieldAngle) * 1.1;
         shapes.push({ x: sx, z: sz, r: 1.05, mode: 1, color: rgba('#8bdcff', 0.78) });
@@ -983,33 +983,6 @@ export class WebGLRenderer {
       if (e.elite && e.affix === 'crowned') {
         shapes.push({ x: e.x, z: e.z, r: e.radius + 0.82, mode: 1, color: rgba('#ffd45d', 0.78) });
         shapes.push({ x: e.x, z: e.z, r: 7.0, mode: 1, color: rgba('#ffd45d', 0.12) });
-      }
-      if (e.elite && e.adaptation !== 'none') {
-        const ac =
-          e.adaptation === 'screening'
-            ? rgba('#5bbcff', 0.88)
-            : e.adaptation === 'repulsor'
-              ? rgba('#ff7d52', 0.88)
-              : e.adaptation === 'intercept'
-                ? rgba('#ff4f91', 0.88)
-                : rgba('#7fe46f', 0.88);
-        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.68, mode: 1, color: ac });
-        if (e.adaptation === 'repulsor')
-          shapes.push({
-            x: e.x,
-            z: e.z,
-            r: 4.25 + 0.1 * Math.sin(s.time * 4.5),
-            mode: 1,
-            color: rgba('#ff7d52', 0.28)
-          });
-        if (e.adaptation === 'anchored')
-          shapes.push({
-            x: e.x,
-            z: e.z,
-            r: 2.15 + 0.12 * Math.sin(s.time * 3.3),
-            mode: 1,
-            color: rgba('#7fe46f', 0.3)
-          });
       }
     }
     for (const f of this.fx) {
@@ -1217,22 +1190,7 @@ export class WebGLRenderer {
           rgba('#7c6dff', 0.48)
         );
       }
-      if (e.elite && e.adaptation === 'intercept') {
-        const a = this.worldToScreen(e.x, e.z, s),
-          b = this.worldToScreen(e.x + e.facingX * 5.8, e.z + e.facingZ * 5.8, s);
-        line(a.x, a.y - 20, b.x, b.y - 20, 3.4, rgba('#ff4f91', 0.44));
-      }
-      if (e.elite && e.adaptation === 'anchored') {
-        let best = s.fields
-          .filter((f) => !['ink', 'index', 'architect'].includes(f.kind))
-          .sort((a, b) => Math.hypot(a.x - e.x, a.z - e.z) - Math.hypot(b.x - e.x, b.z - e.z))[0];
-        if (best && Math.hypot(best.x - e.x, best.z - e.z) < 8.5) {
-          const a = this.worldToScreen(e.x, e.z, s),
-            b = this.worldToScreen(best.x, best.z, s);
-          line(a.x, a.y - 20, b.x, b.y, 2.4, rgba('#7fe46f', 0.42));
-        }
-      }
-      if (e.elite && (e.affix === 'shielded' || e.adaptation === 'screening')) {
+      if (e.elite && e.affix === 'shielded') {
         const a = this.worldToScreen(e.x, e.z, s),
           ang = e.shieldAngle,
           rr = 2.15,
@@ -1261,13 +1219,7 @@ export class WebGLRenderer {
           p.y - 91,
           (bw - 2) * Math.max(0, e.hp / e.maxHp),
           bh - 2,
-          e.adaptation === 'screening'
-            ? rgba('#56b7ff', 0.95)
-            : e.adaptation === 'repulsor'
-              ? rgba('#ff7d52', 0.95)
-              : e.adaptation === 'intercept'
-                ? rgba('#ff4f91', 0.95)
-                : rgba('#7fe46f', 0.95)
+          rgba('#7fe46f', 0.95)
         );
         if (e.chassis === 'hunter')
           line(p.x, p.y - 35, p0.x, p0.y - 24, 1.5, rgba('#ff466f', 0.22));

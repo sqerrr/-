@@ -23,7 +23,6 @@ export function fallbackDeadActor(e) {
         guardianPoi: 0,
         chassis: e.elite ? 'marshal' : undefined,
         affix: e.elite ? 'none' : undefined,
-        adaptation: 'none',
         facingX: 1,
         facingZ: 0,
         telegraph: 0,
