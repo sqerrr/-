@@ -13,15 +13,15 @@ function run(layout) {
     }
     for (let i = 0; i < 3600; i++) {
         const s = sim.snapshot();
-        const elite = s.entities.find(e => e.elite), t = elite ?? s.entities[0];
+        const elite = s.entities.find((e) => e.elite), t = elite ?? s.entities[0];
         let ax = 1, az = -1;
         if (t) {
             const dx = t.x - s.player.x, dz = t.z - s.player.z, m = Math.hypot(dx, dz) || 1;
             ax = dx / m;
             az = dz / m;
         }
-        const a = i * .011;
-        sim.step({ moveX: Math.cos(a) * .35, moveZ: Math.sin(a) * .35, aimX: ax, aimZ: az });
+        const a = i * 0.011;
+        sim.step({ moveX: Math.cos(a) * 0.35, moveZ: Math.sin(a) * 0.35, aimX: ax, aimZ: az });
         let g = 0;
         while (sim.hasChoice && g++ < 10) {
             const q = sim.snapshot();

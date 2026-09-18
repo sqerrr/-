@@ -1,13 +1,18 @@
 import { Simulation } from '../core/simulation.js';
 const args = process.argv.slice(2);
-const get = (k, d) => { const i = args.indexOf(k); return i >= 0 && args[i + 1] ? args[i + 1] : d; };
+const get = (k, d) => {
+    const i = args.indexOf(k);
+    return i >= 0 && args[i + 1] ? args[i + 1] : d;
+};
 const ticks = Number(get('--ticks', '28800')), seed = Number(get('--seed', '12345')), hz = Number(get('--hz', '60'));
 const sim = new Simulation({ seed, hz });
 for (let i = 0; i < ticks; i++) {
     const snap = sim.snapshot();
-    const a = i / (hz * 4.3), sx = Math.cos(a) * .65, sy = Math.sin(a * .73) * .58;
-    const moveX = (sx + sy) * .7071, moveZ = (-sx + sy) * .7071;
-    const targets = [...snap.entities].sort((a, b) => (Number(b.elite) - Number(a.elite)) || (Math.hypot(a.x - snap.player.x, a.z - snap.player.z) - Math.hypot(b.x - snap.player.x, b.z - snap.player.z)));
+    const a = i / (hz * 4.3), sx = Math.cos(a) * 0.65, sy = Math.sin(a * 0.73) * 0.58;
+    const moveX = (sx + sy) * 0.7071, moveZ = (-sx + sy) * 0.7071;
+    const targets = [...snap.entities].sort((a, b) => Number(b.elite) - Number(a.elite) ||
+        Math.hypot(a.x - snap.player.x, a.z - snap.player.z) -
+            Math.hypot(b.x - snap.player.x, b.z - snap.player.z));
     const t = targets[0];
     let ax = Math.cos(a), az = Math.sin(a);
     if (t) {
@@ -29,7 +34,18 @@ for (let i = 0; i < ticks; i++) {
         break;
 }
 const s = sim.snapshot();
-const out = { seed, hz, tick: s.tick, time: s.time, hash: sim.canonicalHash(), level: s.player.level, metrics: s.metrics, alive: s.entities.length, hp: s.player.hp, skills: s.skills.map(x => ({ id: x.id, level: x.level, mutation: x.mutation })) };
+const out = {
+    seed,
+    hz,
+    tick: s.tick,
+    time: s.time,
+    hash: sim.canonicalHash(),
+    level: s.player.level,
+    metrics: s.metrics,
+    alive: s.entities.length,
+    hp: s.player.hp,
+    skills: s.skills.map((x) => ({ id: x.id, level: x.level, mutation: x.mutation }))
+};
 console.log(JSON.stringify(out, null, 2));
 if (args.includes('--assert')) {
     if (s.metrics.activations < 30 || s.metrics.spawned < 20 || s.player.level < 2) {

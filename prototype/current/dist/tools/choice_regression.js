@@ -1,6 +1,8 @@
 import { Simulation } from '../core/simulation.js';
-function assert(cond, msg) { if (!cond)
-    throw new Error(`choice regression: ${msg}`); }
+function assert(cond, msg) {
+    if (!cond)
+        throw new Error(`choice regression: ${msg}`);
+}
 const sim = new Simulation({ seed: 12345, hz: 60 });
 sim.php = 1_000_000;
 sim.maxHp = 1_000_000;
@@ -23,7 +25,7 @@ for (let guard = 0; guard < 60 * 60 * 8 && !sim.finished; guard++) {
         resolved++;
         continue;
     }
-    const a = guard * .017;
+    const a = guard * 0.017;
     sim.step({ moveX: Math.cos(a), moveZ: Math.sin(a), aimX: 1, aimZ: -1 });
 }
 assert(resolved >= 10, `too few choices exercised: ${resolved}`);
