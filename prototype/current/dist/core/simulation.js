@@ -1579,11 +1579,7 @@ export class Simulation {
                     targets.sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z));
                 const t = targets[0];
                 if (t) {
-                    let dmg = skills.sentry.baseDamage *
-                        this.skillBaseScalar(st) *
-                        this.powerBucket(st) *
-                        c.power *
-                        this.levelImpact(st);
+                    let dmg = skills.sentry.baseDamage * this.powerBucket(st) * c.power;
                     if (st.mutation === 'sentry_gatling')
                         dmg *= 0.52;
                     if (st.mutation === 'sentry_rail')
@@ -1613,12 +1609,8 @@ export class Simulation {
             return;
         this.orbitAcc -= 0.13;
         const mut = st.mutation, radius = this.skillRadius(st, skills.orbit_blades.baseRadius);
-        let dmg = skills.orbit_blades.baseDamage *
-            this.skillBaseScalar(st) *
-            this.powerBucket(st) *
-            0.36 *
-            this.levelImpact(st);
-        let count = 3 + Math.max(0, st.count - 1) + this.levelExtra(st) + this.resonance.multiplicity;
+        let dmg = skills.orbit_blades.baseDamage * this.powerBucket(st) * 0.36;
+        let count = 3 + Math.max(0, st.count - 1) + this.resonance.multiplicity;
         if (mut === 'orbit_many') {
             count += 3;
             dmg *= 0.9;
@@ -1690,15 +1682,6 @@ export class Simulation {
     }
     slotAmp(_slot, _e) {
         return this.activationScale;
-    }
-    skillBaseScalar(_st) {
-        return 1;
-    }
-    levelImpact(_st) {
-        return 1;
-    }
-    levelExtra(_st) {
-        return 0;
     }
     powerBucket(_st) {
         return this.corePower() * (1 + this.globalPower);
@@ -2142,9 +2125,7 @@ export class Simulation {
             });
             for (const h of this.rayHits(a.x, a.z, range, width, maxHits)) {
                 let dmg = skills.ember_lance.baseDamage *
-                    this.skillBaseScalar(st) *
                     this.powerBucket(st) *
-                    this.levelImpact(st) *
                     this.slotAmp(slot, h.e) *
                     (mut === 'ember_volley' ? 0.82 : count > 1 ? 0.86 : 1);
                 if (mut === 'ember_impaler' && h.e.kind === 'elite')
@@ -2184,7 +2165,7 @@ export class Simulation {
                 radius: this.skillRadius(st, 1.5, slot),
                 ttl: this.persistentDuration(st, 2.9, slot),
                 kind: 'fire',
-                dps: 17 * this.skillBaseScalar(st) * this.powerBucket(st),
+                dps: 17 * this.powerBucket(st),
                 tickAcc: 0
             });
             this.noteState('field');
@@ -2199,12 +2180,7 @@ export class Simulation {
             const d = Math.hypot(e.x - this.px, e.z - this.pz);
             if (d > r + e.radius)
                 continue;
-            let dmg = skills.frost_ring.baseDamage *
-                this.skillBaseScalar(st) *
-                this.powerBucket(st) *
-                this.levelImpact(st) *
-                this.slotAmp(slot, e) *
-                capacitive;
+            let dmg = skills.frost_ring.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e) * capacitive;
             if (mut === 'frost_rim')
                 dmg *= d > r * 0.62 ? 2 : 0.48;
             if (mut === 'frost_snap' && e.chillUntil > this.time) {
@@ -2275,9 +2251,7 @@ export class Simulation {
         for (const ang of rays) {
             const a = this.rotatedAim(ang);
             let base = skills.rail_spear.baseDamage *
-                this.skillBaseScalar(st) *
                 this.powerBucket(st) *
-                this.levelImpact(st) *
                 (mut === 'rail_gun'
                     ? 2.35
                     : mut === 'rail_fan'
@@ -2341,9 +2315,7 @@ export class Simulation {
             if (Math.acos(Math.max(-1, Math.min(1, dot))) > half)
                 continue;
             let dmg = skills.cleaver.baseDamage *
-                this.skillBaseScalar(st) *
                 this.powerBucket(st) *
-                this.levelImpact(st) *
                 this.slotAmp(slot, e) *
                 (repeat ? 0.65 : 1);
             if (mut === 'cleaver_roundhouse')
@@ -2390,10 +2362,7 @@ export class Simulation {
         }
     }
     castArc(st, slot) {
-        const mut = st.mutation, maxJumps = (mut === 'arc_forked' ? 7 : 4) +
-            Math.max(0, st.count - 1) +
-            this.levelExtra(st) +
-            this.resonance.multiplicity, jumpRange = this.skillRange(st, mut === 'arc_relay' ? 5.8 : 4.2);
+        const mut = st.mutation, maxJumps = (mut === 'arc_forked' ? 7 : 4) + Math.max(0, st.count - 1) + this.resonance.multiplicity, jumpRange = this.skillRange(st, mut === 'arc_relay' ? 5.8 : 4.2);
         let current;
         const available = this.ents.filter((e) => e.hp > 0 &&
             this.targetVisible(e) &&
@@ -2414,7 +2383,6 @@ export class Simulation {
         while (current && jumps < maxJumps) {
             hit.add(current.id);
             let dmg = skills.chain_arc.baseDamage *
-                this.skillBaseScalar(st) *
                 this.powerBucket(st) *
                 this.slotAmp(slot, current) *
                 Math.pow(mut === 'arc_forked' ? 0.93 : 0.88, jumps);
@@ -2463,11 +2431,7 @@ export class Simulation {
             this.combatShape('orbit_blades', { kind: 'circle', x: this.px, z: this.pz, radius: r });
             for (const e of this.ents) {
                 if (Math.hypot(e.x - this.px, e.z - this.pz) < r)
-                    this.damage(e, skills.orbit_blades.baseDamage *
-                        2.2 *
-                        this.skillBaseScalar(st) *
-                        this.powerBucket(st) *
-                        this.slotAmp(slot, e), 'orbit_blades', false);
+                    this.damage(e, skills.orbit_blades.baseDamage * 2.2 * this.powerBucket(st) * this.slotAmp(slot, e), 'orbit_blades', false);
             }
         }
     }
@@ -2490,9 +2454,7 @@ export class Simulation {
                 const d = Math.hypot(e.x - cx, e.z - cz);
                 if (d <= r + e.radius) {
                     let dmg = skills.mortar_bloom.baseDamage *
-                        this.skillBaseScalar(st) *
                         this.powerBucket(st) *
-                        this.levelImpact(st) *
                         this.slotAmp(slot, e) *
                         mult *
                         (explosions > 1 ? 0.86 : 1);
@@ -2542,11 +2504,7 @@ export class Simulation {
         this.noteState('construct');
     }
     castToxic(st, slot) {
-        let r = this.skillRadius(st, skills.toxic_mist.baseRadius, slot), dps = skills.toxic_mist.baseDamage *
-            this.skillBaseScalar(st) *
-            this.powerBucket(st) *
-            this.levelImpact(st) *
-            this.slotAmp(slot);
+        let r = this.skillRadius(st, skills.toxic_mist.baseRadius, slot), dps = skills.toxic_mist.baseDamage * this.powerBucket(st) * this.slotAmp(slot);
         if (st.mutation === 'toxic_distilled') {
             r *= 0.58;
             dps *= 1.85;
@@ -2609,9 +2567,7 @@ export class Simulation {
                 if (d > r + e.radius)
                     continue;
                 let dmg = skills.repulse_halo.baseDamage *
-                    this.skillBaseScalar(st) *
                     this.powerBucket(st) *
-                    this.levelImpact(st) *
                     this.slotAmp(slot, e) *
                     (passes === 2 ? 0.7 : 1);
                 if (mut === 'repulse_front')
@@ -2666,9 +2622,7 @@ export class Simulation {
         let n = 0;
         for (const h of hits) {
             let dmg = skills.mass_driver.baseDamage *
-                this.skillBaseScalar(st) *
                 this.powerBucket(st) *
-                this.levelImpact(st) *
                 this.slotAmp(slot, h.e) *
                 (mut === 'mass_rail' ? 1.55 : 1) *
                 terminal *
