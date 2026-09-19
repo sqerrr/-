@@ -6,7 +6,7 @@ const fail = (m: string) => {
 };
 const sim = new Simulation({ seed: 24681357, hz: 60, runDuration: 150, benchmark: true });
 sim.configureBenchmarkLoadout({
-  slots: ['ember_lance', 'frost_ring', 'cleaver', 'chain_arc'],
+  slots: ['rail_spear', 'frost_ring', 'cleaver', 'chain_arc'],
   // Operators that actually fire, so the bridge sees derived casts as well as direct ones.
   // The previous fixture used amplifier/diffuser/hunter, which carried no logic at all.
   catalysts: ['capacitor', 'echo_shard', 'relay'],
