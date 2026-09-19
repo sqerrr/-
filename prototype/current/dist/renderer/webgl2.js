@@ -25,6 +25,28 @@ const cellFor = {
     archivist: 22,
     warden: 11
 };
+// Actors (hero and elites) leave the shared 32-cell atlas behind: at 96-238 screen
+// pixels they outgrow a single atlas cell, and dedicated art already ships unused.
+// See 23_DISPUTED_QUESTIONS_LOG.md, S1 and S3.
+const TEX_ATLAS = 0;
+const TEX_ACTORS = 1;
+const ACTOR_SOURCES = [
+    { key: 'player_idle', url: '/assets/player.png' },
+    { key: 'player_run_0', url: '/assets/player_run_0.png' },
+    { key: 'player_run_1', url: '/assets/player_run_1.png' },
+    { key: 'player_run_2', url: '/assets/player_run_2.png' },
+    { key: 'player_run_3', url: '/assets/player_run_3.png' },
+    { key: 'elite_hunter', url: '/assets/v07_hunter.png' },
+    { key: 'elite_architect', url: '/assets/v07_architect.png' },
+    { key: 'elite_broodmaker', url: '/assets/v07_broodmaker.png' },
+    { key: 'elite_bulwark', url: '/assets/v07_bulwark.png' },
+    { key: 'elite_harvester', url: '/assets/v07_harvester.png' },
+    { key: 'elite_shepherd', url: '/assets/v07_shepherd.png' },
+    { key: 'elite_marshal', url: '/assets/v07_marshal.png' },
+    { key: 'elite_archivist', url: '/assets/v07_archivist.png' },
+    { key: 'elite_warden', url: '/assets/enemy_elite.png' }
+];
+const PLAYER_RUN_FRAMES = 4;
 const rgba = (hex, a = 1) => {
     const h = hex.replace('#', '');
     return [
@@ -38,6 +60,8 @@ export class WebGLRenderer {
     canvas;
     gl;
     atlas;
+    actorTex;
+    actorFrames = new Map();
     floorTex;
     groundProgram;
     spriteProgram;
@@ -92,10 +116,62 @@ export class WebGLRenderer {
     async load() {
         const [atlas, floor] = await Promise.all([
             this.loadTexture('/assets/atlas.png'),
-            this.loadTexture('/assets/archive_floor.jpg', true)
+            this.loadTexture('/assets/archive_floor.jpg', true),
+            this.loadActorSheet()
         ]);
         this.atlas = atlas;
         this.floorTex = floor;
+    }
+    // Packs the dedicated actor art into one sheet so hero and elites still travel in
+    // the same Y-sorted batch as everything else; see 23_DISPUTED_QUESTIONS_LOG.md, S2.
+    async loadActorSheet() {
+        const loaded = await Promise.all(ACTOR_SOURCES.map(async (src) => {
+            const img = new Image();
+            img.src = src.url;
+            await img.decode();
+            return { key: src.key, img };
+        }));
+        const pad = 8, maxWidth = 2048;
+        let penX = pad, penY = pad, shelfHeight = 0, usedWidth = 0;
+        const placed = [];
+        for (const item of loaded.slice().sort((a, b) => b.img.height - a.img.height)) {
+            if (penX + item.img.width + pad > maxWidth && penX > pad) {
+                penX = pad;
+                penY += shelfHeight + pad;
+                shelfHeight = 0;
+            }
+            placed.push({ key: item.key, img: item.img, x: penX, y: penY });
+            penX += item.img.width + pad;
+            shelfHeight = Math.max(shelfHeight, item.img.height);
+            usedWidth = Math.max(usedWidth, penX);
+        }
+        const sheetW = Math.max(1, usedWidth + pad), sheetH = Math.max(1, penY + shelfHeight + pad);
+        const sheet = document.createElement('canvas');
+        sheet.width = sheetW;
+        sheet.height = sheetH;
+        const ctx = sheet.getContext('2d');
+        if (!ctx)
+            throw new Error('2D контекст недоступен для сборки листа актёров.');
+        for (const p of placed) {
+            ctx.drawImage(p.img, p.x, p.y);
+            this.actorFrames.set(p.key, {
+                u0: p.x / sheetW,
+                v0: p.y / sheetH,
+                u1: (p.x + p.img.width) / sheetW,
+                v1: (p.y + p.img.height) / sheetH
+            });
+        }
+        const gl = this.gl, t = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        // No mipmaps here on purpose: the padding that keeps neighbours apart at full
+        // resolution stops working at the smaller mip levels and actors bleed together.
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sheet);
+        this.actorTex = t;
     }
     reset() {
         this.fx = [];
@@ -1104,12 +1180,27 @@ export class WebGLRenderer {
     }
     drawSprites(s, presentation) {
         const list = [];
-        const add = (x, z, w, h, cell, tint = [1, 1, 1, 1], flip = 0) => {
+        const push = (x, z, w, h, tex, uv, tint, flip) => {
             const p = this.worldToScreen(x, z, s);
-            list.push({ x, z, w, h, cell, tint, flip, sort: p.y });
+            list.push({ x, z, w, h, tex, ...uv, tint, flip, sort: p.y });
+        };
+        const add = (x, z, w, h, cell, tint = [1, 1, 1, 1], flip = 0) => {
+            const cx = cell % 8, cy = Math.floor(cell / 8);
+            push(x, z, w, h, TEX_ATLAS, { u0: cx * 0.125, v0: cy * 0.25, u1: cx * 0.125 + 0.125, v1: cy * 0.25 + 0.25 }, tint, flip);
+        };
+        const addActor = (x, z, w, h, key, tint = [1, 1, 1, 1], flip = 0) => {
+            const uv = this.actorFrames.get(key);
+            if (uv)
+                push(x, z, w, h, TEX_ACTORS, uv, tint, flip);
         };
         const entityVisual = (e, pulse = 1) => {
-            const cell = e.elite ? cellFor[e.chassis ?? 'marshal'] : cellFor[e.kind];
+            const chassis = e.chassis ?? 'marshal';
+            const cell = e.elite ? cellFor[chassis] : cellFor[e.kind];
+            const actor = e.elite
+                ? this.actorFrames.has('elite_' + chassis)
+                    ? 'elite_' + chassis
+                    : 'elite_warden'
+                : null;
             const largeElite = e.chassis === 'bulwark' ||
                 e.chassis === 'architect' ||
                 e.chassis === 'harvester' ||
@@ -1150,7 +1241,28 @@ export class WebGLRenderer {
                 tint = [1.15, 0.96, 0.76, 1];
             if (e.revived)
                 tint = [0.86, 1.12, 1.12, 1];
-            return { cell, w, h, tint, flip: e.facingX - e.facingZ < 0 ? 1 : 0 };
+            // Rarity has to read at a glance. D9 gives elites three tiers and D13 hangs the
+            // refusal mark on them, yet until now all three tiers drew exactly the same.
+            const rarity = e.elite && !e.boss ? (e.eliteRarity ?? 'common') : 'common';
+            const rarityScale = rarity === 'legendary' ? 1.24 : rarity === 'uplifted' ? 1.11 : 1;
+            if (rarity === 'legendary')
+                tint = [tint[0] * 1.2, tint[1] * 0.88, tint[2] * 1.24, tint[3]];
+            else if (rarity === 'uplifted')
+                tint = [tint[0] * 1.12, tint[1] * 1.04, tint[2] * 0.82, tint[3]];
+            return {
+                cell,
+                actor,
+                w: w * rarityScale,
+                h: h * rarityScale,
+                tint,
+                flip: e.facingX - e.facingZ < 0 ? 1 : 0
+            };
+        };
+        const addVisual = (x, z, w, h, v, tint, flip) => {
+            if (v.actor)
+                addActor(x, z, w, h, v.actor, tint, flip);
+            else
+                add(x, z, w, h, v.cell, tint, flip);
         };
         for (const p of s.pickups) {
             const size = p.kind === 'heal' ? 42 : p.kind === 'core' ? 30 : 20;
@@ -1176,11 +1288,11 @@ export class WebGLRenderer {
                     tint[3]
                 ];
             }
-            add(x, z, w, h, v.cell, tint, v.flip);
+            addVisual(x, z, w, h, v, tint, v.flip);
         }
         for (const d of presentation.deaths) {
             const t = Math.max(0, Math.min(1, (s.time - d.start) / d.ttl)), ease = 1 - Math.pow(1 - t, 2), v = entityVisual(d.actor, 1), travel = d.actor.elite ? 0.42 : 0.72, x = d.x + d.dirX * travel * ease, z = d.z + d.dirZ * travel * ease, alpha = Math.pow(1 - t, 0.65), w = v.w * (1 + 0.18 * ease), h = v.h * Math.max(0.2, 1 - 0.76 * ease), warm = d.actor.elite ? 0.86 : 0.66;
-            add(x, z, w, h, v.cell, [1.12, warm, warm, alpha], v.flip);
+            addVisual(x, z, w, h, v, [1.12, warm, warm, alpha], v.flip);
         }
         const orbit = s.skills.find((x) => x.id === 'orbit_blades');
         if (orbit) {
@@ -1205,15 +1317,18 @@ export class WebGLRenderer {
         const playerPulse = 1 + 0.008 * Math.sin(s.time * 4.0), moved = Math.hypot(s.player.x - this.lastPlayerX, s.player.z - this.lastPlayerZ) > 0.002, flip = s.player.aimX - s.player.aimZ < 0 ? 1 : 0;
         const animDt = Math.max(0, Math.min(0.05, s.time - this.lastPlayerAnimTime));
         this.playerMoveBlend = Math.max(0, Math.min(1, this.playerMoveBlend + (moved ? animDt * 8.0 : -animDt * 10.0)));
+        const heroW = 96 * playerPulse, heroH = 120 * playerPulse;
         if (this.playerMoveBlend > 0.02) {
             if (this.playerMoveBlend < 0.98)
-                add(s.player.x, s.player.z, 96 * playerPulse, 120 * playerPulse, cellFor.player, [1, 1, 1, 1 - this.playerMoveBlend], flip);
-            const w = 0.5 - 0.5 * Math.cos(s.time * Math.PI * 4.4);
-            add(s.player.x, s.player.z, 96 * playerPulse, 120 * playerPulse, 23, [1, 1, 1, this.playerMoveBlend * (1 - w)], flip);
-            add(s.player.x, s.player.z, 96 * playerPulse, 120 * playerPulse, 24, [1, 1, 1, this.playerMoveBlend * w], flip);
+                addActor(s.player.x, s.player.z, heroW, heroH, 'player_idle', [1, 1, 1, 1 - this.playerMoveBlend], flip);
+            // Four dedicated frames replace the two atlas cells the hero used to share.
+            // Cadence matches the old ping-pong: 4.4 steps a second, two steps per cycle.
+            const phase = (s.time * 8.8) % PLAYER_RUN_FRAMES, frame = Math.floor(phase), next = (frame + 1) % PLAYER_RUN_FRAMES, w = phase - frame;
+            addActor(s.player.x, s.player.z, heroW, heroH, 'player_run_' + frame, [1, 1, 1, this.playerMoveBlend * (1 - w)], flip);
+            addActor(s.player.x, s.player.z, heroW, heroH, 'player_run_' + next, [1, 1, 1, this.playerMoveBlend * w], flip);
         }
         else
-            add(s.player.x, s.player.z, 96 * playerPulse, 120 * playerPulse, cellFor.player, [1, 1, 1, 1], flip);
+            addActor(s.player.x, s.player.z, heroW, heroH, 'player_idle', [1, 1, 1, 1], flip);
         this.lastPlayerX = s.player.x;
         this.lastPlayerZ = s.player.z;
         this.lastPlayerAnimTime = s.time;
@@ -1222,15 +1337,14 @@ export class WebGLRenderer {
         this.ensureSprite(list.length * stride);
         let o = 0;
         for (const q of list) {
-            const cx = q.cell % 8, cy = Math.floor(q.cell / 8), u0 = cx * 0.125, v0 = cy * 0.25, u1 = u0 + 0.125, v1 = v0 + 0.25;
             this.spriteData[o++] = q.x;
             this.spriteData[o++] = q.z;
             this.spriteData[o++] = q.w;
             this.spriteData[o++] = q.h;
-            this.spriteData[o++] = u0;
-            this.spriteData[o++] = v0;
-            this.spriteData[o++] = u1;
-            this.spriteData[o++] = v1;
+            this.spriteData[o++] = q.u0;
+            this.spriteData[o++] = q.v0;
+            this.spriteData[o++] = q.u1;
+            this.spriteData[o++] = q.v1;
             this.spriteData[o++] = q.tint[0];
             this.spriteData[o++] = q.tint[1];
             this.spriteData[o++] = q.tint[2];
@@ -1241,12 +1355,22 @@ export class WebGLRenderer {
         gl.useProgram(p);
         this.commonUniforms(p, s);
         gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, this.atlas);
         gl.uniform1i(gl.getUniformLocation(p, 'u_tex'), 0);
         gl.bindVertexArray(this.spriteVao);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.spriteInstance);
-        gl.bufferData(gl.ARRAY_BUFFER, this.spriteData.subarray(0, list.length * stride), gl.DYNAMIC_DRAW);
-        gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, list.length);
+        // Sorted order is what keeps overlap correct, so the batch is cut into runs of a
+        // single texture rather than regrouped. See 23_DISPUTED_QUESTIONS_LOG.md, S2.
+        let runStart = 0;
+        while (runStart < list.length) {
+            const tex = list[runStart].tex;
+            let runEnd = runStart + 1;
+            while (runEnd < list.length && list[runEnd].tex === tex)
+                runEnd++;
+            gl.bindTexture(gl.TEXTURE_2D, tex === TEX_ACTORS ? this.actorTex : this.atlas);
+            gl.bufferData(gl.ARRAY_BUFFER, this.spriteData.subarray(runStart * stride, runEnd * stride), gl.DYNAMIC_DRAW);
+            gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, runEnd - runStart);
+            runStart = runEnd;
+        }
         gl.bindVertexArray(null);
     }
     ensureSprite(n) {
