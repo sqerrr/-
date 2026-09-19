@@ -735,11 +735,19 @@ export class WebGLRenderer {
         shapes.push({ x: p.x, z: p.z, r: Math.max(0.16, p.radius * 1.35), mode: 0, color });
         shapes.push({ x: p.x, z: p.z, r: Math.max(0.28, p.radius * 2.15), mode: 1, color: [color[0], color[1], color[2], p.guarded ? 0.24 : 0.48] });
       }
+      if (p.apotheosis === 'returner_phoenix' || p.apotheosis === 'orbit_phoenix') {
+        const fire = rgba('#ffb04d', p.faction === 'rival' ? 0.52 : 0.72);
+        shapes.push({ x:p.x, z:p.z, r:Math.max(0.55,p.radius*3.0), mode:1, color:fire });
+      }
+      if (p.carousel) {
+        const rr=Math.max(0.42,p.radius*2.5)*(1+0.12*Math.sin(s.time*9+p.id));
+        shapes.push({ x:p.x, z:p.z, r:rr, mode:1, color:rgba('#ffd68a',0.58) });
+      }
       if (p.faction === 'rival')
-        shapes.push({ x: p.x, z: p.z, r: Math.max(0.4, p.radius * 2.8), mode: 1, color: rgba('#ff5d63', 0.42) });
+        shapes.push({ x: p.x, z: p.z, r: Math.max(0.4, p.radius * 2.8), mode: 1, color: rgba('#ff5d63', 0.54) });
     }
     for (const f of s.fields) {
-      const c =
+      const friendly =
         f.kind === 'ink'
           ? rgba('#5a245f', 0.42)
           : f.kind === 'fire'
@@ -754,15 +762,21 @@ export class WebGLRenderer {
                     ? rgba('#aa5de8', 0.3)
                     : f.kind === 'veil'
                       ? rgba('#665a8f', 0.38)
-                      : rgba('#62aaff', 0.24);
-      shapes.push({ x: f.x, z: f.z, r: f.radius, mode: 0, color: c });
-      shapes.push({
-        x: f.x,
-        z: f.z,
-        r: f.radius,
-        mode: 1,
-        color: [c[0], c[1], c[2], Math.min(0.42, c[3] + 0.1)]
-      });
+                      : rgba('#62aaff', 0.24),
+        hostile=f.faction === 'rival',
+        fill=hostile ? [friendly[0]*0.72+0.28, friendly[1]*0.45, friendly[2]*0.45, Math.max(0.28,friendly[3])] as [number,number,number,number] : friendly;
+      shapes.push({ x: f.x, z: f.z, r: f.radius, mode: 0, color: fill });
+      shapes.push({ x: f.x, z: f.z, r: f.radius, mode: 1, color: hostile ? rgba('#ff4050',0.82) : [fill[0],fill[1],fill[2],Math.min(0.42,fill[3]+0.1)] });
+      if(hostile) shapes.push({x:f.x,z:f.z,r:f.radius*0.78,mode:1,color:rgba('#ff8a82',0.42)});
+      if(f.behavior==='host') {
+        const pulse=1+0.07*Math.sin(s.time*6.5+f.id);
+        shapes.push({x:f.x,z:f.z,r:f.radius*0.56*pulse,mode:1,color:rgba('#c8ff75',0.58)});
+        shapes.push({x:f.x,z:f.z,r:f.radius*0.24*(2-pulse),mode:0,color:rgba('#85df64',0.3)});
+      }
+      if(f.source==='mortar_bloom' && f.kind==='arc')
+        shapes.push({x:f.x,z:f.z,r:f.radius*0.68,mode:1,color:rgba('#c58cff',hostile?0.72:0.5)});
+      if(f.source==='shard_fan' && f.kind==='fire')
+        shapes.push({x:f.x,z:f.z,r:f.radius*0.72,mode:1,color:rgba('#ffc05d',0.5)});
     }
     for (const f of this.combatFx) {
       const t = (s.time - f.start) / f.ttl;
@@ -861,6 +875,24 @@ export class WebGLRenderer {
           color: rgba('#ff525e', 0.92)
         });
         shapes.push({ x: e.x, z: e.z, r: 8.5, mode: 1, color: rgba('#ff525e', 0.15) });
+      }
+      if (e.elite && e.affix === 'volatile') {
+        // Volatile identity is amber while stable; the actual death burst uses the universal red tell.
+        const pulse=0.5+0.5*Math.sin(s.time*10+e.id);
+        for(let i=0;i<3;i++){const a=s.time*1.8+i*Math.PI*2/3;shapes.push({x:e.x+Math.cos(a)*(e.radius+0.55),z:e.z+Math.sin(a)*(e.radius+0.55),r:0.12+0.05*pulse,mode:0,color:rgba('#ff9b45',0.84)});}
+        shapes.push({x:e.x,z:e.z,r:e.radius+0.7+0.08*pulse,mode:1,color:rgba('#ffb05b',0.52)});
+      }
+      if (e.elite && e.affix === 'regenerating') {
+        const a=e.regenerating?0.82:0.32,pulse=1+0.08*Math.sin(s.time*5+e.id);
+        shapes.push({x:e.x,z:e.z,r:(e.radius+0.65)*pulse,mode:1,color:rgba('#77ef95',a)});
+        if(e.regenerating) shapes.push({x:e.x,z:e.z,r:e.radius+1.05,mode:1,color:rgba('#c2ffd0',0.46)});
+      }
+      // Compatibility-only affixes remain visually distinct for old seeded replays/saves.
+      if (e.elite && e.affix === 'swift')
+        shapes.push({x:e.x,z:e.z,r:e.radius+0.55+0.11*Math.sin(s.time*12),mode:1,color:rgba('#f2f2ff',0.52)});
+      if (e.elite && e.affix === 'dense') {
+        shapes.push({x:e.x,z:e.z,r:e.radius+0.42,mode:0,color:rgba('#756d7c',0.28)});
+        shapes.push({x:e.x,z:e.z,r:e.radius+0.78,mode:1,color:rgba('#b1a8b9',0.42)});
       }
       if (e.elite && e.affix === 'shielded') {
         const sx = e.x + Math.cos(e.shieldAngle) * 1.1,
@@ -1481,7 +1513,16 @@ export class WebGLRenderer {
       const cell = p.kind === 'mutation' ? cellFor.core : cellFor[p.kind];
       add(p.x, p.z, size, size, cell, [1, 1, 1, 0.98]);
     }
-    for (const c of s.constructs) add(c.x, c.z, 58, 68, cellFor.sentry, [1, 1, 1, 0.95]);
+    for (const c of s.constructs) {
+      const walker=c.mutationApotheosis==='sentry_walker',
+        battery=c.mutationApotheosis==='sentry_hunter_battery',
+        grid=c.mutationApotheosis==='sentry_gravity_grid',
+        crawler=c.mutation==='sentry_crawler'||c.mutationUpgrade==='sentry_crawler',
+        hostile=c.faction==='rival',
+        scale=walker?1.28:battery?1.16:grid?1.12:crawler?0.92:1,
+        tint:[number,number,number,number]=hostile?[1.35,0.42,0.4,0.98]:battery?[1.2,1.05,0.58,0.98]:grid?[0.72,0.76,1.35,0.98]:walker?[0.72,1.3,1.12,0.98]:[1,1,1,0.95];
+      add(c.x,c.z,58*scale,68*scale,cellFor.sentry,tint);
+    }
 
     const hitById = new Map(presentation.hits.map((h) => [h.entity, h]));
     for (const e of s.entities) {
@@ -1540,27 +1581,22 @@ export class WebGLRenderer {
       addVisual(x, z, w, h, v, [1.12, warm, warm, alpha], v.flip);
     }
 
-    const orbit = s.skills.find((x) => x.id === 'orbit_blades');
-    if (orbit) {
-      let n = 3 + Math.max(0, Math.round(orbit.count) - 1) + s.resonance.multiplicity;
-      if (orbit.level >= 4) n++;
-      if (orbit.level >= 7) n++;
-      if (orbit.mutation === 'orbit_many') n += 3;
-      if (orbit.mutation === 'orbit_saw')
-        n = Math.max(2, 2 + Math.max(0, Math.round(orbit.count) - 1) + s.resonance.multiplicity);
-      n = Math.min(12, n);
-      const geom = orbit.level >= 6 ? 1.28 : orbit.level >= 3 ? 1.12 : 1,
-        rad = skills.orbit_blades.baseRadius * Math.sqrt(1 + orbit.coverage) * geom;
+    if (s.orbit.active && s.orbit.count > 0) {
+      const n=s.orbit.count, rad=s.orbit.radius,
+        saw=s.orbit.mutation==='orbit_saw',
+        guard=s.orbit.mutation==='orbit_many'||s.orbit.apotheosis==='orbit_aegis_crown',
+        sanguine=s.orbit.apotheosis==='orbit_sanguine_crown';
       for (let i = 0; i < n; i++) {
-        const a = s.time * 3.4 + (i * Math.PI * 2) / n;
+        const a = s.time * (saw?2.55:3.4) + (i * Math.PI * 2) / n,
+          pulse=1+0.07*Math.sin(s.time*8+i);
         add(
           s.player.x + Math.cos(a) * rad,
           s.player.z + Math.sin(a) * rad,
-          13,
-          28,
+          (saw?19:13)*pulse,
+          (saw?38:28)*pulse,
           cellFor.white,
-          [0.45, 1, 0.82, 0.92],
-          0
+          sanguine?[1.0,0.5,0.55,0.96]:guard?[0.52,1.0,0.92,0.95]:[0.45,1,0.82,0.92],
+          a>Math.PI/2&&a<Math.PI*1.5?1:0
         );
       }
     }
