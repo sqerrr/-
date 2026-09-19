@@ -335,6 +335,18 @@ export class Simulation {
      * from across the field. Without this an elite cheerfully swings a 2.35-unit cleaver
      * from twelve units away, which is exactly what the telemetry caught it doing.
      */
+    /**
+     * D41 forbids copying a phenomenon at the elite verbatim, and the telemetry showed why.
+     * The hero swings into dozens of bodies, so most of the catalogue spends its budget by
+     * spreading: a chain hops onward, a driver pierces a file, a ring catches everyone in
+     * the circle. Pointed at one lone hero all of that surplus lands on nothing, and the
+     * fielded refusals measured three damage against a hundred and eighty of health - the
+     * hero could not feel his own declined card come back at all. Concentrating the blow
+     * restores what the phenomenon is worth rather than handing the elite a bonus.
+     * A per-phenomenon figure belongs in the data of step 3, where each entry states its
+     * own mirror; one honest scalar is the placeholder until then.
+     */
+    static RIVAL_CONCENTRATION = 6;
     static rivalReach(id) {
         const def = skills[id];
         return Math.max(def.baseRange ?? 0, def.baseRadius ?? 0);
@@ -1157,10 +1169,56 @@ export class Simulation {
             free[i] = free[j];
             free[j] = tmp;
         }
+        // Roughly half the store is growth directions, and of the phenomena only some can be
+        // fielded yet, so a purely random draw leaves most elites with nothing to show: the
+        // telemetry measured 0.29 casts per ordinary fight, meaning the hero almost never sees
+        // a refusal come back at him. Lead with one weapon this elite can actually use, then
+        // fill the rest at random, so an elite that could demonstrate the link does.
+        const armed = free.findIndex((c) => !!c.skill && Simulation.RIVAL_CASTABLE.includes(c.skill));
+        if (armed > 0) {
+            const lead = free[armed];
+            free.splice(armed, 1);
+            free.unshift(lead);
+        }
         for (const c of free.slice(0, ELITE_RARITY_CAPACITY[e.rarity])) {
             c.heldBy = e.id;
             e.repertoire.push(c.serial);
         }
+        this.applyRefusedAxes(e);
+    }
+    /** How many cards of one growth direction this elite is holding. */
+    rivalAxisCount(e, axis) {
+        let n = 0;
+        for (const serial of e.repertoire) {
+            const c = this.refusalStore.find((x) => x.serial === serial);
+            if (c && c.kind === 'axis' && c.resonance === axis)
+                n++;
+        }
+        return n;
+    }
+    /**
+     * Roughly half of what the hero declines is a growth direction rather than a weapon,
+     * and until now an elite holding one simply wore the icon and did nothing with it -
+     * the card was conceded for no consequence at all, which is the failure doc 16 calls
+     * an unreadable link between refusal and outcome. D41 forbids copying the hero's
+     * version, so the mirror is by function: the direction the hero turned down grows the
+     * elite that took it. Endurance makes it harder to put down, conductivity sharpens its
+     * touch, mobility quickens it, and the two applied at the moment of the cast live in
+     * damageHero and in the cadence below. Figures are provisional and stated in doc 23.
+     */
+    applyRefusedAxes(e) {
+        // Deliberately no mirror for persistence yet. The obvious one - more health - was tried
+        // and measured: it fights the only calibrated dial in the build, because D49 fight
+        // length is tuned through exactly that number, and stacking a second multiplier on it
+        // drove runs from four minutes down to thirty seconds. A mirror by function belongs
+        // somewhere other than durability, so until that is designed this direction stays
+        // unmirrored and is carried as a debt rather than quietly given a wrong effect.
+        const sharp = this.rivalAxisCount(e, 'conductivity');
+        if (sharp)
+            e.contactDps *= Math.pow(1.12, sharp);
+        const quick = this.rivalAxisCount(e, 'mobility');
+        if (quick)
+            e.speed *= Math.pow(1.12, quick);
     }
     /** D11: the cards of a fallen elite go back to the store for the next one to pick up. */
     releaseRepertoire(e) {
@@ -1254,7 +1312,8 @@ export class Simulation {
             z: e.z
         });
         // A deeper repertoire presses harder, but never faster than roughly one blow per two seconds.
-        const gap = Math.max(2.1, this.rng.range(3.4, 5.4) - e.repertoire.length * 0.25);
+        const gap = Math.max(1.4, (this.rng.range(3.4, 5.4) - e.repertoire.length * 0.25) *
+            Math.pow(0.86, this.rivalAxisCount(e, 'tempo')));
         this.rivalCastAt.set(e.id, this.time + gap);
     }
     /**
@@ -3348,6 +3407,13 @@ export class Simulation {
     // Damage landing on the player. Mitigation, barrier and death are owned by hitPlayer,
     // so this only records the source and reports whether the blow was lethal.
     damageHero(amount, source) {
+        // castOwner is set only while an elite is fielding a refusal, so contact damage and
+        // every other route into hitPlayer are untouched by the concentration above.
+        if (this.castOwner) {
+            amount *= Simulation.RIVAL_CONCENTRATION;
+            amount *= Math.pow(1.3, this.rivalAxisCount(this.castOwner, 'precision'));
+            amount *= Math.pow(1.16, this.rivalAxisCount(this.castOwner, 'multiplicity'));
+        }
         if (this.php <= 0)
             return false;
         this.hitPlayer(amount, this.castOwner);
