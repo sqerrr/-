@@ -34,4 +34,4 @@ const server=createServer(async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||8080);
-server.listen(port,'127.0.0.1',()=>console.log(`Roguelike reference: http://localhost:${port}`));
+server.listen(port,'127.0.0.1',()=>console.log(`Roguelike reference: http://127.0.0.1:${port}`));
