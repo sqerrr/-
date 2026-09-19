@@ -8,8 +8,8 @@ const run = (slots: any[]) => {
   for (let i = 0; i < 600; i++) sim.step({ moveX: 0, moveZ: 0, aimX: 1, aimZ: 0 });
   return sim.snapshot().metrics.activations;
 };
-const one = run(['ember_lance']),
-  four = run(['ember_lance', 'frost_ring', 'cleaver', 'chain_arc']);
+const one = run(['rail_spear']),
+  four = run(['rail_spear', 'frost_ring', 'cleaver', 'chain_arc']);
 const ratio = four / Math.max(1, one);
 assert(
   ratio > 3.5 && ratio < 4.5,
@@ -22,6 +22,6 @@ assert(
 );
 assert(
   s.skills.every((x) => x.level === 1),
-  'Phenomenon personal levels must stay neutral in v0.10'
+  'Phenomenon personal levels must stay neutral in the shared-rank model'
 );
 console.log('core-rebuild-regression OK', { one, four, ratio: +ratio.toFixed(2) });
