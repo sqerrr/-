@@ -1,3 +1,4 @@
+import { skillOrder } from '../content/definitions.js';
 import { Simulation } from '../core/simulation.js';
 const assert = (ok, msg) => {
     if (!ok) {
@@ -112,11 +113,10 @@ assert(claims.size === s.refusals.filter((c) => c.heldBy !== 0).length, 'a seria
 assert(elitesSeen > 0, 'the run produced no elites to arm');
 assert(armedElites > 0, 'no elite ever claimed a refused card');
 assert(rivalCasts === s.metrics.rivalCasts, 'live run: event count ' + rivalCasts + ' disagrees with metric ' + s.metrics.rivalCasts);
-// Only self-contained attacks may be fielded: fields and turrets still belong to the hero,
-// so the guard reads the engine's own list rather than a copy that can drift away from it.
-const CASTABLE = new Set(Simulation.RIVAL_CASTABLE);
+// Step 3 removes the capability allowlist: every catalogue phenomenon must be rival-safe.
+const CASTABLE = new Set(skillOrder);
 for (const id of castSkills)
-    assert(CASTABLE.has(id), 'an elite fielded ' + id + ', which is not rival-safe yet');
+    assert(CASTABLE.has(id), 'an elite fielded an unknown phenomenon ' + id);
 const byKind = {};
 for (const c of s.refusals)
     byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
@@ -135,7 +135,7 @@ console.log('refusal-regression OK', {
 // standing close enough for the card it holds, and enough time for one cadence.
 const scene = new Simulation({ seed: 4242, hz });
 const armed = [];
-for (const skill of Simulation.RIVAL_CASTABLE) {
+for (const skill of skillOrder) {
     scene.refusalSerial++;
     scene.refusalStore.push({
         serial: scene.refusalSerial,

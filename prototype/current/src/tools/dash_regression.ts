@@ -71,6 +71,20 @@ while (s.time < s.dashReadyAt) sim.step({ moveX: 1, moveZ: 0, aimX: 1, aimZ: 0 }
 sim.step({ moveX: 1, moveZ: 0, aimX: 1, aimZ: 0, dash: true });
 assert(s.metrics.dashes === 2, 'the dash should return once the cooldown has run out');
 
+
+// D52: the same dash counters must be attributable to the active elite encounter.
+const tracked = new Simulation({ seed: 4243, hz: 60, benchmark: true }) as any;
+tracked.spawnElite();
+const trackedElite = tracked.ents.find((e: any) => e.kind === 'elite');
+assert(trackedElite, 'failed to create elite for per-fight dash telemetry');
+const encounter = tracked.eliteLogById.get(trackedElite.id);
+encounter.engagedAt = tracked.time;
+encounter.lastExchangeAt = tracked.time;
+tracked.step({ moveX: 1, moveZ: 0, aimX: 1, aimZ: 0, dash: true });
+tracked.hitPlayer(40, trackedElite, 'elite_test');
+assert(encounter.dashes === 1, 'active elite encounter did not count the dash');
+assert(encounter.dashIFrameSaves === 1, 'active elite encounter did not count the iframe save');
+
 console.log('dash-regression OK', {
   walk: +walk.toFixed(2),
   dash: +lunge.toFixed(2),

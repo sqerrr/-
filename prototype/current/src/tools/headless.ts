@@ -34,7 +34,7 @@ const out = {
   metrics: s.metrics,
   alive: s.entities.length,
   hp: s.player.hp,
-  skills: s.skills.map((x) => ({ id: x.id, level: x.level, mutation: x.mutation }))
+  skills: s.skills.map((x) => ({ id: x.id, level: x.level, mutation: x.mutation, mutationUpgrade: x.mutationUpgrade }))
 };
 console.log(JSON.stringify(out, null, 2));
 if (args.includes('--assert')) {

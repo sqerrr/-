@@ -611,7 +611,7 @@ function updateChain(s: Snapshot) {
     '#' +
     s.chain.catalysts.join('|') +
     '#' +
-    s.skills.map((x) => `${x.id}:${x.mutation}`).join('|') +
+    s.skills.map((x) => `${x.id}:${x.mutation}:${x.mutationUpgrade}`).join('|') +
     '#' +
     s.chain.catalystRuntime.map((c) => c.id).join('|') +
     '#' +
@@ -630,8 +630,9 @@ function updateChain(s: Snapshot) {
       slot.title = 'Для перестановки нажмите Tab.';
       if (id) {
         const st = rt.get(id)!,
-          md = st.mutation ? mutationDef(id, st.mutation) : null;
-        slot.innerHTML = `<img src="${skillVisualIcon(id, !!st.mutation)}" alt=""><div style="min-width:0"><div class="slotnum">ТАКТ ${i + 1}</div><div class="slotname">${esc(skills[id].name)}</div><div class="slotlvl">Core ${s.player.level}</div><div class="slotmut">${md ? '↳ ' + esc(md.name) : 'базовая форма'}</div></div>`;
+          md = st.mutation ? mutationDef(id, st.mutation) : null,
+          md2 = st.mutationUpgrade ? mutationDef(id, st.mutationUpgrade) : null;
+        slot.innerHTML = `<img src="${skillVisualIcon(id, !!st.mutation)}" alt=""><div style="min-width:0"><div class="slotnum">ТАКТ ${i + 1}</div><div class="slotname">${esc(skills[id].name)}</div><div class="slotlvl">Core ${s.player.level}</div><div class="slotmut">${md ? '↳ ' + esc(md.name) + (md2 ? ' → ' + esc(md2.name) : '') : 'базовая форма'}</div></div>`;
       } else
         slot.innerHTML = `<div class="noicon">—</div><div><div class="slotnum">ТАКТ ${i + 1}</div><div class="slotname">Пусто</div><div class="slotlvl">пустой хвост не тратит такт</div></div>`;
       root.append(slot);
@@ -716,10 +717,11 @@ function plannerSkillNode(
   if (id) {
     const st = s.skills.find((x) => x.id === id)!,
       d = skills[id],
-      md = st.mutation ? mutationDef(id, st.mutation) : null;
+      md = st.mutation ? mutationDef(id, st.mutation) : null,
+      md2 = st.mutationUpgrade ? mutationDef(id, st.mutationUpgrade) : null;
     const radius = d.baseRadius ? d.baseRadius.toFixed(1) : '—',
       range = d.baseRange ? d.baseRange.toFixed(1) : '—';
-    el.innerHTML = `<img src="${skillVisualIcon(id, !!st.mutation)}" alt=""><div class="nm">${esc(d.name)}</div><div class="sm">Core ${s.player.level} · дальн. ${range} · радиус ${radius}</div><div class="effect"><b>${esc(d.identity ?? '')}</b>${d.weakness ? `<br>Слабость: ${esc(d.weakness)}` : ''}${md ? `<br>Мутация: ${esc(md.name)}` : ''}</div>`;
+    el.innerHTML = `<img src="${skillVisualIcon(id, !!st.mutation)}" alt=""><div class="nm">${esc(d.name)}</div><div class="sm">Core ${s.player.level} · дальн. ${range} · радиус ${radius}</div><div class="effect"><b>${esc(d.identity ?? '')}</b>${d.weakness ? `<br>Слабость: ${esc(d.weakness)}` : ''}${md ? `<br>Мутация: ${esc(md.name)}${md2 ? ` → ${esc(md2.name)}` : ''}` : ''}</div>`;
   } else el.innerHTML = '<div>пустой<br>слот</div>';
   attachPlannerDnD(el);
   return el;
@@ -753,7 +755,7 @@ function updatePlanner(s: Snapshot) {
     '#' +
     s.chain.catalystReserve.join('|') +
     '#' +
-    s.skills.map((x) => `${x.id}:${x.mutation}`).join('|') +
+    s.skills.map((x) => `${x.id}:${x.mutation}:${x.mutationUpgrade}`).join('|') +
     '#' +
     s.chain.catalystRuntime.map((x) => x.id).join('|') +
     '#' +

@@ -34,6 +34,7 @@ export function fallbackDeadActor(e) {
         orderX: 0,
         orderZ: 0,
         orderActive: false,
+        squadTask: 'none',
         adaptationStage: 0,
         eliteRarity: 'common',
         refusalIcons: [],

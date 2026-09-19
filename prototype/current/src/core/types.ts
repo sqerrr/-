@@ -81,6 +81,7 @@ export type ResonanceId =
 export type ResonanceRuntime = Record<ResonanceId, number>;
 export type PoiKind = 'phenomenon' | 'catalyst' | 'resonance' | 'vital';
 export type PoiState = 'dormant' | 'guarded' | 'cleared';
+export type SquadTask = 'none' | 'press' | 'flank' | 'intercept' | 'hold';
 
 export type CombatShape =
   | { kind: 'circle'; x: number; z: number; radius: number }
@@ -124,6 +125,8 @@ export interface SkillRuntime {
   control: number;
   statusPotency: number;
   mutation: MutationId | null;
+  /** D28/D36: second-level continuation; the root remains active alongside it. */
+  mutationUpgrade: MutationId | null;
 }
 export interface CatalystRuntime {
   id: CatalystId;
@@ -202,6 +205,7 @@ export interface SnapshotEntity {
   orderX: number;
   orderZ: number;
   orderActive: boolean;
+  squadTask: SquadTask;
   adaptationStage: number;
   eliteRarity: EliteRarity;
   /** D13: icons of the declined cards this elite is fielding, drawn above its name. */
@@ -219,7 +223,7 @@ export interface PickupSnapshot {
   x: number;
   z: number;
   value: number;
-  kind: 'xp' | 'core' | 'heal';
+  kind: 'xp' | 'core' | 'heal' | 'mutation';
 }
 export interface FieldSnapshot {
   id: number;
@@ -237,6 +241,15 @@ export interface ConstructSnapshot {
   range: number;
   kind: 'sentry';
 }
+export interface ProjectileSnapshot {
+  id: number;
+  x: number;
+  z: number;
+  radius: number;
+  faction: 'hero' | 'rival';
+  source: SkillId;
+  guarded: boolean;
+}
 export interface PoiSnapshot {
   id: number;
   kind: PoiKind;
@@ -250,6 +263,9 @@ export interface ObstacleSnapshot {
   x: number;
   z: number;
   radius: number;
+  hp: number;
+  maxHp: number;
+  destructible: boolean;
 }
 export interface WorldSnapshot {
   minX: number;
@@ -359,9 +375,8 @@ export interface EliteEncounter {
   /** First moment this elite and the hero traded damage; -1 if they never met. */
   engagedAt: number;
   /**
-   * Seconds spent close enough for the hero's phenomena to reach. This, not the wall clock
-   * from engagedAt to endedAt, is what D49 is about: an elite that drifts out of reach and
-   * comes back has not been in a long fight, it has been in two short ones.
+   * Seconds of active damage exchange with a short cadence grace. This excludes wall-clock
+   * time spent disengaged or merely standing near the hero while the crowd owns the fight.
    */
   contactTime: number;
   /** Seconds since the run began, or -1 while the elite is still standing. */
@@ -373,6 +388,19 @@ export interface EliteEncounter {
   castSkills: Record<string, number>;
   damageToHero: number;
   damageFromHero: number;
+  /** D52: active exchange timestamp used by the fight-time clock. */
+  lastExchangeAt: number;
+  /** Hero chain-node contribution; key is slot:source (or derived:source). */
+  damageFromHeroByNode: Record<string, number>;
+  damageToHeroBySource: Record<string, number>;
+  /** Damage delivered by refused Phenomena, separated from chassis/contact pressure. */
+  refusalDamageToHero: number;
+  /** Estimated post-mitigation bonus damage attributable to ground relic cast multipliers. */
+  itemAmplifiedDamage: number;
+  /** Ground relics physically collected by this elite during the encounter. */
+  itemsTaken: ItemId[];
+  dashes: number;
+  dashIFrameSaves: number;
 }
 export interface MutationOffer {
   skill: SkillId;
@@ -413,6 +441,7 @@ export interface Snapshot {
   heldItems: ItemId[];
   fields: FieldSnapshot[];
   constructs: ConstructSnapshot[];
+  projectiles: ProjectileSnapshot[];
   world: WorldSnapshot;
   chain: ChainSnapshot;
   skills: SkillRuntime[];

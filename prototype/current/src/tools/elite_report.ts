@@ -34,6 +34,10 @@ const TARGET: Record<EliteRarity, [number, number]> = {
 
 function runSeed(seed: number): { encounters: EliteEncounter[]; time: number; died: boolean } {
   const sim = new Simulation({ seed, hz });
+  // D49 measures elite fight length, not whether this simple movement bot survives the run.
+  // A large health pool prevents truncating later rarity samples while leaving offense/build intact.
+  (sim as any).maxHp = 1_000_000;
+  (sim as any).php = 1_000_000;
   for (let i = 0; i < ticks; i++) {
     const snap = sim.snapshot();
     const a = i / (hz * 4.3),
@@ -94,8 +98,8 @@ console.log('=== runs ===');
 for (const line of runs) console.log('  ' + line);
 
 console.log('\n=== fight length against D49 ===');
-console.log('  seconds spent within reach of the hero, not wall clock since the first blow:');
-console.log('  an elite that drifts away and returns fought twice, briefly, not once at length');
+console.log('  seconds of active damage exchange (1.6s cadence grace), not wall-clock lifetime:');
+console.log('  disengaged crowd time is excluded; later rarity samples are not truncated by bot death');
 const order: EliteRarity[] = ['common', 'uplifted', 'legendary'];
 let anyMiss = false;
 for (const rarity of order) {
@@ -127,6 +131,23 @@ for (const rarity of order) {
     console.log(
       `             hero dealt avg=${round(fought.reduce((s, e) => s + e.damageFromHero, 0) / fought.length)}  ` +
         `elite dealt avg=${round(fought.reduce((s, e) => s + e.damageToHero, 0) / fought.length)}`
+    );
+    console.log(
+      `             refusal dmg avg=${round(fought.reduce((s, e) => s + e.refusalDamageToHero, 0) / fought.length)}  ` +
+        `ground-item bonus avg=${round(fought.reduce((s, e) => s + e.itemAmplifiedDamage, 0) / fought.length)}  ` +
+        `relics taken=${fought.reduce((s, e) => s + e.itemsTaken.length, 0)}  ` +
+        `dash/saves=${fought.reduce((s, e) => s + e.dashes, 0)}/${fought.reduce((s, e) => s + e.dashIFrameSaves, 0)}`
+    );
+    const nodes: Record<string, number> = {};
+    for (const e of fought)
+      for (const [k, v] of Object.entries(e.damageFromHeroByNode)) nodes[k] = (nodes[k] ?? 0) + v;
+    console.log(
+      '             node damage=' +
+        Object.entries(nodes)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 6)
+          .map(([k, v]) => `${k}:${round(v)}`)
+          .join(', ')
     );
   }
 }

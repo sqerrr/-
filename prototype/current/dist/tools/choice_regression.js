@@ -6,7 +6,7 @@ function assert(cond, msg) {
 const sim = new Simulation({ seed: 12345, hz: 60 });
 sim.php = 1_000_000;
 sim.maxHp = 1_000_000;
-let resolved = 0, chained = 0;
+let resolved = 0, chained = 0, injectedMutationCore = false;
 for (let guard = 0; guard < 60 * 60 * 8 && !sim.finished; guard++) {
     if (sim.hasChoice) {
         const before = sim.snapshot();
@@ -24,6 +24,13 @@ for (let guard = 0; guard < 60 * 60 * 8 && !sim.finished; guard++) {
         }
         resolved++;
         continue;
+    }
+    // D6 moved Mutation Cores off level milestones and onto uplifted/legendary elite drops.
+    // This driver is about choice lifecycle, not loot routing, so inject one core solely to
+    // keep the mutation-target -> branch modal chain under regression coverage.
+    if (!injectedMutationCore && sim.snapshot().player.level >= 6) {
+        sim.mutationCores = 1;
+        injectedMutationCore = true;
     }
     const a = guard * 0.017;
     sim.step({ moveX: Math.cos(a), moveZ: Math.sin(a), aimX: 1, aimZ: -1 });

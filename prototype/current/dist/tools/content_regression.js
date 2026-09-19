@@ -55,11 +55,22 @@ for (const id of skillOrder) {
     const mutationDupes = duplicates(mutationIds);
     if (mutationDupes.length)
         fail(`${id}: duplicate mutation ids ${mutationDupes.join(', ')}`);
-    // D28 forks a phenomenon three ways. The offer draws from whatever the phenomenon
-    // declares, so a roster entry with fewer branches would quietly narrow the choice
-    // instead of failing, and nobody would notice until the mutation came up in a run.
-    if (s.mutations.length < MUTATION_BRANCHES)
-        fail(`${id}: declares ${s.mutations.length} mutations, D28 asks for ${MUTATION_BRANCHES}`);
+    // D28/D36: exactly three roots and exactly one continuation under every root.
+    // This prevents the old bug where 4th/5th records leaked into the first-level offer.
+    const roots = s.mutations.filter((m) => !m.parent);
+    const children = s.mutations.filter((m) => !!m.parent);
+    if (roots.length !== MUTATION_BRANCHES)
+        fail(`${id}: has ${roots.length} mutation roots, expected exactly ${MUTATION_BRANCHES}`);
+    if (s.mutations.length !== MUTATION_BRANCHES * 2)
+        fail(`${id}: has ${s.mutations.length} mutation records, expected 6 (3 roots + 3 continuations)`);
+    for (const root of roots) {
+        const branch = children.filter((m) => m.parent === root.id);
+        if (branch.length !== 1)
+            fail(`${id}/${root.id}: expected exactly one continuation, got ${branch.length}`);
+    }
+    for (const child of children)
+        if (!roots.some((root) => root.id === child.parent))
+            fail(`${id}/${child.id}: continuation points to non-root parent ${child.parent}`);
     for (const m of s.mutations)
         if (!m.name || !m.description)
             fail(`${id}/${m.id}: mutation needs a name and a description`);
@@ -100,5 +111,6 @@ console.log('content-regression OK', {
     skills: skillOrder.length,
     parkedSkills: parkedSkills.length,
     catalysts: catalystOrder.length,
+    mutations: skillOrder.reduce((n, id) => n + skills[id].mutations.length, 0),
     coreAxes: resonanceOrder
 });

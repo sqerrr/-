@@ -154,6 +154,7 @@ export function fallbackDeadActor(e: Extract<GameEvent, { type: 'EntityDied' }>)
     orderX: 0,
     orderZ: 0,
     orderActive: false,
+    squadTask: 'none',
     adaptationStage: 0,
     eliteRarity: 'common',
     refusalIcons: [],

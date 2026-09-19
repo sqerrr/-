@@ -37,15 +37,25 @@ export const skills = {
             },
             {
                 id: 'ember_impaler',
+                parent: 'ember_volley',
                 name: 'Пронзатель',
                 tag: 'элита',
                 description: 'Один пробивающий снаряд особенно силён против Elite.'
             },
             {
                 id: 'ember_backdraft',
+                parent: 'ember_brand',
                 name: 'Обратная тяга',
                 tag: 'контроль',
                 description: 'Убийство стягивает соседей и вызывает burst.'
+            },
+            {
+                id: 'ember_foundry',
+                parent: 'ember_furnace',
+                name: 'Литейный горн',
+                tag: 'поле',
+                description: 'Горн разрастается в более широкую и долгую зону плавления.',
+                continuation: { powerMul: 1.1, radiusMul: 1.25, durationMul: 1.5 }
             }
         ]
     },
@@ -86,15 +96,25 @@ export const skills = {
             },
             {
                 id: 'frost_skin',
+                parent: 'frost_snap',
                 name: 'Хрустальная кожа',
                 tag: 'защита',
                 description: 'Убийства охлаждённых целей дают Barrier.'
             },
             {
                 id: 'frost_brittle',
+                parent: 'frost_rim',
                 name: 'Хрупкость',
                 tag: 'связка',
                 description: 'Chill открывает цель для следующего line/strike.'
+            },
+            {
+                id: 'frost_whiteout',
+                parent: 'frost_front',
+                name: 'Белая мгла',
+                tag: 'поле',
+                description: 'Холодный фронт держится дольше и занимает больше пространства.',
+                continuation: { radiusMul: 1.25, durationMul: 1.45 }
             }
         ]
     },
@@ -135,15 +155,25 @@ export const skills = {
             },
             {
                 id: 'rail_harpoon',
+                parent: 'rail_rack',
                 name: 'Гарпун',
                 tag: 'контроль',
                 description: 'Первая крупная цель подтягивается.'
             },
             {
                 id: 'rail_spot',
+                parent: 'rail_gun',
                 name: 'Точечное копьё',
                 tag: 'связка',
                 description: 'Marked-цели приоритетны и становятся Exposed.'
+            },
+            {
+                id: 'rail_crossfire',
+                parent: 'rail_fan',
+                name: 'Перекрёстный веер',
+                tag: 'зачистка',
+                description: 'Веер добавляет ещё две линии и слегка растягивает прострел.',
+                continuation: { powerMul: 0.9, rangeMul: 1.1, countAdd: 2 }
             }
         ]
     },
@@ -184,15 +214,25 @@ export const skills = {
             },
             {
                 id: 'cleaver_rhythm',
+                parent: 'cleaver_roundhouse',
                 name: 'Ритм мясника',
                 tag: 'темп',
                 description: 'Убийства могут повторить взмах.'
             },
             {
                 id: 'cleaver_deep',
+                parent: 'cleaver_guillotine',
                 name: 'Глубокий порез',
                 tag: 'DoT',
                 description: 'Меньше direct damage, сильнее Wound.'
+            },
+            {
+                id: 'cleaver_chainhook',
+                parent: 'cleaver_hook',
+                name: 'Цепной крюк',
+                tag: 'контроль',
+                description: 'Крюк получает больше охвата и веса, усиливая сбор толпы.',
+                continuation: { powerMul: 1.08, radiusMul: 1.12 }
             }
         ]
     },
@@ -233,15 +273,25 @@ export const skills = {
             },
             {
                 id: 'arc_cage',
+                parent: 'arc_forked',
                 name: 'Дуговая клетка',
                 tag: 'поле',
                 description: 'Повторные hits создают electric Field.'
             },
             {
                 id: 'arc_relay',
+                parent: 'arc_capacitive',
                 name: 'Статический ретранслятор',
                 tag: 'дальность',
                 description: 'Заметно увеличивает jump range.'
+            },
+            {
+                id: 'arc_groundloop',
+                parent: 'arc_ground',
+                name: 'Контур заземления',
+                tag: 'связка',
+                description: 'Заземлённая дуга тянется дальше и получает дополнительный переход.',
+                continuation: { rangeMul: 1.3, countAdd: 1 }
             }
         ]
     },
@@ -282,15 +332,25 @@ export const skills = {
             },
             {
                 id: 'orbit_guard',
+                parent: 'orbit_many',
                 name: 'Защитное кольцо',
                 tag: 'защита',
                 description: 'Лезвия ослабляют enemy projectiles.'
             },
             {
                 id: 'orbit_blood',
+                parent: 'orbit_saw',
                 name: 'Кровавая орбита',
                 tag: 'масштаб',
                 description: 'Wounded enemies рядом ускоряют и усиливают orbit.'
+            },
+            {
+                id: 'orbit_comet',
+                parent: 'orbit_outbound',
+                name: 'Кометный вылет',
+                tag: 'взрыв',
+                description: 'Вылет становится тяжелее и захватывает более широкий пояс.',
+                continuation: { powerMul: 1.35, radiusMul: 1.2 }
             }
         ]
     },
@@ -331,15 +391,25 @@ export const skills = {
             },
             {
                 id: 'mortar_crater',
+                parent: 'mortar_fuse',
                 name: 'Кратер',
                 tag: 'контроль',
                 description: 'После взрыва остаётся slowing Field.'
             },
             {
                 id: 'mortar_airburst',
+                parent: 'mortar_cluster',
                 name: 'Воздушный разрыв',
                 tag: 'геометрия',
                 description: 'Шире explosion, слабее центр, без persistent Field.'
+            },
+            {
+                id: 'mortar_beacon',
+                parent: 'mortar_spotter',
+                name: 'Маяк наводчика',
+                tag: 'фокус',
+                description: 'Наводчик получает более дальний и крупный прицельный разрыв.',
+                continuation: { powerMul: 1.2, radiusMul: 1.15, rangeMul: 1.15 }
             }
         ]
     },
@@ -380,15 +450,25 @@ export const skills = {
             },
             {
                 id: 'sentry_crawler',
+                parent: 'sentry_gatling',
                 name: 'Ползун',
                 tag: 'мобильность',
                 description: 'Construct ближе следует за игроком.'
             },
             {
                 id: 'sentry_salvager',
+                parent: 'sentry_rail',
                 name: 'Утилизатор',
                 tag: 'экономика',
                 description: 'Elite kills с участием Sentry быстрее дают Core.'
+            },
+            {
+                id: 'sentry_grid',
+                parent: 'sentry_relay',
+                name: 'Сетка ретрансляторов',
+                tag: 'связка',
+                description: 'Ретранслятор живёт дольше и держит большую рабочую зону.',
+                continuation: { rangeMul: 1.3, durationMul: 1.35 }
             }
         ]
     },
@@ -429,15 +509,25 @@ export const skills = {
             },
             {
                 id: 'toxic_plume',
+                parent: 'toxic_contagion',
                 name: 'Шлейф',
                 tag: 'движение',
                 description: 'Туман тянется следом за героем.'
             },
             {
                 id: 'toxic_reactive',
+                parent: 'toxic_corrosive',
                 name: 'Реактивный растворитель',
                 tag: 'связка',
                 description: 'Wound/Ignite превращаются в дополнительный burst.'
+            },
+            {
+                id: 'toxic_still',
+                parent: 'toxic_distilled',
+                name: 'Перегонный куб',
+                tag: 'фокус',
+                description: 'Дистиллят ещё плотнее: меньше площадь, выше концентрация и срок.',
+                continuation: { powerMul: 1.3, radiusMul: 0.85, durationMul: 1.35 }
             }
         ]
     },
@@ -478,15 +568,25 @@ export const skills = {
             },
             {
                 id: 'repulse_relay',
+                parent: 'repulse_gravity',
                 name: 'Кинетический релей',
                 tag: 'связка',
                 description: 'Величина displacement превращается в Charge следующего феномена.'
             },
             {
                 id: 'repulse_rings',
+                parent: 'repulse_front',
                 name: 'Компрессионные кольца',
                 tag: 'геометрия',
                 description: 'Два последовательных меньших кольца вместо одного pulse.'
+            },
+            {
+                id: 'repulse_bastion',
+                parent: 'repulse_aegis',
+                name: 'Кинетический бастион',
+                tag: 'защита',
+                description: 'Эгида расширяет безопасный пояс и усиливает сам импульс.',
+                continuation: { powerMul: 1.08, radiusMul: 1.18 }
             }
         ]
     },
@@ -527,15 +627,25 @@ export const skills = {
             },
             {
                 id: 'mass_cargo',
+                parent: 'mass_snowball',
                 name: 'Груз',
                 tag: 'комбо',
                 description: 'Corpses/Constructs на линии усиливают impact.'
             },
             {
                 id: 'mass_terminal',
+                parent: 'mass_rail',
                 name: 'Предельная скорость',
                 tag: 'связка',
                 description: 'Stored/Charge конвертируется в скорость и damage.'
+            },
+            {
+                id: 'mass_counterthrust',
+                parent: 'mass_recoil',
+                name: 'Контртяга',
+                tag: 'риск',
+                description: 'Отдача превращается в ещё более тяжёлый дальний разгон.',
+                continuation: { powerMul: 1.28, rangeMul: 1.12 }
             }
         ]
     },
@@ -573,6 +683,30 @@ export const skills = {
                 name: 'Оглушающий пробой',
                 tag: 'контроль',
                 description: 'Задетые теряют ход на мгновение.'
+            },
+            {
+                id: 'breach_waveguide',
+                parent: 'breach_wide',
+                name: 'Волновод',
+                tag: 'зачистка',
+                description: 'Расширенный пробой охватывает ещё больше пространства и дальше держит линию.',
+                continuation: { radiusMul: 1.35, rangeMul: 1.1 }
+            },
+            {
+                id: 'breach_lance',
+                parent: 'breach_deep',
+                name: 'Осадная игла',
+                tag: 'элита',
+                description: 'Глубокий пробой становится длиннее и тяжелее, жертвуя шириной.',
+                continuation: { powerMul: 1.3, rangeMul: 1.25, radiusMul: 0.85 }
+            },
+            {
+                id: 'breach_aftershock',
+                parent: 'breach_stagger',
+                name: 'Вторичный толчок',
+                tag: 'контроль',
+                description: 'Оглушающий пробой усиливает давление и шире удерживает проход.',
+                continuation: { powerMul: 1.12, radiusMul: 1.12 }
             }
         ]
     },
@@ -610,6 +744,30 @@ export const skills = {
                 name: 'Рваный край',
                 tag: 'поле',
                 description: 'Задетые долго теряют здоровье.'
+            },
+            {
+                id: 'saw_executioner',
+                parent: 'saw_teeth',
+                name: 'Зуб палача',
+                tag: 'элита',
+                description: 'Крупный зуб становится ещё тяжелее в контакте с одной целью.',
+                continuation: { powerMul: 1.35, radiusMul: 0.95 }
+            },
+            {
+                id: 'saw_whirlwind',
+                parent: 'saw_spin',
+                name: 'Зубчатый вихрь',
+                tag: 'зачистка',
+                description: 'Раскрутка расширяет рабочую окружность ценой части силы удара.',
+                continuation: { powerMul: 0.9, radiusMul: 1.3 }
+            },
+            {
+                id: 'saw_hemorrhage',
+                parent: 'saw_bleed',
+                name: 'Кровопускание',
+                tag: 'поле',
+                description: 'Рваный край глубже поддерживает длительный урон.',
+                continuation: { powerMul: 1.15, durationMul: 1.6 }
             }
         ]
     },
@@ -647,6 +805,30 @@ export const skills = {
                 name: 'Двойной',
                 tag: 'связка',
                 description: 'Бьёт и вперёд, и назад, но слабее.'
+            },
+            {
+                id: 'backhand_stampede',
+                parent: 'backhand_wake',
+                name: 'Разгонный след',
+                tag: 'зачистка',
+                description: 'След сильнее растёт вместе с движением и бьёт шире.',
+                continuation: { powerMul: 1.15, radiusMul: 1.3 }
+            },
+            {
+                id: 'backhand_rebound',
+                parent: 'backhand_shove',
+                name: 'Рикошет',
+                tag: 'контроль',
+                description: 'Отбрасывание получает больший охват и вес импульса.',
+                continuation: { powerMul: 1.12, radiusMul: 1.15 }
+            },
+            {
+                id: 'backhand_crossbeat',
+                parent: 'backhand_twin',
+                name: 'Перекрёстный такт',
+                tag: 'связка',
+                description: 'Двойной удар усиливает обе стороны и расширяет дугу.',
+                continuation: { powerMul: 1.2, radiusMul: 1.1 }
             }
         ]
     },
@@ -684,6 +866,30 @@ export const skills = {
                 name: 'Вязкий фронт',
                 tag: 'контроль',
                 description: 'Задетые замедляются.'
+            },
+            {
+                id: 'front_surge',
+                parent: 'front_inner',
+                name: 'Прилив',
+                tag: 'зачистка',
+                description: 'Ближний фронт становится тяжелее и быстрее заполняет пространство вокруг тела.',
+                continuation: { powerMul: 1.3, radiusMul: 1.2 }
+            },
+            {
+                id: 'front_horizon',
+                parent: 'front_far',
+                name: 'Горизонт',
+                tag: 'поле',
+                description: 'Дальний фронт разрастается ещё сильнее и удерживает внешнюю дистанцию.',
+                continuation: { powerMul: 1.1, radiusMul: 1.35 }
+            },
+            {
+                id: 'front_quagmire',
+                parent: 'front_slow',
+                name: 'Тягучий вал',
+                tag: 'контроль',
+                description: 'Вязкий фронт шире контролирует пространство и наносит больше давления.',
+                continuation: { powerMul: 1.1, radiusMul: 1.25 }
             }
         ]
     },
@@ -716,7 +922,31 @@ export const skills = {
                 tag: 'зачистка',
                 description: 'Угол шире, полос больше, урон ниже.'
             },
-            { id: 'fan_burn', name: 'Жгучий веер', tag: 'поле', description: 'Задетые загораются.' }
+            { id: 'fan_burn', name: 'Жгучий веер', tag: 'поле', description: 'Задетые загораются.' },
+            {
+                id: 'fan_needle',
+                parent: 'fan_tight',
+                name: 'Игловой строй',
+                tag: 'элита',
+                description: 'Сжатый веер летит дальше и заметно тяжелее бьёт по узкой линии.',
+                continuation: { powerMul: 1.35, rangeMul: 1.15 }
+            },
+            {
+                id: 'fan_storm',
+                parent: 'fan_wide',
+                name: 'Осколочная буря',
+                tag: 'зачистка',
+                description: 'Раскрытый веер добавляет ещё две полосы и тянется дальше.',
+                continuation: { powerMul: 1.05, rangeMul: 1.15, countAdd: 2 }
+            },
+            {
+                id: 'fan_cinder',
+                parent: 'fan_burn',
+                name: 'Угольный дождь',
+                tag: 'поле',
+                description: 'Жгучие осколки летят дальше и оставляют более тяжёлый урон.',
+                continuation: { powerMul: 1.15, rangeMul: 1.1 }
+            }
         ]
     },
     tether_drag: {
@@ -748,7 +978,31 @@ export const skills = {
                 tag: 'зачистка',
                 description: 'Тянет больше целей, но слабее.'
             },
-            { id: 'tether_bind', name: 'Путы', tag: 'контроль', description: 'Подтянутые теряют ход.' }
+            { id: 'tether_bind', name: 'Путы', tag: 'контроль', description: 'Подтянутые теряют ход.' },
+            {
+                id: 'tether_anchor',
+                parent: 'tether_hook',
+                name: 'Якорный крюк',
+                tag: 'элита',
+                description: 'Одиночный крюк получает больше веса и дальности.',
+                continuation: { powerMul: 1.3, rangeMul: 1.15 }
+            },
+            {
+                id: 'tether_dragnet',
+                parent: 'tether_net',
+                name: 'Трал',
+                tag: 'зачистка',
+                description: 'Сеть становится шире и захватывает пространство дальше по фронту.',
+                continuation: { radiusMul: 1.4, rangeMul: 1.1 }
+            },
+            {
+                id: 'tether_lock',
+                parent: 'tether_bind',
+                name: 'Мёртвый узел',
+                tag: 'контроль',
+                description: 'Путы получают более тяжёлый и широкий контакт.',
+                continuation: { powerMul: 1.15, radiusMul: 1.15 }
+            }
         ]
     },
     pin_burst: {
@@ -785,9 +1039,59 @@ export const skills = {
                 name: 'Двойной разрыв',
                 tag: 'связка',
                 description: 'Второй разрыв через мгновение.'
+            },
+            {
+                id: 'pin_corebreak',
+                parent: 'pin_deep',
+                name: 'Разлом ядра',
+                tag: 'элита',
+                description: 'Глубокий разрыв ещё сильнее концентрирует удар в малой зоне.',
+                continuation: { powerMul: 1.4, radiusMul: 0.9 }
+            },
+            {
+                id: 'pin_gravefield',
+                parent: 'pin_field',
+                name: 'Мёртвое поле',
+                tag: 'поле',
+                description: 'Осевший прах держится дольше и сильнее давит внутри зоны.',
+                continuation: { powerMul: 1.15, durationMul: 1.5 }
+            },
+            {
+                id: 'pin_chainburst',
+                parent: 'pin_twin',
+                name: 'Цепной разрыв',
+                tag: 'связка',
+                description: 'Двойной разрыв усиливает повтор и расширяет точку поражения.',
+                continuation: { powerMul: 1.25, radiusMul: 1.1 }
             }
         ]
     }
+};
+/**
+ * Step 3 effect grammar. Behaviour-specific numbers still live with each cast implementation,
+ * but ownership/capability/timing no longer do: the engine asks this table what kind of root it
+ * is dealing with and how the rival mirror spends the same budget. This is intentionally data,
+ * so adding a phenomenon cannot silently forget to make it rival-capable.
+ */
+export const effectGrammar = {
+    ember_lance: { root: 'projectile', phase: 'travel', generation: 'root', internalInterval: 0, rivalConcentration: 1.8, blockedByCover: true },
+    frost_ring: { root: 'pulse', phase: 'instant', generation: 'root', internalInterval: 0, rivalConcentration: 2.6, blockedByCover: false },
+    rail_spear: { root: 'beam', phase: 'instant', generation: 'root', internalInterval: 0, rivalConcentration: 2.2, blockedByCover: true },
+    cleaver: { root: 'pulse', phase: 'instant', generation: 'root', internalInterval: 0, rivalConcentration: 1.15, blockedByCover: false },
+    chain_arc: { root: 'chain', phase: 'instant', generation: 'root', internalInterval: 0, rivalConcentration: 3.2, blockedByCover: true },
+    orbit_blades: { root: 'orbit', phase: 'persistent', generation: 'derived', internalInterval: 0.13, rivalConcentration: 2.0, blockedByCover: false },
+    mortar_bloom: { root: 'impact', phase: 'travel', generation: 'root', internalInterval: 0, rivalConcentration: 1.4, blockedByCover: true },
+    sentry: { root: 'construct', phase: 'persistent', generation: 'construct', internalInterval: 0.3, rivalConcentration: 0.95, blockedByCover: true },
+    toxic_mist: { root: 'field', phase: 'persistent', generation: 'derived', internalInterval: 0.25, rivalConcentration: 0.9, blockedByCover: false },
+    mass_driver: { root: 'beam', phase: 'instant', generation: 'root', internalInterval: 0, rivalConcentration: 4.1, blockedByCover: true },
+    repulse_halo: { root: 'control', phase: 'instant', generation: 'root', internalInterval: 0, rivalConcentration: 2.2, blockedByCover: false },
+    breach_line: { root: 'beam', phase: 'instant', generation: 'root', internalInterval: 0, rivalConcentration: 2.8, blockedByCover: true },
+    contact_saw: { root: 'pulse', phase: 'persistent', generation: 'root', internalInterval: 0.18, rivalConcentration: 2.0, blockedByCover: false },
+    backhand: { root: 'pulse', phase: 'instant', generation: 'root', internalInterval: 0, rivalConcentration: 2.0, blockedByCover: false },
+    spreading_front: { root: 'pulse', phase: 'instant', generation: 'root', internalInterval: 0, rivalConcentration: 2.35, blockedByCover: false },
+    shard_fan: { root: 'projectile', phase: 'travel', generation: 'root', internalInterval: 0, rivalConcentration: 3.0, blockedByCover: true },
+    tether_drag: { root: 'control', phase: 'instant', generation: 'root', internalInterval: 0, rivalConcentration: 2.6, blockedByCover: true },
+    pin_burst: { root: 'impact', phase: 'travel', generation: 'root', internalInterval: 0, rivalConcentration: 2.0, blockedByCover: true }
 };
 export const skillOrder = [
     'ember_lance',
@@ -1096,4 +1400,10 @@ export const statBase = {
 };
 export function mutationDef(skill, id) {
     return skills[skill].mutations.find((m) => m.id === id);
+}
+export function mutationRoots(skill) {
+    return skills[skill].mutations.filter((m) => !m.parent);
+}
+export function mutationChildren(skill, parent) {
+    return skills[skill].mutations.filter((m) => m.parent === parent);
 }

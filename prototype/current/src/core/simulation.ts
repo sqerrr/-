@@ -1,12 +1,16 @@
 import {
   catalystOrder,
   catalysts,
+  effectGrammar,
   initialCatalystReserve,
   initialCatalysts,
   initialSkillReserve,
   initialSlots,
   rarityMultiplier,
   rarityOrder,
+  mutationDef,
+  mutationRoots,
+  mutationChildren,
   resonance,
   resonanceOrder,
   skillOrder,
@@ -42,7 +46,8 @@ import type {
   RunMode,
   SkillId,
   SkillRuntime,
-  Snapshot
+  Snapshot,
+  SquadTask
 } from './types.js';
 
 type EnemyState = 'normal' | 'telegraph' | 'dash';
@@ -84,6 +89,8 @@ type Ent = {
   orderX: number;
   orderZ: number;
   orderUntil: number;
+  squadTask?: SquadTask;
+  squadUntil?: number;
   regenTick: number;
   affixTimer: number;
   affixPulse: number;
@@ -107,6 +114,8 @@ type Ent = {
   // calibrated through elite health, and stacking a second multiplier there collapsed
   // the run when it was tried for the endurance axis.
   relicCastMul?: number;
+  /** Subset of relicCastMul coming from ground relics, for D52 attribution. */
+  groundRelicCastMul?: number;
   relicGapMul?: number;
   relicReachMul?: number;
 };
@@ -125,7 +134,7 @@ const ELITE_RARITY_CAPACITY: Record<EliteRarity, number> = {
  * with the relative shape already right. So the tiers keep their ratio and the table is lifted
  * bodily. Kept apart from eliteHp so per-chassis identity stays readable next to the tier step.
  */
-const ELITE_RARITY_HP: Record<EliteRarity, number> = { common: 4, uplifted: 8, legendary: 15 };
+const ELITE_RARITY_HP: Record<EliteRarity, number> = { common: 2.5, uplifted: 5, legendary: 9.4 };
 const ELITE_RARITY_CORE: Record<EliteRarity, number> = { common: 1, uplifted: 2, legendary: 3 };
 const ELITE_RARITY_SIZE: Record<EliteRarity, number> = {
   common: 1,
@@ -189,7 +198,7 @@ function makeHeroEnt(): Ent {
     repertoire: []
   };
 }
-type Pickup = { id: number; x: number; z: number; value: number; kind: 'xp' | 'core' | 'heal' };
+type Pickup = { id: number; x: number; z: number; value: number; kind: 'xp' | 'core' | 'heal' | 'mutation' };
 /**
  * A relic lies where it fell and does not fly to anyone. That is the whole point of D14:
  * both sides draw from the same source, so reaching one first has to be a decision about
@@ -205,6 +214,12 @@ type Field = {
   kind: 'ink' | 'fire' | 'frost' | 'arc' | 'toxic' | 'index' | 'architect' | 'veil';
   dps: number;
   tickAcc: number;
+  faction?: CastFaction;
+  ownerId?: number;
+  source?: string;
+  sourceSlot?: number;
+  mutation?: MutationId | null;
+  rivalConcentration?: number;
 };
 type Construct = {
   id: number;
@@ -215,8 +230,40 @@ type Construct = {
   range: number;
   power: number;
   skill: SkillId;
+  faction: CastFaction;
+  ownerId: number;
+  sourceSlot: number;
+  mutation: MutationId | null;
+  mutationUpgrade: MutationId | null;
+  rivalConcentration: number;
 };
-type Obstacle = { id: number; x: number; z: number; radius: number };
+type Projectile = {
+  id: number;
+  x: number;
+  z: number;
+  vx: number;
+  vz: number;
+  radius: number;
+  ttl: number;
+  damage: number;
+  coverDamage: number;
+  faction: CastFaction;
+  ownerId: number;
+  source: SkillId;
+  sourceSlot: number;
+  mutation: MutationId | null;
+  rivalConcentration: number;
+  guarded: boolean;
+};
+type Obstacle = {
+  id: number;
+  x: number;
+  z: number;
+  radius: number;
+  hp: number;
+  maxHp: number;
+  destructible: boolean;
+};
 type Poi = { id: number; kind: PoiKind; x: number; z: number; state: PoiState; guardianId: number };
 
 /**
@@ -251,6 +298,7 @@ export interface BenchmarkLoadout {
   slots: SkillId[];
   catalysts: CatalystId[];
   mutations?: Partial<Record<SkillId, MutationId>>;
+  mutationUpgrades?: Partial<Record<SkillId, MutationId>>;
   level?: number;
   globalPower?: number;
   tempo?: number;
@@ -431,6 +479,7 @@ export class Simulation {
   static readonly RELIC_ELITE_REACH = 2.2;
   private fields: Field[] = [];
   private constructs: Construct[] = [];
+  private projectiles: Projectile[] = [];
   private readonly world = { minX: -48, maxX: 48, minZ: -36, maxZ: 36 };
   // D20 asks for a semi-open arena: islands of blockers, never corridors and never
   // an empty field. Circles cluster into organic islands and give free sliding, which
@@ -543,26 +592,7 @@ export class Simulation {
    * the combat stream means recording a refusal can never perturb the fight.
    */
   private refusalRng: Rng;
-  /**
-   * Phenomena an elite is allowed to field today. Fields, turrets and orbiting bodies are
-   * still bound to the hero by construction, so a phenomenon that spawns one would fight
-   * on the wrong side. Those stay out until step 3 gives such effects an owner.
-   */
-  /** Public so a check can read the engine's own list instead of keeping a copy. */
-  static readonly RIVAL_CASTABLE: SkillId[] = [
-    'ember_lance',
-    'frost_ring',
-    'cleaver',
-    'chain_arc',
-    'mass_driver',
-    'breach_line',
-    'contact_saw',
-    'backhand',
-    'spreading_front',
-    'shard_fan',
-    'tether_drag',
-    'pin_burst'
-  ];
+  /** All rival capability now comes from effectGrammar; there is no code-side allowlist. */
   /**
    * How far a phenomenon actually reaches from whoever owns it. Ranged work carries
    * baseRange, while a ring or a sweep carries only baseRadius and does nothing at all
@@ -601,7 +631,6 @@ export class Simulation {
     fortune: 'УДАЧ',
     armor: 'БРОН'
   };
-  static readonly RIVAL_CONCENTRATION = 6;
   private static rivalReach(id: SkillId): number {
     const def = skills[id];
     return Math.max(def.baseRange ?? 0, def.baseRadius ?? 0);
@@ -611,7 +640,6 @@ export class Simulation {
    * the reach of the longest phenomenon, so the measure tracks time the hero could actually
    * be hitting it. Diagnostic only - nothing in the simulation branches on this.
    */
-  private static readonly ELITE_CONTACT_RANGE = 11;
   /** Per-elite runtimes for claimed phenomena, keyed "<entity>:<skill>". */
   private rivalSkills = new Map<string, SkillRuntime>();
   /** Next moment each elite may field a refusal, keyed by entity id. */
@@ -620,6 +648,8 @@ export class Simulation {
   private eliteLogById = new Map<number, EliteEncounter>();
   /** Held only for the length of a rival cast, so its damage can be charged to its owner. */
   private castOwner: Ent | null = null;
+  private castRivalConcentration = 1;
+  private squadPlanAt = 0;
 
   constructor(cfg: SimConfig) {
     this.hz = cfg.hz;
@@ -664,7 +694,8 @@ export class Simulation {
       count: 1,
       control: 0,
       statusPotency: 0,
-      mutation: null
+      mutation: null,
+      mutationUpgrade: null
     };
   }
   get time() {
@@ -690,11 +721,21 @@ export class Simulation {
         for (let i = 0; i < n; i++) {
           const a = this.worldRng.range(0, Math.PI * 2);
           const d = this.worldRng.range(0, 2.6);
+          const radius = this.worldRng.range(1.5, 3);
+          const oid = id++;
+          // Stable by id rather than another RNG pull: adding durability must not reshuffle
+          // the already calibrated arena layout. Roughly half the island pieces can be
+          // opened by sustained fire; the rest remain navigation anchors.
+          const destructible = oid % 2 === 0;
+          const maxHp = destructible ? 72 + radius * 48 : -1;
           this.obstacles.push({
-            id: id++,
+            id: oid,
             x: cx + Math.cos(a) * d,
             z: cz + Math.sin(a) * d,
-            radius: this.worldRng.range(1.5, 3)
+            radius,
+            hp: maxHp,
+            maxHp,
+            destructible
           });
         }
         break;
@@ -777,6 +818,187 @@ export class Simulation {
       e.x = p.x;
       e.z = p.z;
     }
+  }
+
+  private segmentCircleT(
+    x0: number,
+    z0: number,
+    x1: number,
+    z1: number,
+    cx: number,
+    cz: number,
+    radius: number
+  ) {
+    const dx = x1 - x0,
+      dz = z1 - z0,
+      fx = x0 - cx,
+      fz = z0 - cz,
+      a = dx * dx + dz * dz;
+    if (a < 1e-8) return Math.hypot(fx, fz) <= radius ? 0 : null;
+    const b = 2 * (fx * dx + fz * dz),
+      c = fx * fx + fz * fz - radius * radius,
+      disc = b * b - 4 * a * c;
+    if (disc < 0) return null;
+    const root = Math.sqrt(disc),
+      t0 = (-b - root) / (2 * a),
+      t1 = (-b + root) / (2 * a);
+    if (t0 >= 0 && t0 <= 1) return t0;
+    if (t1 >= 0 && t1 <= 1) return t1;
+    return c <= 0 ? 0 : null;
+  }
+
+  private firstBlockingObstacle(
+    x0: number,
+    z0: number,
+    x1: number,
+    z1: number,
+    padding = 0.08
+  ) {
+    const mx = (x0 + x1) * 0.5,
+      mz = (z0 + z1) * 0.5,
+      reach = Math.hypot(x1 - x0, z1 - z0) * 0.5 + 3.4 + padding;
+    let best: Obstacle | null = null,
+      bestT = Infinity;
+    for (const o of this.obstaclesNear(mx, mz, reach, this.obstacleScratch)) {
+      const t = this.segmentCircleT(x0, z0, x1, z1, o.x, o.z, o.radius + padding);
+      if (t !== null && t > 0.01 && t < 0.99 && t < bestT) {
+        best = o;
+        bestT = t;
+      }
+    }
+    return best;
+  }
+
+  private lineOfSight(x0: number, z0: number, x1: number, z1: number, padding = 0.08) {
+    return !this.firstBlockingObstacle(x0, z0, x1, z1, padding);
+  }
+
+  private damageObstacle(o: Obstacle, amount: number) {
+    if (!o.destructible || o.hp <= 0) return false;
+    o.hp -= Math.max(0, amount);
+    if (o.hp > 0) return false;
+    const at = this.obstacles.indexOf(o);
+    if (at >= 0) this.obstacles.splice(at, 1);
+    this.buildObstacleGrid();
+    return true;
+  }
+
+  private spawnProjectile(p: Omit<Projectile, 'id' | 'guarded'>) {
+    this.projectiles.push({ id: this.nextId++, guarded: false, ...p });
+  }
+
+  private projectileOwner(p: Projectile) {
+    return p.ownerId ? this.ents.find((e) => e.id === p.ownerId) ?? null : null;
+  }
+
+  /**
+   * D20 / step 5: moving attacks share the same physical world as bodies. A projectile
+   * can be stopped by intact cover, can open a destructible lane, and a hostile one can
+   * be weakened by orbit_guard before it reaches the hero. Segment tests avoid tunnelling
+   * at 30 Hz and make this primitive safe for faster later phenomena as well.
+   */
+  private updateProjectiles() {
+    if (!this.projectiles.length) return;
+    const alive: Projectile[] = [];
+    for (const p of this.projectiles) {
+      p.ttl -= this.dt;
+      if (p.ttl <= 0) continue;
+      const x0 = p.x,
+        z0 = p.z,
+        x1 = x0 + p.vx * this.dt,
+        z1 = z0 + p.vz * this.dt;
+
+      if (
+        p.faction === 'rival' &&
+        !p.guarded &&
+        (() => { const st = this.skillsRuntime.get('orbit_blades'); return !!st && this.mutationIs(st, 'orbit_guard'); })()
+      ) {
+        const guardT = this.segmentCircleT(x0, z0, x1, z1, this.px, this.pz, 2.55);
+        if (guardT !== null) {
+          p.damage *= 0.35;
+          p.guarded = true;
+        }
+      }
+
+      let cover: Obstacle | null = null,
+        coverT = Infinity;
+      const mx = (x0 + x1) * 0.5,
+        mz = (z0 + z1) * 0.5,
+        reach = Math.hypot(x1 - x0, z1 - z0) * 0.5 + p.radius + 3.2;
+      for (const o of this.obstaclesNear(mx, mz, reach, this.obstacleScratch)) {
+        const t = this.segmentCircleT(x0, z0, x1, z1, o.x, o.z, o.radius + p.radius);
+        if (t !== null && t < coverT) {
+          cover = o;
+          coverT = t;
+        }
+      }
+
+      let target: Ent | null = null,
+        targetT = Infinity;
+      const src: CastSource =
+        p.faction === 'hero'
+          ? {
+              faction: 'hero',
+              owner: null,
+              x: x0,
+              z: z0,
+              aimX: p.vx,
+              aimZ: p.vz,
+              vx: p.vx,
+              vz: p.vz
+            }
+          : {
+              faction: 'rival',
+              owner: this.projectileOwner(p),
+              x: x0,
+              z: z0,
+              aimX: p.vx,
+              aimZ: p.vz,
+              vx: p.vx,
+              vz: p.vz
+            };
+      for (const e of this.targetsFor(src)) {
+        if (e.hp <= 0) continue;
+        const t = this.segmentCircleT(x0, z0, x1, z1, e.x, e.z, e.radius + p.radius);
+        if (t !== null && t < targetT) {
+          target = e;
+          targetT = t;
+        }
+      }
+
+      if (cover && coverT <= targetT) {
+        p.x = x0 + (x1 - x0) * coverT;
+        p.z = z0 + (z1 - z0) * coverT;
+        this.damageObstacle(cover, p.coverDamage);
+        continue;
+      }
+      if (target) {
+        p.x = x0 + (x1 - x0) * targetT;
+        p.z = z0 + (z1 - z0) * targetT;
+        if (p.faction === 'hero') {
+          this.damage(target, p.damage, p.source, true, p.x, p.z, p.sourceSlot);
+          if (p.source === 'shard_fan' && p.mutation === 'fan_burn') {
+            target.igniteUntil = Math.max(target.igniteUntil, this.time + 2.6 * this.memoryFactor());
+            this.noteState('ignite');
+          }
+        } else {
+          this.damageHero(p.damage, p.source, this.projectileOwner(p), p.rivalConcentration);
+        }
+        continue;
+      }
+
+      p.x = x1;
+      p.z = z1;
+      if (
+        p.x < this.world.minX - 1 ||
+        p.x > this.world.maxX + 1 ||
+        p.z < this.world.minZ - 1 ||
+        p.z > this.world.maxZ + 1
+      )
+        continue;
+      alive.push(p);
+    }
+    this.projectiles = alive;
   }
   private initPois() {
     this.pois = [
@@ -1136,6 +1358,15 @@ export class Simulation {
       this.dashReadyAt = this.dashUntil + Simulation.DASH_COOLDOWN * this.dashCooldownMul;
       this.dashWindowSaved = false;
       this.metrics.dashes++;
+      for (const record of this.eliteLog) {
+        if (
+          record.engagedAt >= 0 &&
+          record.endedAt < 0 &&
+          record.lastExchangeAt >= 0 &&
+          this.time - record.lastExchangeAt <= 2
+        )
+          record.dashes++;
+      }
     }
     if (this.time < this.dashUntil) {
       this.moveAmount = 1;
@@ -1158,8 +1389,10 @@ export class Simulation {
     this.spawnDirector();
     this.eliteDirector();
     this.recycleFarEnemies();
+    this.updateSquadTasks();
     this.updateEnemyAI();
     this.resolveEntityObstacles();
+    this.updateProjectiles();
     this.updateFields();
     this.updateConstructs();
     this.updateDots();
@@ -1427,10 +1660,12 @@ export class Simulation {
     // telemetry measured 0.29 casts per ordinary fight, meaning the hero almost never sees
     // a refusal come back at him. Lead with one weapon this elite can actually use, then
     // fill the rest at random, so an elite that could demonstrate the link does.
-    const armed = free.findIndex(
-      (c) => !!c.skill && Simulation.RIVAL_CASTABLE.includes(c.skill as SkillId)
-    );
-    if (armed > 0) {
+    const armed = free.findIndex((c) => !!c.skill);
+    // Higher tiers have enough capacity to guarantee a readable cast. Common elites have
+    // one slot only (D9), so forcing a weapon every time made refused axes impossible to
+    // mirror. With all 18 Phenomena now castable, leave one common in four unbiased.
+    const forceReadableWeapon = e.rarity !== 'common' || e.id % 4 !== 0;
+    if (forceReadableWeapon && armed > 0) {
       const lead = free[armed];
       free.splice(armed, 1);
       free.unshift(lead);
@@ -1465,12 +1700,8 @@ export class Simulation {
       const c = this.refusalStore.find((x) => x.serial === serial);
       if (c && c.kind === 'item' && c.item) this.applyEliteItem(e, c.item, false);
     }
-    // Deliberately no mirror for persistence yet. The obvious one - more health - was tried
-    // and measured: it fights the only calibrated dial in the build, because D49 fight
-    // length is tuned through exactly that number, and stacking a second multiplier on it
-    // drove runs from four minutes down to thirty seconds. A mirror by function belongs
-    // somewhere other than durability, so until that is designed this direction stays
-    // unmirrored and is carried as a debt rather than quietly given a wrong effect.
+    // Persistence mirrors by function in persistentDuration: rival fields/constructs linger
+    // longer. It deliberately does not touch max HP, preserving the calibrated D49 dial.
     const sharp = this.rivalAxisCount(e, 'conductivity');
     if (sharp) e.contactDps *= Math.pow(1.12, sharp);
     const quick = this.rivalAxisCount(e, 'mobility');
@@ -1515,18 +1746,19 @@ export class Simulation {
         (c): c is RefusedCard =>
           !!c &&
           !!c.skill &&
-          Simulation.RIVAL_CASTABLE.includes(c.skill as SkillId) &&
-          d <= Simulation.rivalReach(c.skill as SkillId) * (e.relicReachMul ?? 1)
+          d <= Simulation.rivalReach(c.skill as SkillId) * (e.relicReachMul ?? 1) &&
+          (!effectGrammar[c.skill as SkillId].blockedByCover ||
+            this.lineOfSight(e.x, e.z, this.px, this.pz, 0.12))
       );
     if (!usable.length) {
       // Out of reach is a waiting game, not a dead end: poll often so the blow lands the
       // moment the elite closes. A repertoire with nothing castable at all is a dead end,
       // so back off there instead of asking again every tick.
-      const holdsCastable = e.repertoire.some((serial) => {
+      const holdsPhenomenon = e.repertoire.some((serial) => {
         const c = this.refusalStore.find((x) => x.serial === serial);
-        return !!c && !!c.skill && Simulation.RIVAL_CASTABLE.includes(c.skill as SkillId);
+        return !!c && !!c.skill;
       });
-      this.rivalCastAt.set(e.id, this.time + (holdsCastable ? 0.35 : 4));
+      this.rivalCastAt.set(e.id, this.time + (holdsPhenomenon ? 0.35 : 4));
       return;
     }
     const card = usable[this.rng.int(usable.length)];
@@ -1545,10 +1777,12 @@ export class Simulation {
       vz: 0
     };
     this.castOwner = e;
+    this.castRivalConcentration = effectGrammar[id].rivalConcentration;
     try {
       this.dispatchSkill(id, this.rivalRuntime(e, id), 0, src);
     } finally {
       this.castOwner = null;
+      this.castRivalConcentration = 1;
     }
     this.metrics.rivalCasts++;
     const record = this.eliteLogById.get(e.id);
@@ -1579,10 +1813,13 @@ export class Simulation {
    * blow to the death overstates the fight badly: a tougher elite survives the first exchange,
    * wanders off and comes back, and the clock keeps running through the gap.
    */
-  private noteEliteContact(e: Ent, d: number) {
-    if (d > Simulation.ELITE_CONTACT_RANGE) return;
+  private noteEliteContact(e: Ent, _d: number) {
     const record = this.eliteLogById.get(e.id);
-    if (record) record.contactTime += this.dt;
+    if (!record || record.engagedAt < 0 || record.lastExchangeAt < 0) return;
+    // D49 is time actually spent exchanging blows, not time an elite happens to stand in
+    // an arbitrary 11 m circle while the hero is occupied by the crowd. A 1.6 s grace
+    // bridges normal weapon cadences without counting long disengages.
+    if (this.time - record.lastExchangeAt <= 1.6) record.contactTime += this.dt;
   }
   private noteEliteSpawn(e: Ent) {
     const record: EliteEncounter = {
@@ -1599,7 +1836,15 @@ export class Simulation {
       casts: 0,
       castSkills: {},
       damageToHero: 0,
-      damageFromHero: 0
+      damageFromHero: 0,
+      lastExchangeAt: -1,
+      damageFromHeroByNode: {},
+      damageToHeroBySource: {},
+      refusalDamageToHero: 0,
+      itemAmplifiedDamage: 0,
+      itemsTaken: [],
+      dashes: 0,
+      dashIFrameSaves: 0
     };
     this.eliteLog.push(record);
     this.eliteLogById.set(e.id, record);
@@ -1707,12 +1952,119 @@ export class Simulation {
   }
 
   private steerTo(e: Ent, tx: number, tz: number, speed: number, mul = 1) {
-    const dx = tx - e.x,
-      dz = tz - e.z,
+    let gx = tx,
+      gz = tz;
+    const blocker = this.firstBlockingObstacle(e.x, e.z, tx, tz, e.radius * 0.72 + 0.08);
+    if (blocker) {
+      const txd = tx - e.x,
+        tzd = tz - e.z,
+        td = Math.hypot(txd, tzd) || 1,
+        ux = txd / td,
+        uz = tzd / td,
+        side = e.id % 2 ? 1 : -1,
+        clearance = blocker.radius + e.radius * 0.78 + 0.72;
+      // Aim beside and slightly beyond the blocking island. A pure tangent target makes
+      // the actor orbit the same circle forever because the direct goal remains occluded;
+      // this far-side component ensures it actually clears the obstacle before reacquiring.
+      gx = blocker.x + ux * clearance * 0.8 + -uz * side * clearance;
+      gz = blocker.z + uz * clearance * 0.8 + ux * side * clearance;
+    }
+    const dx = gx - e.x,
+      dz = gz - e.z,
       d = Math.hypot(dx, dz) || 1;
     e.x += (dx / d) * speed * mul * this.dt;
     e.z += (dz / d) * speed * mul * this.dt;
   }
+
+  private squadTaskFor(e: Ent, index: number): Exclude<SquadTask, 'none'> {
+    if (e.kind === 'marginwalker' || e.kind === 'redactor') return 'flank';
+    if (e.kind === 'bookmark') return 'intercept';
+    if (e.kind === 'binder' || e.kind === 'indexer') return 'hold';
+    const cycle: Exclude<SquadTask, 'none'>[] = ['press', 'flank', 'intercept', 'hold'];
+    return cycle[index % cycle.length];
+  }
+
+  private squadTarget(e: Ent, task: Exclude<SquadTask, 'none'>) {
+    const pm = Math.hypot(this.playerVX, this.playerVZ),
+      mvx = pm > 0.15 ? this.playerVX / pm : this.aimX,
+      mvz = pm > 0.15 ? this.playerVZ / pm : this.aimZ,
+      side = e.id % 2 ? 1 : -1,
+      px = -mvz * side,
+      pz = mvx * side;
+    if (task === 'press') {
+      const lane = ((e.id % 5) - 2) * 0.48;
+      return { x: this.px + px * lane, z: this.pz + pz * lane };
+    }
+    if (task === 'flank') {
+      const r = 3.6 + (e.id % 3) * 0.65;
+      return { x: this.px + px * r + mvx * 0.7, z: this.pz + pz * r + mvz * 0.7 };
+    }
+    if (task === 'intercept') {
+      const lead = pm > 0.15 ? 3.7 : 2.1;
+      return {
+        x: this.px + mvx * lead + px * ((e.id % 3) - 1) * 0.85,
+        z: this.pz + mvz * lead + pz * ((e.id % 3) - 1) * 0.85
+      };
+    }
+
+    const projectedX = this.px + mvx * 2.2,
+      projectedZ = this.pz + mvz * 2.2;
+    let best: Obstacle | null = null,
+      score = Infinity;
+    for (const o of this.obstacles) {
+      const d = Math.hypot(o.x - projectedX, o.z - projectedZ);
+      if (d < score && d < 9.5) {
+        score = d;
+        best = o;
+      }
+    }
+    if (best) {
+      const dx = this.px - best.x,
+        dz = this.pz - best.z,
+        d = Math.hypot(dx, dz) || 1,
+        edge = best.radius + e.radius + 0.65;
+      return {
+        x: best.x + (dx / d) * edge + (-dz / d) * side * 0.7,
+        z: best.z + (dz / d) * edge + (dx / d) * side * 0.7
+      };
+    }
+    return { x: this.px - mvx * 2.8 + px * side, z: this.pz - mvz * 2.8 + pz * side };
+  }
+
+  /**
+   * D21: small groups receive short-lived jobs rather than marching in a formation. The
+   * pause between plans lets each enemy's own behaviour reappear, while the four distinct
+   * destinations stop the whole crowd from collapsing into one AoE-friendly knot.
+   */
+  private updateSquadTasks() {
+    if (this.time < this.squadPlanAt) return;
+    this.squadPlanAt = this.time + 2.6;
+    const candidates = this.ents
+      .filter(
+        (e) =>
+          e.hp > 0 &&
+          e.kind !== 'elite' &&
+          e.kind !== 'hero' &&
+          e.orderUntil <= this.time &&
+          Math.hypot(e.x - this.px, e.z - this.pz) < 21
+      )
+      .sort((a, b) => a.id - b.id)
+      .slice(0, 20);
+    for (let i = 0; i < candidates.length; i++) {
+      const e = candidates[i];
+      // Leave roughly one body in four on its native script at every planning beat.
+      if ((e.id + Math.floor(this.time * 2)) % 4 === 0) continue;
+      const task = this.squadTaskFor(e, i),
+        target = this.squadTarget(e, task),
+        q = this.freeOf(target.x, target.z, e.radius * 0.72);
+      e.orderX = Math.max(this.world.minX + 1, Math.min(this.world.maxX - 1, q.x));
+      e.orderZ = Math.max(this.world.minZ + 1, Math.min(this.world.maxZ - 1, q.z));
+      e.orderUntil = this.time + 1.25 + (e.id % 4) * 0.12;
+      e.squadTask = task;
+      e.squadUntil = e.orderUntil;
+    }
+  }
+
   private updateEnemyAI() {
     const dt = this.dt;
     for (const e of this.ents) {
@@ -1853,7 +2205,12 @@ export class Simulation {
             e.state = 'normal';
             e.cooldown = 2.9;
           }
-        } else if (e.cooldown <= 0 && d > 3 && d < 12) {
+        } else if (
+          e.cooldown <= 0 &&
+          d > 3 &&
+          d < 12 &&
+          this.lineOfSight(e.x, e.z, this.px, this.pz, 0.12)
+        ) {
           e.state = 'telegraph';
           e.stateTimer = 0.72;
           e.lockedX = nx;
@@ -2264,12 +2621,16 @@ export class Simulation {
     }
   }
 
-  private hitPlayer(amount: number, attacker: Ent | null = null) {
+  private hitPlayer(amount: number, attacker: Ent | null = null, source = 'contact') {
     if (amount <= 0 || this.php <= 0) return;
     if (this.time < this.dashIFramesUntil) {
       if (!this.dashWindowSaved) {
         this.dashWindowSaved = true;
         this.metrics.dashIFrameSaves++;
+        if (attacker) {
+          const record = this.eliteLogById.get(attacker.id);
+          if (record) record.dashIFrameSaves++;
+        }
       }
       return;
     }
@@ -2279,7 +2640,10 @@ export class Simulation {
       const record = this.eliteLogById.get(attacker.id);
       if (record) {
         record.damageToHero += mitigated;
+        record.damageToHeroBySource[source] = (record.damageToHeroBySource[source] ?? 0) + mitigated;
+        if (skillOrder.includes(source as SkillId)) record.refusalDamageToHero += mitigated;
         if (record.engagedAt < 0) record.engagedAt = this.time;
+        record.lastExchangeAt = this.time;
       }
     }
     let left = mitigated;
@@ -2318,46 +2682,60 @@ export class Simulation {
     for (const f of this.fields) {
       f.ttl -= this.dt;
       f.tickAcc += this.dt;
+      const legacyRival = f.kind === 'ink' || f.kind === 'architect';
+      const faction: CastFaction = f.faction ?? (legacyRival ? 'rival' : 'hero');
+      const owner = f.ownerId ? this.ents.find((e) => e.id === f.ownerId) ?? null : null;
+
       if (f.kind === 'ink' || f.kind === 'architect') {
-        if (Math.hypot(this.px - f.x, this.pz - f.z) < f.radius) this.hitPlayer(f.dps * this.dt);
+        if (Math.hypot(this.px - f.x, this.pz - f.z) < f.radius)
+          this.hitPlayer(f.dps * this.dt, owner);
       } else if (f.kind !== 'index' && f.kind !== 'veil' && f.tickAcc >= 0.25) {
         f.tickAcc -= 0.25;
-        for (const e of this.ents) {
-          if (e.hp <= 0 || Math.hypot(e.x - f.x, e.z - f.z) > f.radius) continue;
-          if (f.kind === 'frost')
-            e.chillUntil = Math.max(e.chillUntil, this.time + 1.2 * this.memoryFactor());
-          if (f.kind === 'fire')
-            e.igniteUntil = Math.max(e.igniteUntil, this.time + 1.8 * this.memoryFactor());
-          if (f.kind === 'toxic') {
-            e.toxinUntil = Math.max(e.toxinUntil, this.time + 2.5 * this.memoryFactor());
-            e.toxinDps = Math.max(e.toxinDps, f.dps * 0.55);
+        if (faction === 'rival') {
+          if (Math.hypot(this.px - f.x, this.pz - f.z) <= f.radius + HERO_HIT_RADIUS) {
+            this.damageHero(
+              f.dps * 0.25,
+              f.source ?? `${f.kind}_field`,
+              owner,
+              f.rivalConcentration ?? 1
+            );
           }
-          let fieldHit = f.dps * 0.25;
-          if (
-            f.kind === 'toxic' &&
-            this.skillsRuntime.get('toxic_mist')?.mutation === 'toxic_corrosive'
-          ) {
-            const protectedTarget =
-              !!e.linkedTo ||
-              e.affix === 'shielded' ||
-              this.ents.some(
-                (o) =>
-                  o.kind === 'elite' &&
-                  o.chassis === 'bulwark' &&
-                  o.hp > 0 &&
-                  Math.hypot(o.x - e.x, o.z - e.z) < 6.5
-              );
-            if (protectedTarget) fieldHit *= 1.65;
+        } else {
+          for (const e of this.ents) {
+            if (e.hp <= 0 || Math.hypot(e.x - f.x, e.z - f.z) > f.radius) continue;
+            if (f.kind === 'frost')
+              e.chillUntil = Math.max(e.chillUntil, this.time + 1.2 * this.memoryFactor());
+            if (f.kind === 'fire')
+              e.igniteUntil = Math.max(e.igniteUntil, this.time + 1.8 * this.memoryFactor());
+            if (f.kind === 'toxic') {
+              e.toxinUntil = Math.max(e.toxinUntil, this.time + 2.5 * this.memoryFactor());
+              e.toxinDps = Math.max(e.toxinDps, f.dps * 0.55);
+            }
+            let fieldHit = f.dps * 0.25;
+            if (f.kind === 'toxic' && f.mutation === 'toxic_corrosive') {
+              const protectedTarget =
+                !!e.linkedTo ||
+                e.affix === 'shielded' ||
+                this.ents.some(
+                  (o) =>
+                    o.kind === 'elite' &&
+                    o.chassis === 'bulwark' &&
+                    o.hp > 0 &&
+                    Math.hypot(o.x - e.x, o.z - e.z) < 6.5
+                );
+              if (protectedTarget) fieldHit *= 1.65;
+            }
+            this.damage(
+              e,
+              fieldHit,
+              f.kind === 'arc' ? 'arc_field' : f.kind === 'toxic' ? 'toxic_mist' : 'fire_field',
+              false,
+              f.x,
+              f.z,
+              f.sourceSlot ?? -1
+            );
+            this.fieldDamage += f.dps * 0.25;
           }
-          this.damage(
-            e,
-            fieldHit,
-            f.kind === 'arc' ? 'arc_field' : f.kind === 'toxic' ? 'toxic_mist' : 'fire_field',
-            false,
-            f.x,
-            f.z
-          );
-          this.fieldDamage += f.dps * 0.25;
         }
       }
       if (f.ttl > 0) alive.push(f);
@@ -2379,8 +2757,8 @@ export class Simulation {
     for (const p of this.pickups) {
       const dx = this.px - p.x,
         dz = this.pz - p.z,
-        d = Math.hypot(dx, dz) || 1;
-      if (d < this.pickupRadius) {
+        d = Math.hypot(dx, dz);
+      if (d > 1e-6 && d < this.pickupRadius) {
         const sp = 5.5 + Math.max(0, this.pickupRadius - d) * 2.4;
         p.x += (dx / d) * sp * this.dt;
         p.z += (dz / d) * sp * this.dt;
@@ -2388,6 +2766,7 @@ export class Simulation {
       if (d < 0.42) {
         if (p.kind === 'xp') this.xp += p.value;
         else if (p.kind === 'core') this.eliteCore += p.value;
+        else if (p.kind === 'mutation') this.mutationCores += p.value;
         else {
           this.healPlayer(p.value);
           this.metrics.healsPicked++;
@@ -2515,6 +2894,7 @@ export class Simulation {
         break;
       case 'edge':
         e.relicCastMul = (e.relicCastMul ?? 1) * 1.2;
+        if (allowClaim) e.groundRelicCastMul = (e.groundRelicCastMul ?? 1) * 1.2;
         break;
       case 'pace':
         e.speed *= 1.1;
@@ -2533,6 +2913,8 @@ export class Simulation {
     const def = items[r.item];
     this.metrics.relicsTakenByElites++;
     this.applyEliteItem(e, r.item, true);
+    const record = this.eliteLogById.get(e.id);
+    if (record) record.itemsTaken.push(r.item);
     this.events.push({
       type: 'RelicTaken',
       tick: this.tick,
@@ -2557,28 +2939,44 @@ export class Simulation {
     for (const c of this.constructs) {
       c.ttl -= this.dt;
       c.cooldown -= this.dt;
-      const st = this.skillsRuntime.get(c.skill);
-      if (st?.mutation === 'sentry_crawler') {
-        const dx = this.px - c.x,
-          dz = this.pz - c.z,
+      const owner = c.ownerId ? this.ents.find((e) => e.id === c.ownerId) ?? null : null;
+      const followX = c.faction === 'rival' && owner ? owner.x : this.px;
+      const followZ = c.faction === 'rival' && owner ? owner.z : this.pz;
+      if (c.mutation === 'sentry_crawler' || c.mutationUpgrade === 'sentry_crawler') {
+        const dx = followX - c.x,
+          dz = followZ - c.z,
           d = Math.hypot(dx, dz) || 1;
         if (d > 2.6) {
           c.x += (dx / d) * 1.65 * this.dt;
           c.z += (dz / d) * 1.65 * this.dt;
         }
       }
-      if (st && c.cooldown <= 0) {
-        let interval =
-          st.mutation === 'sentry_gatling' ? 0.3 : st.mutation === 'sentry_rail' ? 1.1 : 0.62;
+      if (c.cooldown <= 0) {
+        const interval =
+          c.mutation === 'sentry_gatling' ? 0.3 : c.mutation === 'sentry_rail' ? 1.1 : 0.62;
         c.cooldown = interval;
-        const constructSrc = this.heroSource();
-        let targets = this.ents.filter(
+        const tx = c.faction === 'rival' ? this.px : this.aimPoint(this.heroSource(), c.range).x;
+        const tz = c.faction === 'rival' ? this.pz : this.aimPoint(this.heroSource(), c.range).z;
+        const dx = tx - c.x,
+          dz = tz - c.z,
+          dm = Math.hypot(dx, dz) || 1;
+        const constructSrc: CastSource = {
+          faction: c.faction,
+          owner,
+          x: c.x,
+          z: c.z,
+          aimX: dx / dm,
+          aimZ: dz / dm,
+          vx: 0,
+          vz: 0
+        };
+        let targets = this.targetsFor(constructSrc).filter(
           (e) =>
             e.hp > 0 &&
             this.targetVisible(constructSrc, e) &&
             Math.hypot(e.x - c.x, e.z - c.z) <= c.range
         );
-        if (st.mutation === 'sentry_rail')
+        if (c.mutation === 'sentry_rail')
           targets.sort(
             (a, b) =>
               Number(b.kind === 'elite') - Number(a.kind === 'elite') ||
@@ -2590,17 +2988,28 @@ export class Simulation {
           );
         const t = targets[0];
         if (t) {
-          let dmg = skills.sentry.baseDamage * this.powerBucket(st) * c.power;
-          if (st.mutation === 'sentry_gatling') dmg *= 0.52;
-          if (st.mutation === 'sentry_rail') dmg *= 1.9;
+          let dmg = skills.sentry.baseDamage * c.power;
+          if (c.mutation === 'sentry_gatling') dmg *= 0.52;
+          if (c.mutation === 'sentry_rail') dmg *= 1.9;
           if (
-            st.mutation === 'sentry_relay' &&
+            c.mutation === 'sentry_relay' &&
             (t.markUntil > this.time || t.embedded > 0 || this.time - t.lastArcAt < 2.2)
           )
             dmg *= 1.28;
-          this.damage(t, dmg, 'sentry', true, c.x, c.z);
+          const prevOwner = this.castOwner,
+            prevConcentration = this.castRivalConcentration;
+          if (c.faction === 'rival') {
+            this.castOwner = owner;
+            this.castRivalConcentration = c.rivalConcentration;
+          }
+          try {
+            this.damage(t, dmg, 'sentry', true, c.x, c.z, c.sourceSlot);
+          } finally {
+            this.castOwner = prevOwner;
+            this.castRivalConcentration = prevConcentration;
+          }
           t.sentryTouchedUntil = this.time + 4;
-          if (st.mutation === 'sentry_relay') {
+          if (c.mutation === 'sentry_relay' && c.faction === 'hero') {
             t.markUntil = Math.max(t.markUntil, this.time + 2.8 * this.memoryFactor());
             t.lastArcAt = this.time;
           }
@@ -2629,7 +3038,7 @@ export class Simulation {
       dmg *= 1.4;
     }
     let blood = 1;
-    if (mut === 'orbit_blood') {
+    if (this.mutationIs(st, 'orbit_blood')) {
       const wounded = this.ents.filter(
         (e) => e.woundUntil > this.time && Math.hypot(e.x - this.px, e.z - this.pz) < 5
       ).length;
@@ -2692,26 +3101,41 @@ export class Simulation {
     return this.activationScale;
   }
 
-  private powerBucket(_st: SkillRuntime) {
-    return this.corePower() * (1 + this.globalPower);
+  private mutationIs(st: SkillRuntime, id: MutationId) {
+    return st.mutation === id || st.mutationUpgrade === id;
+  }
+  private mutationContinuation(st: SkillRuntime) {
+    return st.mutationUpgrade ? mutationDef(st.id, st.mutationUpgrade).continuation : undefined;
+  }
+  private powerBucket(st: SkillRuntime) {
+    return this.corePower() * (1 + this.globalPower) * (this.mutationContinuation(st)?.powerMul ?? 1);
   }
   private skillRadius(st: SkillRuntime, base: number, _slot = this.currentSlot) {
-    return base * Math.sqrt(1 + Math.max(0, st.coverage));
+    return base * Math.sqrt(1 + Math.max(0, st.coverage)) * (this.mutationContinuation(st)?.radiusMul ?? 1);
   }
   private skillRange(st: SkillRuntime, base: number) {
-    return base * (1 + Math.max(0, st.range));
+    return base * (1 + Math.max(0, st.range)) * (this.mutationContinuation(st)?.rangeMul ?? 1);
   }
   private memoryFactor() {
     return 1 + this.resonance.persistence * 0.18;
   }
   private persistentDuration(st: SkillRuntime, base: number, _slot = this.currentSlot) {
-    const axis = this.supportsAxis(st.id, 'persistence') ? this.resonance.persistence : 0;
-    return base * (1 + Math.max(0, st.duration)) * (1 + axis * 0.22);
+    const rival = this.castOwner;
+    const heroAxis = !rival && this.supportsAxis(st.id, 'persistence') ? this.resonance.persistence : 0;
+    const rivalAxis = rival ? this.rivalAxisCount(rival, 'persistence') : 0;
+    return (
+      base *
+      (1 + Math.max(0, st.duration)) *
+      (1 + heroAxis * 0.22) *
+      Math.pow(1.22, rivalAxis) *
+      (this.mutationContinuation(st)?.durationMul ?? 1)
+    );
   }
   private projectileCount(st: SkillRuntime, _slot: number) {
     let c = Math.max(1, Math.round(st.count)) + this.activationCountBonus;
     const mult = this.supportsAxis(st.id, 'multiplicity') ? this.resonance.multiplicity : 0;
     c += Math.min(3, mult);
+    c += this.mutationContinuation(st)?.countAdd ?? 0;
     return Math.max(1, c);
   }
 
@@ -2845,17 +3269,21 @@ export class Simulation {
   /** Covers an angle instead of a point, so a rough aim still lands something. */
   private castShardFan(st: SkillRuntime, slot: number, src: CastSource) {
     const mut = st.mutation,
-      range = skills.shard_fan.baseRange * (1 + st.range),
-      width = this.skillRadius(st, skills.shard_fan.baseRadius, slot);
-    let lines = mut === 'fan_wide' ? 7 : 5,
-      spread = mut === 'fan_tight' ? 0.16 : mut === 'fan_wide' ? 0.62 : 0.4;
-    const hit = new Set<number>();
+      range = skills.shard_fan.baseRange * (1 + st.range);
+    const lines = (mut === 'fan_wide' ? 7 : 5) + (this.mutationContinuation(st)?.countAdd ?? 0),
+      spread = mut === 'fan_tight' ? 0.16 : mut === 'fan_wide' ? 0.62 : 0.4,
+      speed = 19.5,
+      baseDamage =
+        skills.shard_fan.baseDamage *
+        this.powerBucket(st) *
+        this.activationScale *
+        (mut === 'fan_wide' ? 0.76 : 1);
     for (let i = 0; i < lines; i++) {
-      const ang = lines === 1 ? 0 : (i / (lines - 1) - 0.5) * 2 * spread,
+      const ang = (i / (lines - 1) - 0.5) * 2 * spread,
         c = Math.cos(ang),
-        s = Math.sin(ang),
-        ax = src.aimX * c - src.aimZ * s,
-        az = src.aimX * s + src.aimZ * c;
+        sn = Math.sin(ang),
+        ax = src.aimX * c - src.aimZ * sn,
+        az = src.aimX * sn + src.aimZ * c;
       this.combatShape('shard_fan', {
         kind: 'sector',
         x: src.x,
@@ -2865,22 +3293,22 @@ export class Simulation {
         aimZ: az,
         halfAngle: 0.06
       });
-      for (const e of this.targetsFor(src)) {
-        const dx = e.x - src.x,
-          dz = e.z - src.z,
-          along = dx * ax + dz * az;
-        if (along < 0 || along > range) continue;
-        if (Math.abs(dx * az - dz * ax) > width + e.radius) continue;
-        let dmg = skills.shard_fan.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
-        if (mut === 'fan_wide') dmg *= 0.76;
-        if (hit.has(e.id)) dmg *= 0.55;
-        hit.add(e.id);
-        this.damage(e, dmg, 'shard_fan', true);
-        if (mut === 'fan_burn') {
-          e.igniteUntil = Math.max(e.igniteUntil, this.time + 2.6 * this.memoryFactor());
-          this.noteState('ignite');
-        }
-      }
+      this.spawnProjectile({
+        x: src.x + ax * 0.55,
+        z: src.z + az * 0.55,
+        vx: ax * speed,
+        vz: az * speed,
+        radius: 0.2,
+        ttl: range / speed,
+        damage: baseDamage,
+        coverDamage: baseDamage * 0.72,
+        faction: src.faction,
+        ownerId: src.owner?.id ?? 0,
+        source: 'shard_fan',
+        sourceSlot: slot,
+        mutation: mut,
+        rivalConcentration: effectGrammar.shard_fan.rivalConcentration
+      });
     }
   }
   /** Gathers a scattered crowd into one place where everything else can reach it. */
@@ -3380,7 +3808,7 @@ export class Simulation {
   ) {
     const hits: { e: Ent; t: number; lat: number }[] = [];
     for (const e of this.targetsFor(src)) {
-      if (e.hp <= 0) continue;
+      if (e.hp <= 0 || !this.lineOfSight(src.x, src.z, e.x, e.z, width * 0.2)) continue;
       const dx = e.x - src.x,
         dz = e.z - src.z,
         t = dx * ax + dz * az;
@@ -3397,6 +3825,7 @@ export class Simulation {
     return { x: src.aimX * c - src.aimZ * s, z: src.aimX * s + src.aimZ * c };
   }
   private targetVisible(src: CastSource, e: Ent) {
+    if (!this.lineOfSight(src.x, src.z, e.x, e.z, 0.1)) return false;
     for (const f of this.fields) {
       if (f.kind !== 'veil') continue;
       const inside = Math.hypot(e.x - f.x, e.z - f.z) < f.radius,
@@ -3475,7 +3904,7 @@ export class Simulation {
       const a = this.rotatedAim(src, ang),
         range = this.skillRange(st, mut === 'ember_furnace' ? 8 : skills.ember_lance.baseRange),
         width = this.skillRadius(st, mut === 'ember_furnace' ? 1.05 : 0.4, slot),
-        maxHits = mut === 'ember_impaler' ? 4 : 1;
+        maxHits = this.mutationIs(st, 'ember_impaler') ? 4 : 1;
       this.combatShape('ember_lance', {
         kind: 'ray',
         x: src.x,
@@ -3491,7 +3920,7 @@ export class Simulation {
           this.powerBucket(st) *
           this.slotAmp(slot, h.e) *
           (mut === 'ember_volley' ? 0.82 : count > 1 ? 0.86 : 1);
-        if (mut === 'ember_impaler' && h.e.kind === 'elite') dmg *= 1.7;
+        if (this.mutationIs(st, 'ember_impaler') && h.e.kind === 'elite') dmg *= 1.7;
         const chilled = h.e.chillUntil > this.time;
         if (chilled) {
           h.e.chillUntil = 0;
@@ -3530,7 +3959,13 @@ export class Simulation {
         ttl: this.persistentDuration(st, 2.9, slot),
         kind: 'fire',
         dps: 17 * this.powerBucket(st),
-        tickAcc: 0
+        tickAcc: 0,
+        faction: src.faction,
+        ownerId: src.owner?.id ?? 0,
+        source: st.id,
+        sourceSlot: slot,
+        mutation: st.mutation,
+        rivalConcentration: effectGrammar[st.id].rivalConcentration
       });
       this.noteState('field');
     }
@@ -3539,7 +3974,7 @@ export class Simulation {
     const mut = st.mutation,
       r = this.skillRadius(st, skills.frost_ring.baseRadius, slot),
       capacitive =
-        this.skillsRuntime.get('chain_arc')?.mutation === 'arc_capacitive' && this.charge > 0
+        (() => { const st = this.skillsRuntime.get('chain_arc'); return !!st && this.mutationIs(st, 'arc_capacitive'); })() && this.charge > 0
           ? 1 + Math.min(0.4, this.charge * 0.08)
           : 1;
     this.combatShape('frost_ring', { kind: 'circle', x: src.x, z: src.z, radius: r }, 'control');
@@ -3576,8 +4011,8 @@ export class Simulation {
       e.chillUntil = this.time + 2.4 * (1 + st.statusPotency) * this.memoryFactor();
       this.noteState('chill');
       this.currentActivationControl += 1 + st.control;
-      if (mut === 'frost_brittle') e.exposedUntil = this.time + 2.8 * this.memoryFactor();
-      if (mut === 'frost_skin' && killed && (was || ignited)) this.grantBarrier(9);
+      if (this.mutationIs(st, 'frost_brittle')) e.exposedUntil = this.time + 2.8 * this.memoryFactor();
+      if (this.mutationIs(st, 'frost_skin') && killed && (was || ignited)) this.grantBarrier(9);
     }
     if (mut === 'frost_front') {
       this.fields.push({
@@ -3588,7 +4023,13 @@ export class Simulation {
         ttl: this.persistentDuration(st, 1.6, slot),
         kind: 'frost',
         dps: 13 * this.powerBucket(st),
-        tickAcc: 0
+        tickAcc: 0,
+        faction: src.faction,
+        ownerId: src.owner?.id ?? 0,
+        source: st.id,
+        sourceSlot: slot,
+        mutation: st.mutation,
+        rivalConcentration: effectGrammar[st.id].rivalConcentration
       });
       this.noteState('field');
     }
@@ -3605,7 +4046,13 @@ export class Simulation {
         ttl: 0.55 + i * 0.18,
         kind: 'frost',
         dps: 8 * this.powerBucket(st),
-        tickAcc: 0
+        tickAcc: 0,
+        faction: src.faction,
+        ownerId: src.owner?.id ?? 0,
+        source: st.id,
+        sourceSlot: slot,
+        mutation: st.mutation,
+        rivalConcentration: effectGrammar[st.id].rivalConcentration
       });
     if (capacitive > 1) this.charge = 0;
   }
@@ -3652,13 +4099,13 @@ export class Simulation {
       let first = true;
       for (const h of hits) {
         let dmg = base * this.slotAmp(slot, h.e);
-        if (mut === 'rail_spot' && h.e.markUntil > this.time) dmg *= 1.25;
+        if (this.mutationIs(st, 'rail_spot') && h.e.markUntil > this.time) dmg *= 1.25;
         const hadMark = h.e.markUntil > this.time;
         this.damage(h.e, dmg, 'rail_spear', true);
         h.e.embedded = Math.min(8, h.e.embedded + (mut === 'rail_rack' ? 2 : 1));
         this.noteState('embed');
-        if ((mut === 'rail_spot' || hadMark) && hadMark) h.e.exposedUntil = this.time + 3;
-        if (mut === 'rail_harpoon' && first && h.e.kind === 'elite') {
+        if ((this.mutationIs(st, 'rail_spot') || hadMark) && hadMark) h.e.exposedUntil = this.time + 3;
+        if (this.mutationIs(st, 'rail_harpoon') && first && h.e.kind === 'elite') {
           const dx = src.x - h.e.x,
             dz = src.z - h.e.z,
             d = Math.hypot(dx, dz) || 1;
@@ -3698,16 +4145,16 @@ export class Simulation {
         (repeat ? 0.65 : 1);
       if (mut === 'cleaver_roundhouse') dmg *= 1.0;
       if (mut === 'cleaver_guillotine' && e.hp / e.maxHp < 0.25) dmg *= 2;
-      if (mut === 'cleaver_deep') dmg *= 0.72;
+      if (this.mutationIs(st, 'cleaver_deep')) dmg *= 0.72;
       const killed = this.damage(e, dmg, 'cleaver', true);
       this.closeDamage += dmg;
       if (killed) kills++;
       e.woundUntil = Math.max(
         e.woundUntil,
         this.time +
-          (mut === 'cleaver_deep' ? 4.8 : 2.6) * (1 + st.statusPotency) * this.memoryFactor()
+          (this.mutationIs(st, 'cleaver_deep') ? 4.8 : 2.6) * (1 + st.statusPotency) * this.memoryFactor()
       );
-      e.woundDps = Math.max(e.woundDps, (mut === 'cleaver_deep' ? 11 : 4.5) * this.powerBucket(st));
+      e.woundDps = Math.max(e.woundDps, (this.mutationIs(st, 'cleaver_deep') ? 11 : 4.5) * this.powerBucket(st));
       this.noteState('wound');
       if (mut === 'cleaver_hook') {
         const tx = src.x - e.x,
@@ -3716,12 +4163,12 @@ export class Simulation {
         e.x += (tx / td) * 0.65 * (1 + st.control);
         e.z += (tz / td) * 0.65 * (1 + st.control);
       }
-      if (mut === 'cleaver_deep') {
+      if (this.mutationIs(st, 'cleaver_deep')) {
         e.woundUntil = this.time + 4 * (1 + st.statusPotency) * this.memoryFactor();
         e.woundDps = Math.max(e.woundDps, 10 * this.powerBucket(st));
       }
     }
-    if (mut === 'cleaver_rhythm' && kills > 0 && !repeat) {
+    if (this.mutationIs(st, 'cleaver_rhythm') && kills > 0 && !repeat) {
       this.butcherStacks = Math.min(4, this.butcherStacks + kills);
       if (this.rng.float() < Math.min(0.65, this.butcherStacks * 0.16)) {
         this.castCleaver(st, slot, src, true);
@@ -3746,8 +4193,11 @@ export class Simulation {
   private castArc(st: SkillRuntime, slot: number, src: CastSource) {
     const mut = st.mutation,
       maxJumps =
-        (mut === 'arc_forked' ? 7 : 4) + Math.max(0, st.count - 1) + this.resonance.multiplicity,
-      jumpRange = this.skillRange(st, mut === 'arc_relay' ? 5.8 : 4.2);
+        (mut === 'arc_forked' ? 7 : 4) +
+        Math.max(0, st.count - 1) +
+        this.resonance.multiplicity +
+        (this.mutationContinuation(st)?.countAdd ?? 0),
+      jumpRange = this.skillRange(st, this.mutationIs(st, 'arc_relay') ? 5.8 : 4.2);
     let current: Ent | undefined;
     const available = this.targetsFor(src).filter(
       (e) =>
@@ -3788,7 +4238,7 @@ export class Simulation {
       }
       this.damage(current, dmg, 'chain_arc', false, prevX, prevZ);
       this.noteState('charge');
-      if (mut === 'arc_cage' && this.time - current.lastArcAt < 2.2)
+      if (this.mutationIs(st, 'arc_cage') && this.time - current.lastArcAt < 2.2)
         this.fields.push({
           id: this.nextId++,
           x: current.x,
@@ -3797,7 +4247,13 @@ export class Simulation {
           ttl: 1.7 * (1 + st.duration),
           kind: 'arc',
           dps: 13 * this.powerBucket(st),
-          tickAcc: 0
+          tickAcc: 0,
+        faction: src.faction,
+        ownerId: src.owner?.id ?? 0,
+        source: st.id,
+        sourceSlot: slot,
+        mutation: st.mutation,
+        rivalConcentration: effectGrammar[st.id].rivalConcentration
         });
       current.lastArcAt = this.time;
       prevX = current.x;
@@ -3819,14 +4275,19 @@ export class Simulation {
       this.charge = Math.min(5, this.charge + (maxJumps - jumps));
   }
   private castOrbit(st: SkillRuntime, slot: number, src: CastSource) {
-    if (st.mutation === 'orbit_outbound') {
-      const r = this.skillRadius(st, 4.6, slot);
+    // The hero owns a continuously simulated orbit; a rival cannot borrow that global loop.
+    // D41 therefore mirrors the function as a readable ring pulse around the elite.
+    if (src.faction === 'rival' || st.mutation === 'orbit_outbound') {
+      const r = this.skillRadius(st, src.faction === 'rival' ? 2.8 : 4.6, slot);
       this.combatShape('orbit_blades', { kind: 'circle', x: src.x, z: src.z, radius: r });
       for (const e of this.targetsFor(src)) {
-        if (Math.hypot(e.x - src.x, e.z - src.z) < r)
+        if (Math.hypot(e.x - src.x, e.z - src.z) < r + e.radius)
           this.damage(
             e,
-            skills.orbit_blades.baseDamage * 2.2 * this.powerBucket(st) * this.slotAmp(slot, e),
+            skills.orbit_blades.baseDamage *
+              (src.faction === 'rival' ? 1.45 : 2.2) *
+              this.powerBucket(st) *
+              this.slotAmp(slot, e),
             'orbit_blades',
             false
           );
@@ -3842,7 +4303,7 @@ export class Simulation {
     if (mut === 'mortar_fuse') {
       r *= 1.35;
       mult *= 1.35;
-    } else if (mut === 'mortar_airburst') {
+    } else if (this.mutationIs(st, 'mortar_airburst')) {
       r *= 1.45;
       mult *= 0.82;
     }
@@ -3867,7 +4328,7 @@ export class Simulation {
           this.damage(e, dmg, 'mortar_bloom', false, cx, cz);
         }
       }
-      if (mut === 'mortar_crater' && n === 0)
+      if (this.mutationIs(st, 'mortar_crater') && n === 0)
         this.fields.push({
           id: this.nextId++,
           x: cx,
@@ -3876,7 +4337,13 @@ export class Simulation {
           ttl: this.persistentDuration(st, 3.3, slot),
           kind: 'frost',
           dps: 6 * this.powerBucket(st),
-          tickAcc: 0
+          tickAcc: 0,
+        faction: src.faction,
+        ownerId: src.owner?.id ?? 0,
+        source: st.id,
+        sourceSlot: slot,
+        mutation: st.mutation,
+        rivalConcentration: effectGrammar[st.id].rivalConcentration
         });
     }
     this.noteState('field');
@@ -3894,7 +4361,13 @@ export class Simulation {
         cooldown: 0.1 + i * 0.08,
         range: this.skillRange(st, skills.sentry.baseRange),
         power: this.slotAmp(slot),
-        skill: 'sentry'
+        skill: 'sentry',
+        faction: src.faction,
+        ownerId: src.owner?.id ?? 0,
+        sourceSlot: slot,
+        mutation: st.mutation,
+        mutationUpgrade: st.mutationUpgrade,
+        rivalConcentration: effectGrammar.sentry.rivalConcentration
       });
       this.events.push({
         type: 'ConstructSpawned',
@@ -3914,10 +4387,10 @@ export class Simulation {
       r *= 0.58;
       dps *= 1.85;
     }
-    const x = st.mutation === 'toxic_plume' ? src.x - src.vx * 0.55 : src.x,
-      z = st.mutation === 'toxic_plume' ? src.z - src.vz * 0.55 : src.z;
+    const x = this.mutationIs(st, 'toxic_plume') ? src.x - src.vx * 0.55 : src.x,
+      z = this.mutationIs(st, 'toxic_plume') ? src.z - src.vz * 0.55 : src.z;
     this.combatShape('toxic_mist', { kind: 'circle', x, z, radius: r }, 'field');
-    if (st.mutation === 'toxic_reactive') {
+    if (this.mutationIs(st, 'toxic_reactive')) {
       for (const e of this.targetsFor(src)) {
         if (e.hp <= 0 || Math.hypot(e.x - x, e.z - z) > r + e.radius) continue;
         const reactive = e.woundUntil > this.time || e.igniteUntil > this.time;
@@ -3939,7 +4412,13 @@ export class Simulation {
       ttl: this.persistentDuration(st, 4.2, slot),
       kind: 'toxic',
       dps,
-      tickAcc: 0
+      tickAcc: 0,
+        faction: src.faction,
+        ownerId: src.owner?.id ?? 0,
+        source: st.id,
+        sourceSlot: slot,
+        mutation: st.mutation,
+        rivalConcentration: effectGrammar[st.id].rivalConcentration
     });
     for (let i = 0; i < Math.min(3, this.resonance.multiplicity); i++) {
       const a =
@@ -3954,7 +4433,13 @@ export class Simulation {
         ttl: this.persistentDuration(st, 3.0, slot),
         kind: 'toxic',
         dps: dps * 0.58,
-        tickAcc: 0
+        tickAcc: 0,
+        faction: src.faction,
+        ownerId: src.owner?.id ?? 0,
+        source: st.id,
+        sourceSlot: slot,
+        mutation: st.mutation,
+        rivalConcentration: effectGrammar[st.id].rivalConcentration
       });
     }
     this.noteState('toxin');
@@ -3962,7 +4447,7 @@ export class Simulation {
   private castRepulse(st: SkillRuntime, slot: number, src: CastSource) {
     const mut = st.mutation,
       r0 = this.skillRadius(st, skills.repulse_halo.baseRadius, slot),
-      passes = mut === 'repulse_rings' ? 2 : 1;
+      passes = this.mutationIs(st, 'repulse_rings') ? 2 : 1;
     let aegisGranted = 0;
     for (let pass = 0; pass < passes; pass++) {
       const r = r0 * (passes === 2 ? (pass === 0 ? 0.72 : 1.05) : 1),
@@ -3996,7 +4481,7 @@ export class Simulation {
           this.grantBarrier(g);
           aegisGranted += g;
         }
-        if (mut === 'repulse_relay')
+        if (this.mutationIs(st, 'repulse_relay'))
           this.charge = Math.min(6, this.charge + 0.22 + st.control * 0.08);
       }
     }
@@ -4021,7 +4506,7 @@ export class Simulation {
     );
     const hits = this.rayHits(src, src.aimX, src.aimZ, range, width, 18);
     let cargo = 0;
-    if (mut === 'mass_cargo') {
+    if (this.mutationIs(st, 'mass_cargo')) {
       for (const c of this.constructs) {
         const dx = c.x - src.x,
           dz = c.z - src.z,
@@ -4038,7 +4523,7 @@ export class Simulation {
       }
     }
     let terminal = 1;
-    if (mut === 'mass_terminal') {
+    if (this.mutationIs(st, 'mass_terminal')) {
       terminal += Math.min(
         1.0,
         this.charge * 0.14 + (this.capacitorCharge + this.overflowCharge) / 260
@@ -4053,7 +4538,7 @@ export class Simulation {
         this.slotAmp(slot, h.e) *
         (mut === 'mass_rail' ? 1.55 : 1) *
         terminal *
-        (mut === 'mass_cargo' ? 1 + Math.min(0.8, cargo * 0.16) : 1);
+        (this.mutationIs(st, 'mass_cargo') ? 1 + Math.min(0.8, cargo * 0.16) : 1);
       if (mut === 'mass_snowball') dmg *= 1 + Math.min(0.9, n * 0.1);
       this.damage(h.e, dmg, 'mass_driver', true);
       const push = 0.7 * (1 + st.control);
@@ -4075,7 +4560,8 @@ export class Simulation {
     source: string,
     directional: boolean,
     sourceX = this.px,
-    sourceZ = this.pz
+    sourceZ = this.pz,
+    sourceSlot = this.currentSlot
   ) {
     // A rival-owned cast resolves against the player, not against the enemy roster.
     // None of the bookkeeping below applies: it is all scored from the hero's point of view.
@@ -4206,7 +4692,18 @@ export class Simulation {
       const record = this.eliteLogById.get(e.id);
       if (record) {
         record.damageFromHero += actual;
+        const delayedOwner: Partial<Record<string, SkillId>> = {
+          wound_dot: 'cleaver',
+          toxin_dot: 'toxic_mist',
+          arc_field: 'chain_arc',
+          fire_field: 'ember_lance'
+        };
+        const ownerSkill = delayedOwner[source] ?? (skills[source as SkillId] ? (source as SkillId) : null);
+        const resolvedSlot = sourceSlot >= 0 ? sourceSlot : ownerSkill ? this.slots.indexOf(ownerSkill) : -1;
+        const node = resolvedSlot >= 0 ? `${resolvedSlot}:${ownerSkill ?? source}` : `derived:${source}`;
+        record.damageFromHeroByNode[node] = (record.damageFromHeroByNode[node] ?? 0) + actual;
         if (record.engagedAt < 0) record.engagedAt = this.time;
+        record.lastExchangeAt = this.time;
       }
     }
     if (directional) this.directionalDamage += actual;
@@ -4238,7 +4735,7 @@ export class Simulation {
     if (
       killed &&
       source === 'ember_lance' &&
-      this.skillsRuntime.get('ember_lance')?.mutation === 'ember_backdraft'
+      (() => { const st = this.skillsRuntime.get('ember_lance'); return !!st && this.mutationIs(st, 'ember_backdraft'); })()
     ) {
       for (const o of this.ents) {
         if (o !== e && o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < 2.3) {
@@ -4255,18 +4752,31 @@ export class Simulation {
   }
   // Damage landing on the player. Mitigation, barrier and death are owned by hitPlayer,
   // so this only records the source and reports whether the blow was lethal.
-  private damageHero(amount: number, source: string) {
-    // castOwner is set only while an elite is fielding a refusal, so contact damage and
-    // every other route into hitPlayer are untouched by the concentration above.
-    if (this.castOwner) {
-      amount *= Simulation.RIVAL_CONCENTRATION;
-      amount *= this.castOwner.relicCastMul ?? 1;
+  private damageHero(
+    amount: number,
+    source: string,
+    attacker: Ent | null = this.castOwner,
+    concentration = this.castRivalConcentration
+  ) {
+    if (attacker) {
+      amount *= concentration;
       amount *= this.itemRefusalDamageMul;
-      amount *= Math.pow(1.3, this.rivalAxisCount(this.castOwner, 'precision'));
-      amount *= Math.pow(1.16, this.rivalAxisCount(this.castOwner, 'multiplicity'));
+      amount *= Math.pow(1.3, this.rivalAxisCount(attacker, 'precision'));
+      amount *= Math.pow(1.16, this.rivalAxisCount(attacker, 'multiplicity'));
+      const allItemMul = attacker.relicCastMul ?? 1;
+      const groundMul = attacker.groundRelicCastMul ?? 1;
+      if (groundMul > 1) {
+        const withoutGround = amount * (allItemMul / groundMul);
+        const reduction = this.armor / (this.armor + 100);
+        const record = this.eliteLogById.get(attacker.id);
+        if (record)
+          record.itemAmplifiedDamage +=
+            (amount * allItemMul - withoutGround) * (1 - reduction) * this.itemDamageTakenMul;
+      }
+      amount *= allItemMul;
     }
     if (this.php <= 0) return false;
-    this.hitPlayer(amount, this.castOwner);
+    this.hitPlayer(amount, attacker, source);
     this.damageToHeroBySource.set(source, (this.damageToHeroBySource.get(source) ?? 0) + amount);
     return this.php <= 0;
   }
@@ -4298,7 +4808,7 @@ export class Simulation {
       }
       if (
         e.toxinUntil > this.time &&
-        this.skillsRuntime.get('toxic_mist')?.mutation === 'toxic_contagion'
+        (() => { const st = this.skillsRuntime.get('toxic_mist'); return !!st && this.mutationIs(st, 'toxic_contagion'); })()
       ) {
         for (const o of this.ents) {
           if (o !== e && o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < 2.8) {
@@ -4399,12 +4909,20 @@ export class Simulation {
       }
       if (elite && e.guardianPoi < 0) continue;
       if (elite) {
+        if (e.rarity === 'uplifted' || e.rarity === 'legendary')
+          this.pickups.push({
+            id: this.nextId++,
+            x: e.x + 0.12,
+            z: e.z + 0.34,
+            value: 1,
+            kind: 'mutation'
+          });
         let core =
           2 + (eliteAffixThreat[e.affix] >= 2 ? 1 : 0) + (eliteAffixThreat[e.affix] >= 4 ? 1 : 0);
         if (this.mode === 'clean' && this.allOwnedCatalysts().length === 0)
           core = Math.max(core, 5);
         if (
-          this.skillsRuntime.get('sentry')?.mutation === 'sentry_salvager' &&
+          (() => { const st = this.skillsRuntime.get('sentry'); return !!st && this.mutationIs(st, 'sentry_salvager'); })() &&
           e.sentryTouchedUntil > this.time
         )
           core += 1;
@@ -4436,10 +4954,12 @@ export class Simulation {
 
   private checkProgression() {
     if (this.hasChoice) return;
-    const unmutated = this.slots.filter(
-      (id): id is SkillId => !!id && !this.skillState(id).mutation
-    );
-    if (this.mutationCores > 0 && unmutated.length) {
+    const evolvable = this.slots.filter((id): id is SkillId => {
+      if (!id) return false;
+      const st = this.skillState(id);
+      return !st.mutation || (!st.mutationUpgrade && mutationChildren(id, st.mutation).length > 0);
+    });
+    if (this.mutationCores > 0 && evolvable.length) {
       this.generateMutationTargetOffers();
       return;
     }
@@ -4453,7 +4973,6 @@ export class Simulation {
       this.level++;
       this.metrics.levels++;
       this.xpNeed = this.nextXpNeed(this.level);
-      if (this.level === 6 || this.level === 11 || this.level === 17) this.mutationCores++;
       this.generateLevelOffers();
       this.events.push({ type: 'LevelUp', tick: this.tick, level: this.level });
     }
@@ -4766,18 +5285,28 @@ export class Simulation {
     };
   }
   private generateMutationTargetOffers() {
-    const active = this.slots.filter((id): id is SkillId => !!id && !this.skillState(id).mutation);
+    const active = this.slots.filter((id): id is SkillId => {
+      if (!id) return false;
+      const st = this.skillState(id);
+      return !st.mutation || (!st.mutationUpgrade && mutationChildren(id, st.mutation).length > 0);
+    });
     if (!active.length) return;
     this.rewardOffers = this.shuffle([...active])
       .slice(0, 3)
-      .map((id) => ({
-        id: `mut-target:${id}:${this.rng.nextU32()}`,
-        kind: 'mutation_target',
-        title: skills[id].name,
-        subtitle: `MUTATION CORE · доступно ${this.mutationCores}`,
-        description: `Эволюционировать ${skills[id].name}. Core принадлежит рану: если мутированный Phenomenon уйдёт в Архив, ядро вернётся.`,
-        skill: id
-      }));
+      .map((id) => {
+        const st = this.skillState(id);
+        const continuation = !!st.mutation;
+        return {
+          id: `mut-target:${id}:${this.rng.nextU32()}`,
+          kind: 'mutation_target' as const,
+          title: skills[id].name,
+          subtitle: `${continuation ? 'ПРОДОЛЖЕНИЕ' : 'МУТАЦИЯ'} · CORE ${this.mutationCores}`,
+          description: continuation
+            ? `Продолжить выбранную ветвь «${mutationDef(id, st.mutation!).name}». Корень останется активен.`
+            : `Выбрать одну из трёх ветвей ${skills[id].name}. Core принадлежит рану: если мутированный Phenomenon уйдёт в Архив, ядро вернётся.`,
+          skill: id
+        };
+      });
     this.choiceSerial++;
   }
   private generateEliteCache() {
@@ -4967,10 +5496,13 @@ export class Simulation {
    * offer is now drawn from whatever the phenomenon itself declares.
    */
   private generateMutationOffer(id: SkillId) {
-    const all = skills[id].mutations.map((m) => m.id);
+    const st = this.skillState(id);
+    const choices = st.mutation
+      ? mutationChildren(id, st.mutation).map((m) => m.id)
+      : mutationRoots(id).map((m) => m.id);
     this.mutationOffer = {
       skill: id,
-      choices: this.shuffle([...all]).slice(0, Simulation.MUTATION_BRANCHES),
+      choices: st.mutation ? choices : this.shuffle([...choices]).slice(0, Simulation.MUTATION_BRANCHES),
       refusalAvailable: false
     };
     this.choiceSerial++;
@@ -4980,7 +5512,15 @@ export class Simulation {
     if (!m) return false;
     const id = m.choices[index];
     if (!id) return false;
-    this.skillState(m.skill).mutation = id;
+    const st = this.skillState(m.skill);
+    const def = mutationDef(m.skill, id);
+    if (def.parent) {
+      if (st.mutation !== def.parent || st.mutationUpgrade) return false;
+      st.mutationUpgrade = id;
+    } else {
+      if (st.mutation) return false;
+      st.mutation = id;
+    }
     if (this.pendingMutationTarget && this.mutationCores > 0) this.mutationCores--;
     this.pendingMutationTarget = false;
     this.metrics.mutations++;
@@ -4992,7 +5532,7 @@ export class Simulation {
     const m = this.mutationOffer;
     if (!m || !m.refusalAvailable || !this.mutationRefusalToken) return false;
     const cur = new Set(m.choices),
-      cand = skills[m.skill].mutations.map((x) => x.id).filter((id) => !cur.has(id));
+      cand = mutationRoots(m.skill).map((x) => x.id).filter((id) => !cur.has(id));
     if (!cand.length) return false;
     m.choices[index] = cand[this.rng.int(cand.length)];
     this.mutationRefusalToken = false;
@@ -5049,8 +5589,9 @@ export class Simulation {
       if (leaving) {
         const st = this.skillState(leaving);
         if (st.mutation) {
+          this.mutationCores += 1 + (st.mutationUpgrade ? 1 : 0);
           st.mutation = null;
-          this.mutationCores++;
+          st.mutationUpgrade = null;
         }
       }
     }
@@ -5091,6 +5632,7 @@ export class Simulation {
       st.eliteDamage = cfg.skillElite ?? 0.12;
       st.crit = 0.1;
       st.mutation = cfg.mutations?.[id] ?? null;
+      st.mutationUpgrade = cfg.mutationUpgrades?.[id] ?? null;
       this.skillsRuntime.set(id, st);
     }
     for (const id of this.catalysts) {
@@ -5177,6 +5719,7 @@ export class Simulation {
         orderX: e.orderX,
         orderZ: e.orderZ,
         orderActive: e.orderUntil > this.time,
+        squadTask: e.squadUntil && e.squadUntil > this.time ? (e.squadTask ?? 'none') : 'none',
         adaptationStage: e.adaptStage,
         eliteRarity: e.rarity,
         refusalTitles: e.repertoire
@@ -5232,6 +5775,15 @@ export class Simulation {
         ttl: c.ttl,
         range: c.range,
         kind: 'sentry'
+      })),
+      projectiles: this.projectiles.map((p) => ({
+        id: p.id,
+        x: p.x,
+        z: p.z,
+        radius: p.radius,
+        faction: p.faction,
+        source: p.source,
+        guarded: p.guarded
       })),
       world: {
         ...this.world,

@@ -903,8 +903,32 @@ export class WebGLRenderer {
     // Cover reads as solid ground mass: dark body with a lit rim. Drawn before the
     // fields so a hazard laid across a rock still shows on top of it.
     for (const o of s.world.obstacles) {
-      shapes.push({ x: o.x, z: o.z, r: o.radius, mode: 0, color: rgba('#161a26', 0.94) });
-      shapes.push({ x: o.x, z: o.z, r: o.radius, mode: 1, color: rgba('#79859f', 0.9) });
+      const hp = o.destructible ? Math.max(0, o.hp / Math.max(1, o.maxHp)) : 1;
+      shapes.push({
+        x: o.x,
+        z: o.z,
+        r: o.radius,
+        mode: 0,
+        color: rgba(o.destructible ? '#252333' : '#161a26', 0.94)
+      });
+      shapes.push({
+        x: o.x,
+        z: o.z,
+        r: o.radius,
+        mode: 1,
+        color: rgba(o.destructible ? '#d49b6a' : '#79859f', o.destructible ? 0.35 + hp * 0.55 : 0.9)
+      });
+    }
+    for (const p of s.projectiles) {
+      const color = rgba(skills[p.source].color, p.faction === 'hero' ? 0.96 : 0.82);
+      shapes.push({ x: p.x, z: p.z, r: Math.max(0.16, p.radius * 1.35), mode: 0, color });
+      shapes.push({
+        x: p.x,
+        z: p.z,
+        r: Math.max(0.28, p.radius * 2.15),
+        mode: 1,
+        color: [color[0], color[1], color[2], p.guarded ? 0.24 : 0.48]
+      });
     }
     for (const f of s.fields) {
       const c =
@@ -1556,8 +1580,9 @@ export class WebGLRenderer {
       else add(x, z, w, h, v.cell, tint, flip);
     };
     for (const p of s.pickups) {
-      const size = p.kind === 'heal' ? 42 : p.kind === 'core' ? 30 : 20;
-      add(p.x, p.z, size, size, cellFor[p.kind], [1, 1, 1, 0.98]);
+      const size = p.kind === 'heal' ? 42 : p.kind === 'mutation' ? 38 : p.kind === 'core' ? 30 : 20;
+      const cell = p.kind === 'mutation' ? cellFor.core : cellFor[p.kind];
+      add(p.x, p.z, size, size, cell, [1, 1, 1, 0.98]);
     }
     for (const c of s.constructs) add(c.x, c.z, 58, 68, cellFor.sentry, [1, 1, 1, 0.95]);
 
