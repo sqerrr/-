@@ -68,6 +68,7 @@ let fps = 60,
   fpsLast = performance.now();
 let eliteAlertToken = 0;
 const seenCatalystTriggers = new Set<string>();
+const seenRivalCasts = new Set<string>();
 type CombatFloat = {
   entity: number;
   x: number;
@@ -431,6 +432,10 @@ function eventText(e: GameEvent) {
     };
     return n[e.reaction];
   }
+  // D7: exactly one declined card is conceded, and the hero is told which one.
+  if (e.type === 'RewardRefused')
+    return `Отвергнуто: «${e.title}». Карта ушла элитам и вернётся против тебя.`;
+  if (e.type === 'RivalCast') return `Элита применила отвергнутое: ${skills[e.skill].name}.`;
   return null;
 }
 function poiLabel(kind: string) {
@@ -547,6 +552,25 @@ function pushEvents(events: readonly GameEvent[]) {
         showEliteAlert(
           'СВЯЗЬ СРАБОТАЛА',
           `${from ? skills[from].name : '?'} → ${catalysts[e.catalyst].shortName} → ${to ? skills[to].name : '?'}. Цветной импульс показывает причинный маршрут.`
+        );
+      }
+    } else if (e.type === 'RivalCast') {
+      // The refused card is fired back at the hero: name it on the spot, not only in the log.
+      combatFloats.push({
+        entity: -1,
+        x: e.x,
+        z: e.z,
+        text: skills[e.skill].shortName.toUpperCase(),
+        amount: 0,
+        start: sim.time,
+        ttl: 1.05,
+        kind: 'catalyst'
+      });
+      if (!seenRivalCasts.has(e.skill)) {
+        seenRivalCasts.add(e.skill);
+        showEliteAlert(
+          'ТВОЙ ОТКАЗ ВЕРНУЛСЯ',
+          `${skills[e.skill].name} — способность, которую ты не взял. Теперь её применяет элита. Отказ не исчезает из мира, он меняет сторону.`
         );
       }
     }
@@ -728,9 +752,16 @@ function updatePlanner(s: Snapshot) {
     `<span>Core Rank <b>${s.player.level}</b></span><span>Темп <b>${s.resonance.tempo}</b></span><span>Количество <b>${s.resonance.multiplicity}</b></span><span>Точность <b>${s.resonance.precision}</b></span><span>Длительность <b>${s.resonance.persistence}</b></span><span>Проводимость <b>${s.resonance.conductivity}</b></span><span>Подвижность <b>${s.resonance.mobility}</b></span><span>Ядра мутации <b>${s.mutationCores}</b></span>`;
 }
 
+const eliteRarityName: Record<string, string> = {
+  common: '',
+  uplifted: 'УСИЛЕННЫЙ',
+  legendary: 'ЛЕГЕНДАРНЫЙ'
+};
 function eliteName(e: Snapshot['entities'][number]) {
   const aff = e.affix ?? 'none';
-  return `${e.boss ? 'ХРАНИТЕЛЬ' : chassisName[e.chassis ?? 'marshal']}${aff !== 'none' ? ' · ' + affixName[aff] : ''}`;
+  // Colour alone is too weak a channel for the three tiers of D9, so the tier is also spelled out.
+  const rar = e.boss ? '' : (eliteRarityName[e.eliteRarity ?? 'common'] ?? '');
+  return `${rar ? rar + ' ' : ''}${e.boss ? 'ХРАНИТЕЛЬ' : chassisName[e.chassis ?? 'marshal']}${aff !== 'none' ? ' · ' + affixName[aff] : ''}`;
 }
 function resize2d(c: HTMLCanvasElement) {
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1)),
@@ -815,6 +846,55 @@ function drawMinimap(s: Snapshot) {
   ctx.lineTo(tx(s.player.x + s.player.aimX * 3), ty(s.player.z + s.player.aimZ * 3));
   ctx.stroke();
 }
+const hudImageCache = new Map<string, HTMLImageElement>();
+function hudImage(src: string): HTMLImageElement | null {
+  let img = hudImageCache.get(src);
+  if (!img) {
+    img = new Image();
+    img.src = src;
+    hudImageCache.set(src, img);
+  }
+  return img.complete && img.naturalWidth > 0 ? img : null;
+}
+const rarityTint: Record<string, string> = {
+  common: '#e7b94c',
+  uplifted: '#7fd4ff',
+  legendary: '#c98cff'
+};
+function eliteTint(e: Snapshot['entities'][number]): string {
+  return rarityTint[e.eliteRarity ?? 'common'] ?? rarityTint.common;
+}
+// D13: the cards an elite took from the hero read on the elite itself.
+function drawRefusalRow(
+  ctx: CanvasRenderingContext2D,
+  icons: string[],
+  cx: number,
+  cy: number,
+  tint: string
+) {
+  const n = Math.min(icons.length, 6);
+  if (!n) return;
+  const size = 16,
+    gap = 3,
+    total = n * size + (n - 1) * gap;
+  let x = cx - total / 2;
+  for (let i = 0; i < n; i++) {
+    const token = icons[i];
+    ctx.fillStyle = '#05080be6';
+    ctx.fillRect(x - 1, cy - size / 2 - 1, size + 2, size + 2);
+    ctx.strokeStyle = tint;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - 0.5, cy - size / 2 - 0.5, size + 1, size + 1);
+    const img = token.indexOf('/') >= 0 ? hudImage(token) : null;
+    if (img) ctx.drawImage(img, x, cy - size / 2, size, size);
+    else {
+      ctx.fillStyle = tint;
+      ctx.font = '800 9px system-ui';
+      ctx.fillText(token.slice(0, 3), x + size / 2, cy + 0.5);
+    }
+    x += size + gap;
+  }
+}
 function drawCombatHud(s: Snapshot) {
   const ctx = resize2d(combatHud),
     w = combatHud.clientWidth,
@@ -831,7 +911,7 @@ function drawCombatHud(s: Snapshot) {
         const x = Math.max(margin, Math.min(w - margin, p.x)),
           y = Math.max(margin, Math.min(h - margin, p.y)),
           r = e.boss ? 10 : 7;
-        ctx.fillStyle = e.boss ? '#ff4057' : '#ffd65c';
+        ctx.fillStyle = e.boss ? '#ff4057' : eliteTint(e);
         ctx.beginPath();
         ctx.moveTo(x, y - r);
         ctx.lineTo(x + r, y);
@@ -856,12 +936,14 @@ function drawCombatHud(s: Snapshot) {
       y = p.y - (e.boss ? 142 : e.elite ? 95 : 54);
     ctx.fillStyle = '#05080bd9';
     ctx.fillRect(p.x - bw / 2, y, bw, bh);
-    ctx.fillStyle = e.boss ? '#ff3c50' : e.elite ? '#e7b94c' : '#df5262';
+    const tint = e.boss ? '#ff3c50' : e.elite ? eliteTint(e) : '#df5262';
+    ctx.fillStyle = tint;
     ctx.fillRect(p.x - bw / 2 + 1, y + 1, (bw - 2) * Math.max(0, e.hp / e.maxHp), bh - 2);
     if (e.elite) {
       ctx.font = e.boss ? '800 14px system-ui' : '700 11px system-ui';
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = e.boss ? '#fff' : tint;
       ctx.fillText(e.boss ? 'ХРАНИТЕЛЬ' : eliteName(e), p.x, y - 9);
+      drawRefusalRow(ctx, e.refusalIcons ?? [], p.x, y - 28, tint);
     }
   }
   const now = s.time;
