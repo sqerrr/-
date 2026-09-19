@@ -1516,7 +1516,7 @@ function frame(now: number) {
 async function start() {
   if (debugEnabled) $('debugPanel').classList.remove('debug-hidden');
   dbg('START', {
-    version: '0.11.2-ux-readability',
+    version: '0.11.3-presentation-contract',
     mode: runMode,
     startingSkill,
     seed,
