@@ -1,0 +1,24 @@
+name: Prototype CI
+
+on:
+  pull_request:
+    paths:
+      - 'prototype/current/**'
+      - '.github/workflows/prototype-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: prototype/current
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install TypeScript
+        run: npm install --no-save typescript@5.9
+      - name: Run full prototype suite
+        run: npm test
