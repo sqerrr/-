@@ -1,12 +1,13 @@
 # START HERE — Black Archive / roguelike
 
-**Current date/state:** 2026-09-19 — **v0.11 implemented; latest manual playtest reopened UX, acquisition and Phenomena design.**
+**Current date/state:** 2026-09-20 — **v0.11.1 P0 world/UI/terrain slice implemented; Phenomena 2.0 is next.**
 
 **Executable:** `prototype/current/`
 
 ## Read first
 
-1. `30_CHAT_HANDOFF_2026-09-19_PLAYTEST_FEEDBACK.md` — **latest owner playtest, current problems and next priorities.**
+1. `31_P0_WORLD_UI_TERRAIN_IMPLEMENTATION_2026-09-20.md` — **completed P0 implementation.**
+2. `30_CHAT_HANDOFF_2026-09-19_PLAYTEST_FEEDBACK.md` — **latest owner playtest, current problems and next priorities.**
 2. `29_V011_IMPLEMENTATION_HANDOFF_2026-09-19.md` — factual implementation state of v0.11.
 3. `28_SECOND_WEAPON_BUILDCRAFT_INVESTIGATION_2026-09-19.md` — deeper weapon/buildcraft/elite/readability investigation.
 4. `27_WEAPON_ELITE_PROGRESSION_RESEARCH_2026-09-19.md` — first research pass.
