@@ -134,6 +134,14 @@ const ACTOR_SOURCES: { key: string; url: string }[] = [
   { key: 'elite_warden', url: '/assets/enemy_elite.png' }
 ];
 const PLAYER_RUN_FRAMES = 4;
+/** One colour per relic category, so what is lying there reads before the label does. */
+const relicTint: Record<string, string> = {
+  guard: '#7fe4ff',
+  edge: '#ff7a6b',
+  pace: '#9dff7a',
+  finding: '#ffd75e',
+  elite: '#d98cff'
+};
 const rgba = (hex: string, a = 1): [number, number, number, number] => {
   const h = hex.replace('#', '');
   return [
@@ -976,6 +984,22 @@ export class WebGLRenderer {
       const pulse = 1 + 0.12 * Math.sin(s.time * 5.2 + p.id);
       shapes.push({ x: p.x, z: p.z, r: 1.15 * pulse, mode: 1, color: rgba('#6dff9d', 0.92) });
       shapes.push({ x: p.x, z: p.z, r: 0.42, mode: 0, color: rgba('#c8ffdb', 0.34) });
+    }
+    // A relic has to be worth crossing the field for, and it has to be obvious when an elite
+    // is close enough to take it instead. The contested ring is the whole decision made visible.
+    for (const r of s.relics) {
+      const tint = relicTint[r.category] ?? '#ffffff';
+      const pulse = 1 + 0.16 * Math.sin(s.time * 3.4 + r.id);
+      shapes.push({ x: r.x, z: r.z, r: 1.35 * pulse, mode: 1, color: rgba(tint, 0.95) });
+      shapes.push({ x: r.x, z: r.z, r: 0.62, mode: 0, color: rgba(tint, 0.42) });
+      if (r.contested)
+        shapes.push({
+          x: r.x,
+          z: r.z,
+          r: 2.3 + 0.3 * Math.sin(s.time * 9),
+          mode: 1,
+          color: rgba('#ff4b4b', 0.8)
+        });
     }
     for (const e of s.entities) {
       if (e.status.marked)

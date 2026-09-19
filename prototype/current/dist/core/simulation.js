@@ -1,6 +1,7 @@
 import { catalystOrder, catalysts, initialCatalystReserve, initialCatalysts, initialSkillReserve, initialSlots, rarityMultiplier, rarityOrder, resonance, resonanceOrder, skillOrder, skills } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
 import { Rng } from './rng.js';
+import { items, itemOrder } from '../content/items.js';
 const HERO_HIT_RADIUS = 0.45;
 // Tier tables. D49 fixes the target fight lengths (8-12 / 15-25 / 30-45 s); each tier is a
 // step up in durability, payout and repertoire.
@@ -158,6 +159,8 @@ export class Simulation {
         levels: 0,
         mutations: 0,
         healsPicked: 0,
+        relicsTakenByHero: 0,
+        relicsTakenByElites: 0,
         damageTaken: 0,
         healingReceived: 0,
         barrierGenerated: 0,
@@ -214,6 +217,27 @@ export class Simulation {
     // Deliberately kept OUT of `ents` so every existing loop keeps its exact behaviour.
     hero = makeHeroEnt();
     pickups = [];
+    relics = [];
+    relicAcc = 0;
+    relicRng;
+    /** Everything the hero has picked up, in the order it was taken. No slots, by D14. */
+    heldItems = [];
+    itemDamageMul = 1;
+    itemCrit = 0;
+    itemSiphon = 0;
+    itemEliteDamageMul = 1;
+    itemDamageTakenMul = 1;
+    itemRefusalDamageMul = 1;
+    itemBarrierOnEliteKill = 0;
+    itemXpMul = 1;
+    itemCoreBonus = 0;
+    itemRelicRateMul = 1;
+    dashCooldownMul = 1;
+    dashIFrameMul = 1;
+    // D34 asked for twenty or more relics across a run of roughly eight minutes.
+    static RELIC_INTERVAL = 20;
+    static RELIC_REACH = 1.2;
+    static RELIC_ELITE_REACH = 2.2;
     fields = [];
     constructs = [];
     world = { minX: -48, maxX: 48, minZ: -36, maxZ: 36 };
@@ -371,6 +395,7 @@ export class Simulation {
         this.rng = new Rng(cfg.seed);
         this.refusalRng = new Rng((cfg.seed ^ 0x5bf03635) >>> 0);
         this.worldRng = new Rng((cfg.seed ^ 0x27d4eb2f) >>> 0);
+        this.relicRng = new Rng((cfg.seed ^ 0x6a09e667) >>> 0);
         this.runDuration = cfg.runDuration ?? 480;
         this.benchmark = !!cfg.benchmark;
         this.mode = cfg.mode ?? 'clean';
@@ -879,8 +904,8 @@ export class Simulation {
             this.dashDirX = dx / dm;
             this.dashDirZ = dz / dm;
             this.dashUntil = this.time + Simulation.DASH_DURATION;
-            this.dashIFramesUntil = this.time + Simulation.DASH_IFRAMES;
-            this.dashReadyAt = this.dashUntil + Simulation.DASH_COOLDOWN;
+            this.dashIFramesUntil = this.time + Simulation.DASH_IFRAMES * this.dashIFrameMul;
+            this.dashReadyAt = this.dashUntil + Simulation.DASH_COOLDOWN * this.dashCooldownMul;
             this.dashWindowSaved = false;
             this.metrics.dashes++;
         }
@@ -912,6 +937,7 @@ export class Simulation {
         this.updateConstructs();
         this.updateDots();
         this.updatePickups();
+        this.updateRelics();
         this.updateOrbitBlades();
         this.chainTick();
         this.cleanup();
@@ -1264,7 +1290,7 @@ export class Simulation {
             .filter((c) => !!c &&
             !!c.skill &&
             Simulation.RIVAL_CASTABLE.includes(c.skill) &&
-            d <= Simulation.rivalReach(c.skill));
+            d <= Simulation.rivalReach(c.skill) * (e.relicReachMul ?? 1));
         if (!usable.length) {
             // Out of reach is a waiting game, not a dead end: poll often so the blow lands the
             // moment the elite closes. A repertoire with nothing castable at all is a dead end,
@@ -1313,7 +1339,8 @@ export class Simulation {
         });
         // A deeper repertoire presses harder, but never faster than roughly one blow per two seconds.
         const gap = Math.max(1.4, (this.rng.range(3.4, 5.4) - e.repertoire.length * 0.25) *
-            Math.pow(0.86, this.rivalAxisCount(e, 'tempo')));
+            Math.pow(0.86, this.rivalAxisCount(e, 'tempo')) *
+            (e.relicGapMul ?? 1));
         this.rivalCastAt.set(e.id, this.time + gap);
     }
     /**
@@ -1984,7 +2011,7 @@ export class Simulation {
             }
             return;
         }
-        const reduction = this.armor / (this.armor + 100), mitigated = amount * (1 - reduction);
+        const reduction = this.armor / (this.armor + 100), mitigated = amount * (1 - reduction) * this.itemDamageTakenMul;
         if (attacker) {
             const record = this.eliteLogById.get(attacker.id);
             if (record) {
@@ -2101,6 +2128,165 @@ export class Simulation {
             alive.push(p);
         }
         this.pickups = alive;
+    }
+    /**
+     * Relics appear away from the hero on purpose. A relic that spawns underfoot is a gift;
+     * one that spawns across the field is a decision, and it is the only thing in the build
+     * that an elite and the hero can both want at the same time.
+     */
+    updateRelics() {
+        this.relicAcc += this.dt;
+        const interval = Simulation.RELIC_INTERVAL * this.itemRelicRateMul;
+        if (this.relicAcc >= interval && this.relics.length < 8) {
+            this.relicAcc -= interval;
+            this.spawnRelic();
+        }
+        const keep = [];
+        for (const r of this.relics) {
+            if (Math.hypot(this.px - r.x, this.pz - r.z) < Simulation.RELIC_REACH) {
+                this.takeRelic(r);
+                continue;
+            }
+            let claimed = false;
+            for (const e of this.ents) {
+                if (e.kind !== 'elite' || e.boss)
+                    continue;
+                if (Math.hypot(e.x - r.x, e.z - r.z) < Simulation.RELIC_ELITE_REACH) {
+                    this.giveEliteRelic(e, r);
+                    claimed = true;
+                    break;
+                }
+            }
+            if (!claimed)
+                keep.push(r);
+        }
+        this.relics = keep;
+    }
+    spawnRelic() {
+        for (let i = 0; i < 24; i++) {
+            const a = this.relicRng.float() * Math.PI * 2;
+            const d = 14 + this.relicRng.float() * 16;
+            const x = this.px + Math.cos(a) * d;
+            const z = this.pz + Math.sin(a) * d;
+            if (x < this.world.minX + 2 || x > this.world.maxX - 2)
+                continue;
+            if (z < this.world.minZ + 2 || z > this.world.maxZ - 2)
+                continue;
+            if (this.blocked(x, z, 1.1))
+                continue;
+            const item = itemOrder[this.relicRng.int(itemOrder.length)];
+            const relic = { id: this.nextId++, x, z, item, bornAt: this.time };
+            this.relics.push(relic);
+            this.events.push({
+                type: 'RelicAppeared',
+                tick: this.tick,
+                item,
+                name: items[item].name,
+                x,
+                z
+            });
+            return;
+        }
+    }
+    takeRelic(r) {
+        const def = items[r.item];
+        this.heldItems.push(r.item);
+        this.metrics.relicsTakenByHero++;
+        const a = def.effect;
+        if (a.kind === 'armor')
+            this.armor += a.amount;
+        else if (a.kind === 'maxHp') {
+            this.maxHp += a.amount;
+            this.healPlayer(a.amount);
+        }
+        else if (a.kind === 'barrierOnEliteKill')
+            this.itemBarrierOnEliteKill += a.amount;
+        else if (a.kind === 'damageTakenMul')
+            this.itemDamageTakenMul *= a.amount;
+        else if (a.kind === 'damageMul')
+            this.itemDamageMul *= a.amount;
+        else if (a.kind === 'crit')
+            this.itemCrit += a.amount;
+        else if (a.kind === 'siphon')
+            this.itemSiphon += a.amount;
+        else if (a.kind === 'eliteDamageMul')
+            this.itemEliteDamageMul *= a.amount;
+        else if (a.kind === 'moveSpeedMul')
+            this.moveSpeed *= a.amount;
+        else if (a.kind === 'tempo')
+            this.tempo += a.amount;
+        else if (a.kind === 'dashCooldownMul')
+            this.dashCooldownMul *= a.amount;
+        else if (a.kind === 'dashIFrameMul')
+            this.dashIFrameMul *= a.amount;
+        else if (a.kind === 'pickupRadiusMul')
+            this.pickupRadius *= a.amount;
+        else if (a.kind === 'fortune')
+            this.fortune += a.amount;
+        else if (a.kind === 'xpMul')
+            this.itemXpMul *= a.amount;
+        else if (a.kind === 'relicRateMul')
+            this.itemRelicRateMul *= a.amount;
+        else if (a.kind === 'coreBonus')
+            this.itemCoreBonus += a.amount;
+        else if (a.kind === 'refusalDamageMul')
+            this.itemRefusalDamageMul *= a.amount;
+        this.events.push({
+            type: 'RelicTaken',
+            tick: this.tick,
+            item: r.item,
+            name: def.name,
+            description: def.description,
+            byHero: true,
+            x: r.x,
+            z: r.z
+        });
+    }
+    /**
+     * D15 says every gain the hero can make needs a counterpart, and D51 named the two
+     * categories that had none. The counterpart is by category rather than by copying the
+     * effect, because a relic that hands an elite the literal player-side bonus would be
+     * exactly the mechanical mirror D41 rules out.
+     */
+    giveEliteRelic(e, r) {
+        const def = items[r.item];
+        this.metrics.relicsTakenByElites++;
+        switch (def.category) {
+            case 'guard':
+                e.contactDps *= 1.14;
+                break;
+            case 'edge':
+                e.relicCastMul = (e.relicCastMul ?? 1) * 1.2;
+                break;
+            case 'pace':
+                e.speed *= 1.1;
+                e.relicGapMul = (e.relicGapMul ?? 1) * 0.9;
+                break;
+            case 'finding':
+                this.claimOneMoreRefusal(e);
+                break;
+            case 'elite':
+                e.relicReachMul = (e.relicReachMul ?? 1) * 1.35;
+                break;
+        }
+        this.events.push({
+            type: 'RelicTaken',
+            tick: this.tick,
+            item: r.item,
+            name: def.name,
+            description: def.description,
+            byHero: false,
+            x: r.x,
+            z: r.z
+        });
+    }
+    claimOneMoreRefusal(e) {
+        const free = this.refusalStore.filter((c) => c.heldBy === 0);
+        if (!free.length)
+            return;
+        const c = free[this.relicRng.int(free.length)];
+        c.heldBy = e.id;
+        e.repertoire.push(c.serial);
     }
     updateConstructs() {
         const alive = [];
@@ -3231,6 +3417,13 @@ export class Simulation {
         // None of the bookkeeping below applies: it is all scored from the hero's point of view.
         if (e === this.hero)
             return this.damageHero(amount, source);
+        // Everything reaching this line is the hero striking an enemy: rival casts resolve
+        // against the synthetic hero above and elite contact goes straight to hitPlayer.
+        amount *= this.itemDamageMul;
+        if (e.kind === 'elite')
+            amount *= this.itemEliteDamageMul;
+        if (this.itemSiphon > 0)
+            this.healPlayer(amount * this.itemSiphon);
         if (e.hp <= 0)
             return false;
         let actual = amount;
@@ -3241,7 +3434,8 @@ export class Simulation {
             const precision = this.supportsAxis(skill.id, 'precision')
                 ? this.resonance.precision * 0.045
                 : 0;
-            if (skill.crit + precision > 0 && this.rng.float() < skill.crit + precision)
+            const critChance = skill.crit + precision + this.itemCrit;
+            if (critChance > 0 && this.rng.float() < critChance)
                 actual *= 1.75;
         }
         if (e.kind === 'elite' && !e.boss) {
@@ -3411,6 +3605,8 @@ export class Simulation {
         // every other route into hitPlayer are untouched by the concentration above.
         if (this.castOwner) {
             amount *= Simulation.RIVAL_CONCENTRATION;
+            amount *= this.castOwner.relicCastMul ?? 1;
+            amount *= this.itemRefusalDamageMul;
             amount *= Math.pow(1.3, this.rivalAxisCount(this.castOwner, 'precision'));
             amount *= Math.pow(1.16, this.rivalAxisCount(this.castOwner, 'multiplicity'));
         }
@@ -3461,6 +3657,8 @@ export class Simulation {
             if (elite) {
                 this.metrics.eliteKilled++;
                 this.releaseRepertoire(e);
+                this.grantBarrier(this.itemBarrierOnEliteKill);
+                this.eliteCore += this.itemCoreBonus;
                 const record = this.eliteLogById.get(e.id);
                 if (record) {
                     record.endedAt = this.time;
@@ -3534,7 +3732,13 @@ export class Simulation {
                                 : e.kind === 'inkblot'
                                     ? 2.4
                                     : 1.8;
-            this.pickups.push({ id: this.nextId++, x: e.x, z: e.z, value: xpVal, kind: 'xp' });
+            this.pickups.push({
+                id: this.nextId++,
+                x: e.x,
+                z: e.z,
+                value: xpVal * this.itemXpMul,
+                kind: 'xp'
+            });
             if (elite && e.guardianPoi > 0) {
                 this.completePoi(e.guardianPoi);
                 continue;
@@ -4228,6 +4432,15 @@ export class Simulation {
                 }
             })),
             pickups: this.pickups.map((p) => ({ ...p })),
+            relics: this.relics.map((r) => ({
+                id: r.id,
+                x: r.x,
+                z: r.z,
+                item: r.item,
+                category: items[r.item].category,
+                contested: this.ents.some((e) => e.kind === 'elite' && !e.boss && Math.hypot(e.x - r.x, e.z - r.z) < 9)
+            })),
+            heldItems: [...this.heldItems],
             fields: this.fields.map((f) => ({
                 id: f.id,
                 x: f.x,
@@ -4342,6 +4555,7 @@ export class Simulation {
         put('metrics.output', m.damage, m.reactions);
         put('metrics.progression', m.levels, m.mutations);
         put('metrics.survival', m.damageTaken, m.healingReceived, m.barrierGenerated, m.healsPicked);
+        put('relics', this.relics.length, this.heldItems.length, this.heldItems.join(','));
         return parts;
     }
     canonicalHash() {

@@ -124,6 +124,42 @@ export interface StatusSnapshot {
  * the higher tiers grows towards the end of a run.
  */
 export type EliteRarity = 'common' | 'uplifted' | 'legendary';
+/**
+ * Relics are the shared source of power D14 asked for: they lie on the ground and whoever
+ * reaches them first keeps them. The category decides what an elite gains from one, which
+ * is how D15 is honoured without copying the hero's version of the effect.
+ */
+export type ItemCategory = 'guard' | 'edge' | 'pace' | 'finding' | 'elite';
+export type ItemId =
+  | 'plating'
+  | 'vitality'
+  | 'aegis_core'
+  | 'ablation'
+  | 'keen_edge'
+  | 'hollow_point'
+  | 'siphon'
+  | 'bane'
+  | 'light_step'
+  | 'quickened'
+  | 'short_cord'
+  | 'afterimage'
+  | 'lodestone'
+  | 'keen_eye'
+  | 'scavenger'
+  | 'beacon'
+  | 'spoils'
+  | 'unravel'
+  | 'tribute'
+  | 'reprisal';
+/** A relic waiting on the ground for whichever side reaches it first. */
+export interface RelicSnapshot {
+  id: number;
+  x: number;
+  z: number;
+  item: ItemId;
+  category: ItemCategory;
+  contested: boolean;
+}
 export interface SnapshotEntity {
   id: number;
   kind: EnemyKind;
@@ -224,6 +260,8 @@ export interface Metrics {
   levels: number;
   mutations: number;
   healsPicked: number;
+  relicsTakenByHero: number;
+  relicsTakenByElites: number;
   damageTaken: number;
   healingReceived: number;
   barrierGenerated: number;
@@ -331,6 +369,8 @@ export interface Snapshot {
   };
   entities: SnapshotEntity[];
   pickups: PickupSnapshot[];
+  relics: RelicSnapshot[];
+  heldItems: ItemId[];
   fields: FieldSnapshot[];
   constructs: ConstructSnapshot[];
   world: WorldSnapshot;
@@ -477,6 +517,24 @@ export type GameEvent =
       x: number;
       z: number;
       count?: number;
+    }
+  | {
+      type: 'RelicAppeared';
+      tick: number;
+      item: ItemId;
+      name: string;
+      x: number;
+      z: number;
+    }
+  | {
+      type: 'RelicTaken';
+      tick: number;
+      item: ItemId;
+      name: string;
+      description: string;
+      byHero: boolean;
+      x: number;
+      z: number;
     }
   | {
       type: 'PickupConsumed';

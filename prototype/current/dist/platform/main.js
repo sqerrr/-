@@ -1,4 +1,5 @@
 import { catalysts, mutationDef, rarityColor, rarityName, skillOrder, skills } from '../content/definitions.js';
+import { items as itemDefs } from '../content/items.js';
 import { Simulation } from '../core/simulation.js';
 import { WebGLRenderer } from '../renderer/webgl2.js';
 import { PresentationBridge } from '../presentation/bridge.js';
@@ -401,6 +402,13 @@ function eventText(e) {
         return `Отвергнуто: «${e.title}». Карта ушла элитам и вернётся против тебя.`;
     if (e.type === 'RivalCast')
         return `Элита применила отвергнутое: ${skills[e.skill].name}.`;
+    // D14: a relic is a shared source, so losing one to an elite has to be stated as a loss.
+    if (e.type === 'RelicAppeared')
+        return `На поле появилась находка: ${e.name}.`;
+    if (e.type === 'RelicTaken')
+        return e.byHero
+            ? `Взято: ${e.name}. ${e.description}`
+            : `Находку забрала элита: ${e.name}. Она стала опаснее.`;
     return null;
 }
 function poiLabel(kind) {
@@ -743,6 +751,24 @@ function drawMinimap(s) {
         }
     }
     ctx.globalAlpha = 1;
+    // Relics belong on the minimap: deciding whether to go for one is a decision about the
+    // whole field, and it cannot be made from what happens to be on screen.
+    for (const r of s.relics) {
+        const x = tx(r.x), y = ty(r.z);
+        ctx.fillStyle = relicMinimapTint[r.category] ?? '#fff';
+        ctx.beginPath();
+        ctx.moveTo(x, y - 4);
+        ctx.lineTo(x + 4, y);
+        ctx.lineTo(x, y + 4);
+        ctx.lineTo(x - 4, y);
+        ctx.closePath();
+        ctx.fill();
+        if (r.contested) {
+            ctx.strokeStyle = '#ff4b4b';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+        }
+    }
     for (const q of s.pickups) {
         if (q.kind !== 'heal')
             continue;
@@ -792,6 +818,48 @@ function hudImage(src) {
 // Three tiers have to separate at a glance in a crowd, so they separate by brightness as well
 // as by hue: plain white for the common tier, blue for the uplifted one, and a gold that
 // outshines everything else on a floor this dark for the legendary.
+const relicMinimapTint = {
+    guard: '#7fe4ff',
+    edge: '#ff7a6b',
+    pace: '#9dff7a',
+    finding: '#ffd75e',
+    elite: '#d98cff'
+};
+/**
+ * What the hero is carrying, as a strip of short codes. Relics stack without slots by D14,
+ * so the only way the choice stays legible is to keep the whole haul on screen at once.
+ */
+function drawHeldItems(ctx, s) {
+    if (!s.heldItems.length)
+        return;
+    const counts = new Map();
+    for (const id of s.heldItems)
+        counts.set(id, (counts.get(id) ?? 0) + 1);
+    const entries = [...counts.entries()];
+    const w = 46, h = 18, gap = 4;
+    let x = 18;
+    const y = ctx.canvas.height / (window.devicePixelRatio || 1) - 30;
+    ctx.save();
+    ctx.font = '600 10px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const [id, n] of entries) {
+        const def = itemDefs[id];
+        if (!def)
+            continue;
+        ctx.fillStyle = 'rgba(8,11,18,0.82)';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = relicMinimapTint[def.category] ?? '#fff';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+        ctx.fillStyle = '#e8eef8';
+        ctx.fillText(n > 1 ? `${def.short}x${n}` : def.short, x + w / 2, y + h / 2 + 0.5);
+        x += w + gap;
+        if (x > ctx.canvas.width / (window.devicePixelRatio || 1) - w)
+            break;
+    }
+    ctx.restore();
+}
 const rarityTint = {
     common: '#eef3fa',
     uplifted: '#4fa8ff',
@@ -860,6 +928,7 @@ function drawCombatHud(s) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     drawDashGauge(ctx, s);
+    drawHeldItems(ctx, s);
     for (const e of s.entities) {
         const p = renderer.worldToScreen(e.x, e.z, s), margin = 34, off = p.x < margin || p.x > w - margin || p.y < margin || p.y > h - margin;
         if (off) {
