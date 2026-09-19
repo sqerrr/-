@@ -256,6 +256,28 @@ export interface RefusedCard {
   /** Entity id of the elite currently fielding the card, or 0 while it sits unclaimed. */
   heldBy: number;
 }
+/**
+ * D52: one row per elite fight, so the target length set by D49 can be measured
+ * instead of guessed. Diagnostic only, and deliberately outside the canonical hash.
+ */
+export interface EliteEncounter {
+  id: number;
+  chassis: EliteChassis;
+  rarity: EliteRarity;
+  /** Seconds since the run began. */
+  spawnedAt: number;
+  /** First moment this elite and the hero traded damage; -1 if they never met. */
+  engagedAt: number;
+  /** Seconds since the run began, or -1 while the elite is still standing. */
+  endedAt: number;
+  killed: boolean;
+  /** Cards claimed from the refusal store when it spawned. */
+  repertoire: number;
+  casts: number;
+  castSkills: Record<string, number>;
+  damageToHero: number;
+  damageFromHero: number;
+}
 export interface MutationOffer {
   skill: SkillId;
   choices: MutationId[];

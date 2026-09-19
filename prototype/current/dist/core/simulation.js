@@ -301,6 +301,10 @@ export class Simulation {
     rivalSkills = new Map();
     /** Next moment each elite may field a refusal, keyed by entity id. */
     rivalCastAt = new Map();
+    eliteLog = [];
+    eliteLogById = new Map();
+    /** Held only for the length of a rival cast, so its damage can be charged to its owner. */
+    castOwner = null;
     constructor(cfg) {
         this.hz = cfg.hz;
         this.dt = 1 / cfg.hz;
@@ -1021,8 +1025,19 @@ export class Simulation {
             vx: 0,
             vz: 0
         };
-        this.dispatchSkill(id, this.rivalRuntime(e, id), 0, src);
+        this.castOwner = e;
+        try {
+            this.dispatchSkill(id, this.rivalRuntime(e, id), 0, src);
+        }
+        finally {
+            this.castOwner = null;
+        }
         this.metrics.rivalCasts++;
+        const record = this.eliteLogById.get(e.id);
+        if (record) {
+            record.casts++;
+            record.castSkills[id] = (record.castSkills[id] ?? 0) + 1;
+        }
         this.events.push({
             type: 'RivalCast',
             tick: this.tick,
@@ -1035,6 +1050,29 @@ export class Simulation {
         // A deeper repertoire presses harder, but never faster than roughly one blow per two seconds.
         const gap = Math.max(2.1, this.rng.range(3.4, 5.4) - e.repertoire.length * 0.25);
         this.rivalCastAt.set(e.id, this.time + gap);
+    }
+    noteEliteSpawn(e) {
+        const record = {
+            id: e.id,
+            // Only ever called from spawnElite, where the chassis is already chosen.
+            chassis: e.chassis,
+            rarity: e.rarity,
+            spawnedAt: this.time,
+            engagedAt: -1,
+            endedAt: -1,
+            killed: false,
+            repertoire: e.repertoire.length,
+            casts: 0,
+            castSkills: {},
+            damageToHero: 0,
+            damageFromHero: 0
+        };
+        this.eliteLog.push(record);
+        this.eliteLogById.set(e.id, record);
+    }
+    /** D52: every elite fight of the run, for calibrating the D49 target length. */
+    eliteEncounters() {
+        return this.eliteLog;
     }
     spawnElite() {
         const pool = [
@@ -1110,6 +1148,7 @@ export class Simulation {
             repertoire: []
         };
         this.claimRepertoire(e);
+        this.noteEliteSpawn(e);
         this.ents.push(e);
         this.metrics.spawned++;
         this.metrics.eliteSpawned++;
@@ -1389,7 +1428,7 @@ export class Simulation {
             dz = this.pz - e.z;
             d = Math.hypot(dx, dz) || 1;
             if (d < e.radius + 0.44)
-                this.hitPlayer(e.contactDps * (e.buffUntil > this.time ? 1.28 : 1) * dt);
+                this.hitPlayer(e.contactDps * (e.buffUntil > this.time ? 1.28 : 1) * dt, e);
         }
     }
     updateEliteAI(e, speed, d, nx, nz) {
@@ -1656,10 +1695,18 @@ export class Simulation {
             }
         }
     }
-    hitPlayer(amount) {
+    hitPlayer(amount, attacker = null) {
         if (amount <= 0 || this.php <= 0)
             return;
         const reduction = this.armor / (this.armor + 100), mitigated = amount * (1 - reduction);
+        if (attacker) {
+            const record = this.eliteLogById.get(attacker.id);
+            if (record) {
+                record.damageToHero += mitigated;
+                if (record.engagedAt < 0)
+                    record.engagedAt = this.time;
+            }
+        }
         let left = mitigated;
         if (this.barrier > 0) {
             const b = Math.min(this.barrier, left);
@@ -3018,8 +3065,15 @@ export class Simulation {
         });
         while (this.damageSamples.length && this.damageSamples[0].t < this.time - 12)
             this.damageSamples.shift();
-        if (e.kind === 'elite')
+        if (e.kind === 'elite') {
             this.metrics.eliteDamage += actual;
+            const record = this.eliteLogById.get(e.id);
+            if (record) {
+                record.damageFromHero += actual;
+                if (record.engagedAt < 0)
+                    record.engagedAt = this.time;
+            }
+        }
         if (directional)
             this.directionalDamage += actual;
         if (source === 'cleaver' || source === 'orbit_blades')
@@ -3069,7 +3123,7 @@ export class Simulation {
     damageHero(amount, source) {
         if (this.php <= 0)
             return false;
-        this.hitPlayer(amount);
+        this.hitPlayer(amount, this.castOwner);
         this.damageToHeroBySource.set(source, (this.damageToHeroBySource.get(source) ?? 0) + amount);
         return this.php <= 0;
     }
@@ -3114,6 +3168,11 @@ export class Simulation {
             if (elite) {
                 this.metrics.eliteKilled++;
                 this.releaseRepertoire(e);
+                const record = this.eliteLogById.get(e.id);
+                if (record) {
+                    record.endedAt = this.time;
+                    record.killed = true;
+                }
             }
             this.events.push({
                 type: 'EntityDied',
