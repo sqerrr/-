@@ -384,6 +384,18 @@ const affixName: Record<string, string> = {
   brood: 'Роевой',
   crowned: 'Коронованный'
 };
+const affixRole: Record<string,string> = {
+  none:'',
+  swift:'движется быстрее',
+  dense:'тяжелее сдвигается',
+  volatile:'после смерти оставляет красную зону взрыва',
+  regenerating:'восстанавливается, если несколько секунд не получать урон',
+  shielded:'щит фиксирует направление перед рывком — обходи с фланга или ломай стойкость',
+  vanguard:'периодически ускоряет и направляет ближайшую стаю',
+  temporal:'заранее отмечает точку скачка и бьёт после перемещения',
+  brood:'периодически вызывает подкрепление',
+  crowned:'чаще использует собственные механики'
+};
 function eventText(e: GameEvent) {
   if (e.type === 'EntitySpawned' && e.kind === 'elite')
     return e.boss
@@ -490,7 +502,7 @@ function eliteAlert(e: GameEvent): [string, string] | null {
     const c = e.chassis ?? 'marshal';
     return [
       `${chassisName[c].toUpperCase()} · ${affixName[e.affix ?? 'none'].toUpperCase()}`,
-      chassisRole[c]
+      `${chassisRole[c]}${e.affix && e.affix !== 'none' ? ` · ${affixRole[e.affix] ?? ''}` : ''}`
     ];
   }
   if (e.type === 'EliteReacquired')
@@ -1171,7 +1183,7 @@ function updateThreatPanel(s: Snapshot) {
     ? 'Красная зона — опасность. Выйди из геометрии до завершения подготовки.'
     : e.boss
       ? 'Следи за красной геометрией; после тяжёлых атак появляется окно для ответа.'
-      : chassisRole[e.chassis ?? 'marshal'];
+      : `${chassisRole[e.chassis ?? 'marshal']}${e.affix && e.affix !== 'none' ? ` · Аффикс: ${affixRole[e.affix] ?? affixName[e.affix]}` : ''}`;
   $('threatHp').style.width = `${Math.max(0,(e.hp/e.maxHp)*100)}%`;
 }
 function updateUi(s: Snapshot) {
@@ -1187,7 +1199,7 @@ function updateUi(s: Snapshot) {
   $('level').textContent = `УРОВЕНЬ ${s.player.level}`;
   $('hpbar').style.width = `${Math.max(0, (s.player.hp / s.player.maxHp) * 100)}%`;
   $('hptext').textContent =
-    `HP ${Math.ceil(s.player.hp)} / ${Math.round(s.player.maxHp)}${s.player.barrier > 0 ? ` + ${Math.ceil(s.player.barrier)} щит` : ''}`;
+    `ЗДОРОВЬЕ ${Math.ceil(s.player.hp)} / ${Math.round(s.player.maxHp)}${s.player.barrier > 0 ? ` + ${Math.ceil(s.player.barrier)} барьер` : ''}`;
   $('xpbar').style.width = `${Math.max(0, Math.min(100, (s.player.xp / s.player.xpNeed) * 100))}%`;
   $('xptext').textContent = `ОПЫТ ${Math.floor(s.player.xp)} / ${s.player.xpNeed}`;
   const cleared = s.world.pois.filter((p) => p.state === 'cleared').length,
@@ -1504,7 +1516,7 @@ function frame(now: number) {
 async function start() {
   if (debugEnabled) $('debugPanel').classList.remove('debug-hidden');
   dbg('START', {
-    version: '0.11-core-redesign',
+    version: '0.11.2-ux-readability',
     mode: runMode,
     startingSkill,
     seed,
