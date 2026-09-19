@@ -1126,15 +1126,19 @@ function refreshChoiceAction(label, action) {
 function offerKind(o) {
     return o.kind === 'skill_add'
         ? 'НОВЫЙ PHENOMENON'
-        : o.kind === 'catalyst_add'
-            ? 'НОВЫЙ CATALYST'
-            : o.kind === 'mutation_target'
-                ? 'ЯДРО МУТАЦИИ'
-                : o.kind === 'resonance'
-                    ? 'ОСЬ ЯДРА'
-                    : o.kind === 'elite'
-                        ? 'ELITE CACHE'
-                        : 'ОБЩИЙ СТАТ';
+        : o.kind === 'skill_swap'
+            ? 'ЗАМЕНА PHENOMENON'
+            : o.kind === 'item_grant'
+                ? 'НАХОДКА'
+                : o.kind === 'catalyst_add'
+                    ? 'НОВЫЙ CATALYST'
+                    : o.kind === 'mutation_target'
+                        ? 'ЯДРО МУТАЦИИ'
+                        : o.kind === 'resonance'
+                            ? 'ОСЬ ЯДРА'
+                            : o.kind === 'elite'
+                                ? 'ELITE CACHE'
+                                : 'ОБЩИЙ СТАТ';
 }
 function syncChoiceUI(s, force = false) {
     const has = !!s.mutationOffer || !!s.rewardOffers, wrap = $('choice'), cards = $('cards'), actions = $('choiceActions');

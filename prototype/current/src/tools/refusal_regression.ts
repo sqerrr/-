@@ -132,7 +132,10 @@ assert(
 // Every conceded card must carry enough identity to be fielded later.
 assert(
   s.refusals.every(
-    (c) => !!c.title && !!c.icon && (!!c.skill || !!c.catalyst || !!c.resonance || !!c.stat)
+    (c) =>
+      !!c.title &&
+      !!c.icon &&
+      (!!c.skill || !!c.catalyst || !!c.item || !!c.resonance || !!c.stat)
   ),
   'a conceded card carries no usable payload'
 );

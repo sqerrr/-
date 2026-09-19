@@ -100,7 +100,9 @@ s.refusals.forEach((c, i) => assert(c.serial === i + 1, 'serial ' + c.serial + '
 const aliveElites = new Set(s.entities.filter((e) => e.elite).map((e) => e.id));
 assert(s.refusals.every((c) => c.heldBy === 0 || aliveElites.has(c.heldBy)), 'a card is still claimed by an elite that is no longer alive');
 // Every conceded card must carry enough identity to be fielded later.
-assert(s.refusals.every((c) => !!c.title && !!c.icon && (!!c.skill || !!c.catalyst || !!c.resonance || !!c.stat)), 'a conceded card carries no usable payload');
+assert(s.refusals.every((c) => !!c.title &&
+    !!c.icon &&
+    (!!c.skill || !!c.catalyst || !!c.item || !!c.resonance || !!c.stat)), 'a conceded card carries no usable payload');
 // No card may be claimed twice over: a held serial must map to exactly one elite.
 const claims = new Map();
 for (const c of s.refusals)

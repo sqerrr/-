@@ -277,13 +277,24 @@ export interface Metrics {
 }
 export interface RewardOffer {
   id: string;
-  kind: 'skill_add' | 'catalyst_add' | 'resonance' | 'global' | 'elite' | 'mutation_target';
+  kind:
+    | 'skill_add'
+    | 'catalyst_add'
+    | 'resonance'
+    | 'global'
+    | 'elite'
+    | 'mutation_target'
+    | 'item_grant'
+    | 'skill_swap';
   title: string;
   subtitle: string;
   description: string;
   skill?: SkillId;
   catalyst?: CatalystId;
   resonance?: ResonanceId;
+  item?: ItemId;
+  /** For a swap: the slot whose phenomenon steps aside into the reserve (D27). */
+  swapSlot?: number;
   stat?: string;
   amount?: number;
   rarity?: Rarity;
@@ -291,7 +302,7 @@ export interface RewardOffer {
   after?: string;
 }
 /** D7/D8: a card the hero declined that the elites may now field against them. */
-export type RefusalKind = 'skill' | 'catalyst' | 'axis' | 'global';
+export type RefusalKind = 'skill' | 'catalyst' | 'axis' | 'global' | 'item';
 export interface RefusedCard {
   /** Order of concession within the run; 1 is the earliest. */
   serial: number;
@@ -301,6 +312,7 @@ export interface RefusedCard {
   skill?: SkillId;
   catalyst?: CatalystId;
   resonance?: ResonanceId;
+  item?: ItemId;
   stat?: string;
   amount?: number;
   /** Entity id of the elite currently fielding the card, or 0 while it sits unclaimed. */

@@ -15,7 +15,7 @@ import {
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
 import { Rng } from './rng.js';
-import { items, itemOrder } from '../content/items.js';
+import { items, itemOrder, itemCategoryName } from '../content/items.js';
 import type {
   ItemId,
   CatalystId,
@@ -607,8 +607,8 @@ export class Simulation {
         : 'ember_lance';
       this.slots = [start, null, null, null];
       this.catalysts = [null, null, null];
-      this.skillReserve = [null, null, null];
-      this.catalystReserve = [null, null, null, null];
+      this.skillReserve = [null];
+      this.catalystReserve = [null, null];
       this.tempo = 0;
       this.globalPower = 0;
       this.fortune = 0;
@@ -1431,6 +1431,10 @@ export class Simulation {
    * damageHero and in the cadence below. Figures are provisional and stated in doc 23.
    */
   private applyRefusedAxes(e: Ent) {
+    for (const serial of e.repertoire) {
+      const c = this.refusalStore.find((x) => x.serial === serial);
+      if (c && c.kind === 'item' && c.item) this.applyEliteItem(e, c.item, false);
+    }
     // Deliberately no mirror for persistence yet. The obvious one - more health - was tried
     // and measured: it fights the only calibrated dial in the build, because D49 fight
     // length is tuned through exactly that number, and stacking a second multiplier on it
@@ -2418,11 +2422,13 @@ export class Simulation {
       return;
     }
   }
-  private takeRelic(r: Relic) {
-    const def = items[r.item];
-    this.heldItems.push(r.item);
-    this.metrics.relicsTakenByHero++;
-    const a = def.effect;
+  /**
+   * Applies an item to the hero, whether it was lifted off the floor or handed over as a
+   * level reward. D14 forbids slots, so nothing is displaced and copies simply stack.
+   */
+  private grantItem(id: ItemId) {
+    this.heldItems.push(id);
+    const a = items[id].effect;
     if (a.kind === 'armor') this.armor += a.amount;
     else if (a.kind === 'maxHp') {
       this.maxHp += a.amount;
@@ -2443,6 +2449,11 @@ export class Simulation {
     else if (a.kind === 'relicRateMul') this.itemRelicRateMul *= a.amount;
     else if (a.kind === 'coreBonus') this.itemCoreBonus += a.amount;
     else if (a.kind === 'refusalDamageMul') this.itemRefusalDamageMul *= a.amount;
+  }
+  private takeRelic(r: Relic) {
+    const def = items[r.item];
+    this.grantItem(r.item);
+    this.metrics.relicsTakenByHero++;
     this.events.push({
       type: 'RelicTaken',
       tick: this.tick,
@@ -2460,10 +2471,15 @@ export class Simulation {
    * effect, because a relic that hands an elite the literal player-side bonus would be
    * exactly the mechanical mirror D41 rules out.
    */
-  private giveEliteRelic(e: Ent, r: Relic) {
-    const def = items[r.item];
-    this.metrics.relicsTakenByElites++;
-    switch (def.category) {
+  /**
+   * The counterpart an elite gets from an item, by category and never by copy (D15,
+   * D41, D51). Durability is deliberately absent from every branch: it is the number
+   * the D49 fight length is calibrated through, and stacking onto it has collapsed a
+   * run before. `allowClaim` is false when the mirror is applied to a card the elite is
+   * merely holding, because claiming more cards from inside the claim would recurse.
+   */
+  private applyEliteItem(e: Ent, id: ItemId, allowClaim: boolean) {
+    switch (items[id].category) {
       case 'guard':
         e.contactDps *= 1.14;
         break;
@@ -2475,12 +2491,18 @@ export class Simulation {
         e.relicGapMul = (e.relicGapMul ?? 1) * 0.9;
         break;
       case 'finding':
-        this.claimOneMoreRefusal(e);
+        if (allowClaim) this.claimOneMoreRefusal(e);
+        else e.relicGapMul = (e.relicGapMul ?? 1) * 0.92;
         break;
       case 'elite':
         e.relicReachMul = (e.relicReachMul ?? 1) * 1.35;
         break;
     }
+  }
+  private giveEliteRelic(e: Ent, r: Relic) {
+    const def = items[r.item];
+    this.metrics.relicsTakenByElites++;
+    this.applyEliteItem(e, r.item, true);
     this.events.push({
       type: 'RelicTaken',
       tick: this.tick,
@@ -4087,17 +4109,12 @@ export class Simulation {
       this.metrics.levels++;
       this.xpNeed = this.nextXpNeed(this.level);
       if (this.level === 6 || this.level === 11 || this.level === 17) this.mutationCores++;
-      if (this.isDiscoveryLevel(this.level) && this.skillOrderUnowned().length)
-        this.generateDiscovery();
-      else this.generateLevelOffers();
+      this.generateLevelOffers();
       this.events.push({ type: 'LevelUp', tick: this.tick, level: this.level });
     }
   }
   private nextXpNeed(level: number) {
     return Math.round(12 + level * 1.5 + Math.pow(level, 1.25) * 0.7);
-  }
-  private isDiscoveryLevel(level: number) {
-    return [2, 4, 7, 10, 14].includes(level);
   }
   private skillOrderUnowned() {
     const owned = this.allOwnedSkills();
@@ -4320,10 +4337,81 @@ export class Simulation {
     }));
     this.choiceSerial++;
   }
+  /**
+   * D38 retired the five fixed discovery levels: a phenomenon may now arrive at any
+   * level. D26 answers the question of what a level is worth once the build is full -
+   * a relic, an operator or a direction of growth - and D27 keeps the roster itself
+   * open by offering a swap, the displaced phenomenon stepping into the reserve.
+   * Three distinct kinds are preferred so a level rarely reads as three shades of the
+   * same decision; growth fills whatever is left because it is always applicable.
+   */
   private generateLevelOffers() {
-    const ids = this.shuffle([...resonanceOrder]).slice(0, 3);
-    this.rewardOffers = ids.map((id) => this.makeResonanceOffer(id));
+    const out: RewardOffer[] = [];
+    const unownedSkills = this.skillOrderUnowned();
+    if (unownedSkills.length) {
+      const id = unownedSkills[this.rng.int(unownedSkills.length)];
+      const free = this.slots.findIndex((x) => !x) >= 0 || this.skillReserve.some((x) => !x);
+      out.push(free ? this.makeSkillAdd(id) : this.makeSkillSwap(id));
+    }
+    // D32 cut the operator reserve from four places to two, so "there is an operator the
+    // hero has not seen" is no longer the same question as "there is anywhere to put it".
+    // Offering one that cannot be placed would hand the hero a card that refuses to be taken.
+    const unownedCats = this.catalystOrderUnowned();
+    const roomForCatalyst =
+      this.catalysts.some((x) => !x) || this.catalystReserve.some((x) => !x);
+    if (unownedCats.length && roomForCatalyst) {
+      out.push(this.makeCatalystAdd(unownedCats[this.rng.int(unownedCats.length)]));
+    }
+    const item = this.rollItemId();
+    if (item) out.push(this.makeItemOffer(item));
+    this.shuffle(out);
+    const axes = this.shuffle([...resonanceOrder]);
+    while (out.length < 3 && axes.length) out.push(this.makeResonanceOffer(axes.shift()!));
+    this.rewardOffers = out.slice(0, 3);
     this.choiceSerial++;
+  }
+  private catalystOrderUnowned() {
+    const owned = this.allOwnedCatalysts();
+    return catalystOrder.filter((id) => !owned.includes(id));
+  }
+  private rollItemId(): ItemId | null {
+    const ids = itemOrder;
+    return ids.length ? ids[this.rng.int(ids.length)] : null;
+  }
+  private makeItemOffer(id: ItemId): RewardOffer {
+    const def = items[id];
+    return {
+      id: `item:${id}:${this.rng.nextU32()}`,
+      kind: 'item_grant',
+      title: def.name,
+      subtitle: `${itemCategoryName[def.category].toUpperCase()} · находка`,
+      description: def.description,
+      item: id
+    };
+  }
+  private makeSkillAdd(id: SkillId): RewardOffer {
+    return {
+      id: `discover:${id}:${this.rng.nextU32()}`,
+      kind: 'skill_add',
+      title: skills[id].name,
+      subtitle: 'НАХОДКА · новый феномен',
+      description: `${skills[id].description} Сильная сторона: ${skills[id].identity ?? '—'} Слабость: ${skills[id].weakness ?? '—'}`,
+      skill: id
+    };
+  }
+  /** D27: with every place taken, a find arrives as an exchange rather than not at all. */
+  private makeSkillSwap(id: SkillId): RewardOffer {
+    const slot = this.rng.int(this.slots.length);
+    const leaving = this.slots[slot];
+    return {
+      id: `swap:${id}:${this.rng.nextU32()}`,
+      kind: 'skill_swap',
+      title: skills[id].name,
+      subtitle: `ЗАМЕНА · вместо «${leaving ? skills[leaving].name : '—'}»`,
+      description: `${skills[id].description} Снятый феномен уходит в резерв, а не пропадает.`,
+      skill: id,
+      swapSlot: slot
+    };
   }
   private generateMutationTargetOffers() {
     const active = this.slots.filter((id): id is SkillId => !!id && !this.skillState(id).mutation);
@@ -4404,6 +4492,28 @@ export class Simulation {
     this.skillsRuntime.set(id, this.newSkill(id));
     return true;
   }
+  /**
+   * D27: the phenomenon stepping aside goes to the reserve, and whatever was sitting
+   * in the reserve is what leaves the run, so a swap is a real decision rather than a
+   * free upgrade.
+   */
+  private swapInSkill(id: SkillId, slot: number) {
+    if (this.allOwnedSkills().includes(id)) return true;
+    if (slot < 0 || slot >= this.slots.length) return false;
+    const leaving = this.slots[slot];
+    this.slots[slot] = id;
+    this.skillsRuntime.set(id, this.newSkill(id));
+    if (leaving) {
+      const free = this.skillReserve.findIndex((x) => !x);
+      if (free >= 0) this.skillReserve[free] = leaving;
+      else {
+        const dropped = this.skillReserve[0];
+        this.skillReserve[0] = leaving;
+        if (dropped) this.skillsRuntime.delete(dropped);
+      }
+    }
+    return true;
+  }
   chooseReward(index: number) {
     const offers = this.rewardOffers;
     const offer = offers?.[index];
@@ -4414,7 +4524,11 @@ export class Simulation {
       this.generateMutationOffer(offer.skill);
       return true;
     }
-    if ((offer.kind === 'skill_add' || offer.kind === 'elite') && offer.skill) {
+    if (offer.kind === 'item_grant' && offer.item) {
+      this.grantItem(offer.item);
+    } else if (offer.kind === 'skill_swap' && offer.skill && offer.swapSlot !== undefined) {
+      if (!this.swapInSkill(offer.skill, offer.swapSlot)) return false;
+    } else if ((offer.kind === 'skill_add' || offer.kind === 'elite') && offer.skill) {
       if (!this.addSkill(offer.skill)) return false;
     } else if ((offer.kind === 'catalyst_add' || offer.kind === 'elite') && offer.catalyst) {
       if (!this.placeCatalyst(offer.catalyst)) return false;
@@ -4453,6 +4567,7 @@ export class Simulation {
         icon: catalysts[o.catalyst].shortName,
         catalyst: o.catalyst
       };
+    if (o.item) return { ...base, kind: 'item', icon: items[o.item].short, item: o.item };
     if (o.resonance)
       return { ...base, kind: 'axis', icon: 'A', resonance: o.resonance, amount: o.amount ?? 1 };
     if (o.stat) return { ...base, kind: 'global', icon: 'G', stat: o.stat, amount: o.amount ?? 0 };
@@ -4590,8 +4705,8 @@ export class Simulation {
   configureBenchmarkLoadout(cfg: BenchmarkLoadout) {
     this.slots = Array.from({ length: 4 }, (_, i) => cfg.slots[i] ?? null);
     this.catalysts = Array.from({ length: 3 }, (_, i) => cfg.catalysts[i] ?? null);
-    this.skillReserve = [null, null, null];
-    this.catalystReserve = [null, null, null, null];
+    this.skillReserve = [null];
+    this.catalystReserve = [null, null];
     this.skillsRuntime.clear();
     this.catalystRuntime.clear();
     const lvl = cfg.level ?? 7;
