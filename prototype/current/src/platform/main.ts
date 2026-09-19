@@ -1156,9 +1156,11 @@ function updateThreatPanel(s: Snapshot) {
   const e = boss ?? elites.sort((a,b)=>Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0];
   if (!e) { box.classList.remove('visible','danger'); return; }
   box.classList.add('visible');
-  const preparing = e.echoPhase === 'tell' || e.telegraph > 0,
+  const chassisTell = !!e.eliteAction && e.eliteAction !== 'predator_dash',
+    chassisActive = e.eliteAction === 'predator_dash',
+    preparing = e.echoPhase === 'tell' || e.telegraph > 0 || chassisTell,
     activeEcho = e.echoPhase === 'active',
-    dangerous = preparing || activeEcho || (e.boss && e.bossPattern && e.adaptationStage === 1);
+    dangerous = preparing || activeEcho || chassisActive || (e.boss && e.bossPattern && e.adaptationStage === 1);
   box.classList.toggle('danger', !!dangerous);
   const pattern = e.echoPhase === 'tell'
     ? `ОТРАЖЕНИЕ · ${e.echoSkill ? skills[e.echoSkill].name.toUpperCase() : 'АТАКА'}`
