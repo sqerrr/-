@@ -187,12 +187,19 @@ export interface PoiSnapshot {
   state: PoiState;
   guardianId: number;
 }
+export interface ObstacleSnapshot {
+  id: number;
+  x: number;
+  z: number;
+  radius: number;
+}
 export interface WorldSnapshot {
   minX: number;
   maxX: number;
   minZ: number;
   maxZ: number;
   pois: PoiSnapshot[];
+  obstacles: ObstacleSnapshot[];
   bossSpawned: boolean;
   bossDefeated: boolean;
 }

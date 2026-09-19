@@ -217,6 +217,14 @@ export class Simulation {
     fields = [];
     constructs = [];
     world = { minX: -48, maxX: 48, minZ: -36, maxZ: 36 };
+    // D20 asks for a semi-open arena: islands of blockers, never corridors and never
+    // an empty field. Circles cluster into organic islands and give free sliding, which
+    // boxes would not. Laid out from a stream of its own so the roll cannot shift combat.
+    obstacles = [];
+    obstacleGrid = new Map();
+    worldRng;
+    static OBSTACLE_CELL = 8;
+    static HERO_BODY_RADIUS = 0.42;
     pois = [];
     bossSpawned = false;
     bossDefeated = false;
@@ -340,6 +348,7 @@ export class Simulation {
         this.dt = 1 / cfg.hz;
         this.rng = new Rng(cfg.seed);
         this.refusalRng = new Rng((cfg.seed ^ 0x5bf03635) >>> 0);
+        this.worldRng = new Rng((cfg.seed ^ 0x27d4eb2f) >>> 0);
         this.runDuration = cfg.runDuration ?? 480;
         this.benchmark = !!cfg.benchmark;
         this.mode = cfg.mode ?? 'clean';
@@ -362,6 +371,7 @@ export class Simulation {
             if (id && !this.catalystRuntime.has(id))
                 this.catalystRuntime.set(id, { id });
         this.initPois();
+        this.initObstacles();
     }
     newSkill(id) {
         return {
@@ -385,6 +395,122 @@ export class Simulation {
     get hasChoice() {
         return !!this.rewardOffers || !!this.mutationOffer;
     }
+    initObstacles() {
+        this.obstacles = [];
+        // Keep the opening and every point of interest approachable.
+        const safe = [{ x: 0, z: 0, r: 11 }].concat(this.pois.map((p) => ({ x: p.x, z: p.z, r: 5.5 })));
+        let id = 1;
+        for (let c = 0; c < 11; c++) {
+            for (let attempt = 0; attempt < 30; attempt++) {
+                const cx = this.worldRng.range(this.world.minX + 7, this.world.maxX - 7);
+                const cz = this.worldRng.range(this.world.minZ + 7, this.world.maxZ - 7);
+                if (safe.some((v) => Math.hypot(cx - v.x, cz - v.z) < v.r + 4))
+                    continue;
+                // Islands stay apart so lanes between them never close into corridors.
+                if (this.obstacles.some((o) => Math.hypot(cx - o.x, cz - o.z) < 11))
+                    continue;
+                const n = 2 + this.worldRng.int(3);
+                for (let i = 0; i < n; i++) {
+                    const a = this.worldRng.range(0, Math.PI * 2);
+                    const d = this.worldRng.range(0, 2.6);
+                    this.obstacles.push({
+                        id: id++,
+                        x: cx + Math.cos(a) * d,
+                        z: cz + Math.sin(a) * d,
+                        radius: this.worldRng.range(1.5, 3)
+                    });
+                }
+                break;
+            }
+        }
+        this.buildObstacleGrid();
+    }
+    obstacleCellKey(cx, cz) {
+        return (cx + 512) * 4096 + (cz + 512);
+    }
+    buildObstacleGrid() {
+        this.obstacleGrid.clear();
+        const c = Simulation.OBSTACLE_CELL;
+        for (const o of this.obstacles) {
+            const x0 = Math.floor((o.x - o.radius) / c);
+            const x1 = Math.floor((o.x + o.radius) / c);
+            const z0 = Math.floor((o.z - o.radius) / c);
+            const z1 = Math.floor((o.z + o.radius) / c);
+            for (let gx = x0; gx <= x1; gx++)
+                for (let gz = z0; gz <= z1; gz++) {
+                    const k = this.obstacleCellKey(gx, gz);
+                    const bucket = this.obstacleGrid.get(k);
+                    if (bucket)
+                        bucket.push(o);
+                    else
+                        this.obstacleGrid.set(k, [o]);
+                }
+        }
+    }
+    obstaclesNear(x, z, radius, out) {
+        out.length = 0;
+        const c = Simulation.OBSTACLE_CELL;
+        const x0 = Math.floor((x - radius) / c);
+        const x1 = Math.floor((x + radius) / c);
+        const z0 = Math.floor((z - radius) / c);
+        const z1 = Math.floor((z + radius) / c);
+        for (let gx = x0; gx <= x1; gx++)
+            for (let gz = z0; gz <= z1; gz++) {
+                const bucket = this.obstacleGrid.get(this.obstacleCellKey(gx, gz));
+                if (!bucket)
+                    continue;
+                for (const o of bucket)
+                    if (out.indexOf(o) < 0)
+                        out.push(o);
+            }
+        return out;
+    }
+    obstacleScratch = [];
+    // Returns the nearest free position for a body of this radius. Two passes, because
+    // being pushed clear of one circle can bury the body in its neighbour.
+    freeOf(x, z, radius) {
+        for (let pass = 0; pass < 2; pass++) {
+            const near = this.obstaclesNear(x, z, radius, this.obstacleScratch);
+            let moved = false;
+            for (const o of near) {
+                const dx = x - o.x;
+                const dz = z - o.z;
+                const min = o.radius + radius;
+                const d = Math.hypot(dx, dz);
+                if (d >= min)
+                    continue;
+                moved = true;
+                if (d < 1e-4) {
+                    x = o.x + min;
+                    continue;
+                }
+                const k = (min - d) / d;
+                x += dx * k;
+                z += dz * k;
+            }
+            if (!moved)
+                break;
+        }
+        return { x, z };
+    }
+    blocked(x, z, radius) {
+        const near = this.obstaclesNear(x, z, radius, this.obstacleScratch);
+        for (const o of near)
+            if (Math.hypot(x - o.x, z - o.z) < o.radius + radius)
+                return true;
+        return false;
+    }
+    // One sweep after every mover has had its turn, so teleports and shoves are covered
+    // alongside ordinary steering without touching each of them.
+    resolveEntityObstacles() {
+        for (const e of this.ents) {
+            if (e.hp <= 0)
+                continue;
+            const p = this.freeOf(e.x, e.z, e.radius * 0.7);
+            e.x = p.x;
+            e.z = p.z;
+        }
+    }
     initPois() {
         this.pois = [
             { id: 1, kind: 'phenomenon', x: 14, z: -7, state: 'dormant', guardianId: 0 },
@@ -398,6 +524,11 @@ export class Simulation {
     clampWorld() {
         this.px = Math.max(this.world.minX + 0.7, Math.min(this.world.maxX - 0.7, this.px));
         this.pz = Math.max(this.world.minZ + 0.7, Math.min(this.world.maxZ - 0.7, this.pz));
+        // Every path the hero can move along ends here, dash included: D20 forbids
+        // passing through cover, so there is no branch that skips this.
+        const p = this.freeOf(this.px, this.pz, Simulation.HERO_BODY_RADIUS);
+        this.px = p.x;
+        this.pz = p.z;
     }
     pointAroundPlayer(min = 13, max = 19) {
         for (let i = 0; i < 12; i++) {
@@ -405,7 +536,8 @@ export class Simulation {
             if (x > this.world.minX + 1 &&
                 x < this.world.maxX - 1 &&
                 z > this.world.minZ + 1 &&
-                z < this.world.maxZ - 1)
+                z < this.world.maxZ - 1 &&
+                !this.blocked(x, z, 0.9))
                 return { x, z };
         }
         const a = this.rng.range(0, Math.PI * 2), r = min;
@@ -753,6 +885,7 @@ export class Simulation {
         this.eliteDirector();
         this.recycleFarEnemies();
         this.updateEnemyAI();
+        this.resolveEntityObstacles();
         this.updateFields();
         this.updateConstructs();
         this.updateDots();
@@ -4028,6 +4161,7 @@ export class Simulation {
             world: {
                 ...this.world,
                 pois: this.pois.map((p) => ({ ...p })),
+                obstacles: this.obstacles.map((o) => ({ ...o })),
                 bossSpawned: this.bossSpawned,
                 bossDefeated: this.bossDefeated
             },

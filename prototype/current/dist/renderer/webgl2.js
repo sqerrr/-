@@ -762,6 +762,12 @@ export class WebGLRenderer {
     }
     drawWorldShapes(s, aim, presentation) {
         const shapes = [];
+        // Cover reads as solid ground mass: dark body with a lit rim. Drawn before the
+        // fields so a hazard laid across a rock still shows on top of it.
+        for (const o of s.world.obstacles) {
+            shapes.push({ x: o.x, z: o.z, r: o.radius, mode: 0, color: rgba('#161a26', 0.94) });
+            shapes.push({ x: o.x, z: o.z, r: o.radius, mode: 1, color: rgba('#79859f', 0.9) });
+        }
         for (const f of s.fields) {
             const c = f.kind === 'ink'
                 ? rgba('#5a245f', 0.42)
