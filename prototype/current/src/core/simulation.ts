@@ -580,6 +580,8 @@ export class Simulation {
    * A per-phenomenon figure belongs in the data of step 3, where each entry states its
    * own mirror; one honest scalar is the placeholder until then.
    */
+  /** D28: a phenomenon forks three ways. */
+  static readonly MUTATION_BRANCHES = 3;
   static readonly RIVAL_CONCENTRATION = 6;
   private static rivalReach(id: SkillId): number {
     const def = skills[id];
@@ -4919,21 +4921,18 @@ export class Simulation {
     else if (stat === 'fortune') this.fortune += amount;
     else if (stat === 'armor') this.armor += amount;
   }
+  /**
+   * D28 puts three branches on a phenomenon, so a mutation is a fork rather than a coin
+   * toss. A hand-written table used to pin eight of the phenomena to two branches each
+   * and left the rest of their declared mutations unreachable; with eighteen phenomena
+   * in the roster that table was also a standing invitation to forget an entry. The
+   * offer is now drawn from whatever the phenomenon itself declares.
+   */
   private generateMutationOffer(id: SkillId) {
-    const curated: Partial<Record<SkillId, MutationId[]>> = {
-      ember_lance: ['ember_volley', 'ember_furnace'],
-      frost_ring: ['frost_front', 'frost_snap'],
-      cleaver: ['cleaver_roundhouse', 'cleaver_rhythm'],
-      chain_arc: ['arc_forked', 'arc_cage'],
-      orbit_blades: ['orbit_outbound', 'orbit_guard'],
-      mortar_bloom: ['mortar_cluster', 'mortar_crater'],
-      sentry: ['sentry_gatling', 'sentry_rail'],
-      mass_driver: ['mass_snowball', 'mass_rail']
-    };
-    const all = curated[id] ?? skills[id].mutations.map((m) => m.id);
+    const all = skills[id].mutations.map((m) => m.id);
     this.mutationOffer = {
       skill: id,
-      choices: this.shuffle([...all]).slice(0, 2),
+      choices: this.shuffle([...all]).slice(0, Simulation.MUTATION_BRANCHES),
       refusalAvailable: false
     };
     this.choiceSerial++;

@@ -1,4 +1,6 @@
 import { catalystOrder, catalysts, resonance, resonanceOrder, skillOrder, skills } from '../content/definitions.js';
+import { Simulation } from '../core/simulation.js';
+const MUTATION_BRANCHES = Simulation.MUTATION_BRANCHES;
 const fail = (m) => {
     throw new Error(m);
 };
@@ -53,6 +55,11 @@ for (const id of skillOrder) {
     const mutationDupes = duplicates(mutationIds);
     if (mutationDupes.length)
         fail(`${id}: duplicate mutation ids ${mutationDupes.join(', ')}`);
+    // D28 forks a phenomenon three ways. The offer draws from whatever the phenomenon
+    // declares, so a roster entry with fewer branches would quietly narrow the choice
+    // instead of failing, and nobody would notice until the mutation came up in a run.
+    if (s.mutations.length < MUTATION_BRANCHES)
+        fail(`${id}: declares ${s.mutations.length} mutations, D28 asks for ${MUTATION_BRANCHES}`);
     for (const m of s.mutations)
         if (!m.name || !m.description)
             fail(`${id}/${m.id}: mutation needs a name and a description`);

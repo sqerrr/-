@@ -1179,9 +1179,9 @@ function syncChoiceUI(s, force = false) {
         $('choiceSub').textContent =
             'Ядро мутации меняет парадигму Phenomenon и остаётся ресурсом рана: при замене его можно назначить заново.';
         $('choiceFoot').textContent = m.refusalAvailable
-            ? 'Один раз за ран можно заменить одну из двух мутаций.'
+            ? 'Один раз за ран можно заменить один из предложенных вариантов.'
             : 'Токен отказа уже использован.';
-        cards.className = 'cards two';
+        cards.className = m.choices.length > 2 ? 'cards three' : 'cards two';
         m.choices.forEach((id, i) => {
             const d = mutationDef(m.skill, id), card = document.createElement('div');
             card.className = 'card';
