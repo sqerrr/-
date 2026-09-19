@@ -1288,7 +1288,6 @@ export class WebGLRenderer {
         b = this.worldToScreen(corners[(i + 1) % 4][0], corners[(i + 1) % 4][1], s);
       line(a.x, a.y, b.x, b.y, 3, rgba('#b9d3d7', 0.34));
     }
-    }
 
     // Procedural cover presentation. Physics keeps a circular conservative hull, but the player
     // sees fractured stone islands with deterministic silhouettes, scars and rubble instead of
