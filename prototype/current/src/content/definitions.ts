@@ -90,7 +90,7 @@ export const skills: Record<SkillId, SkillDef> = {
     axes: ['tempo', 'precision', 'multiplicity', 'conductivity'],
     identity: 'Очень частая точная атака с высоким естественным шансом крита.',
     weakness: 'Почти не решает плотную толпу без синергии.',
-    description: 'Точная одиночная атака: высокий крит, узкая линия, быстрый retarget.',
+    description: 'Точная одиночная атака: высокий шанс критического удара, узкая линия и быстрое переключение цели.',
     upgradePool: ['power', 'range', 'count', 'statusPotency', 'crit'],
     mutations: [
       {
@@ -104,7 +104,7 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'ember_brand',
         name: 'Клеймо',
         tag: 'связка',
-        description: 'Метка усиливает следующий другой Skill.'
+        description: 'Метка усиливает следующее попадание другого феномена.'
       },
       {
         id: 'ember_furnace',
@@ -117,14 +117,14 @@ export const skills: Record<SkillId, SkillDef> = {
         parent: 'ember_volley',
         name: 'Пронзатель',
         tag: 'элита',
-        description: 'Один пробивающий снаряд особенно силён против Elite.'
+        description: 'Один пробивающий снаряд особенно силён против элитных врагов.'
       },
       {
         id: 'ember_backdraft',
         parent: 'ember_brand',
         name: 'Обратная тяга',
         tag: 'контроль',
-        description: 'Убийство стягивает соседей и вызывает burst.'
+        description: 'Убийство стягивает соседей и вызывает дополнительный взрыв.'
       },
       {
         id: 'ember_foundry',
@@ -157,7 +157,7 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'frost_snap',
         name: 'Мгновенная заморозка',
         tag: 'взрыв',
-        description: 'Повторный Chill вызывает shatter-burst.'
+        description: 'Повторное охлаждение раскалывает цель и наносит дополнительный урон вокруг неё.'
       },
       {
         id: 'frost_rim',
@@ -169,21 +169,21 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'frost_front',
         name: 'Холодный фронт',
         tag: 'поле',
-        description: 'Кольцо становится расширяющимся persistent Field.'
+        description: 'Кольцо превращается в расширяющееся длительное поле.'
       },
       {
         id: 'frost_skin',
         parent: 'frost_snap',
         name: 'Хрустальная кожа',
         tag: 'защита',
-        description: 'Убийства охлаждённых целей дают Barrier.'
+        description: 'Убийства охлаждённых целей дают барьер.'
       },
       {
         id: 'frost_brittle',
         parent: 'frost_rim',
         name: 'Хрупкость',
         tag: 'связка',
-        description: 'Chill открывает цель для следующего line/strike.'
+        description: 'Охлаждённая цель сильнее страдает от следующего тяжёлого попадания.'
       },
       {
         id: 'frost_whiteout',
@@ -216,13 +216,13 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'rail_rack',
         name: 'Стойка пронзателей',
         tag: 'подготовка',
-        description: 'Ниже direct damage, но больше Embeds.'
+        description: 'Меньше прямого урона, но больше снарядов застревает в цели.'
       },
       {
         id: 'rail_gun',
         name: 'Рельсотрон',
         tag: 'фокус',
-        description: 'Раз в два цикла — один почти экранный сверхтяжёлый shot. Quantity не клонирует ствол: для множества линий есть отдельная ветвь.'
+        description: 'Раз в два цикла — один почти экранный сверхтяжёлый выстрел. Количество не клонирует его: для множества линий есть отдельная ветвь.'
       },
       {
         id: 'rail_fan',
@@ -242,7 +242,7 @@ export const skills: Record<SkillId, SkillDef> = {
         parent: 'rail_gun',
         name: 'Точечное копьё',
         tag: 'связка',
-        description: 'Marked-цели приоритетны и становятся Exposed.'
+        description: 'Цели с меткой получают приоритет и становятся уязвимее.'
       },
       {
         id: 'rail_crossfire',
@@ -275,7 +275,7 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'cleaver_guillotine',
         name: 'Гильотина',
         tag: 'добивание',
-        description: 'Узкий взмах резко усиливается по low-HP целям.'
+        description: 'Узкий взмах резко усиливается по целям с малым запасом здоровья.'
       },
       {
         id: 'cleaver_roundhouse',
@@ -301,8 +301,8 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'cleaver_deep',
         parent: 'cleaver_guillotine',
         name: 'Глубокий порез',
-        tag: 'DoT',
-        description: 'Меньше direct damage, сильнее Wound.'
+        tag: 'длительный урон',
+        description: 'Меньше прямого урона, но сильнее кровоточащая рана.'
       },
       {
         id: 'cleaver_chainhook',
@@ -328,7 +328,7 @@ export const skills: Record<SkillId, SkillDef> = {
     axes: ['tempo', 'multiplicity', 'conductivity'],
     identity: 'Распределяет воздействие между разрозненными целями.',
     weakness: 'Резко теряет эффективность, когда целей мало.',
-    description: 'Auto-target сеть: сильна по разбросанной толпе, слаба по одиночной цели.',
+    description: 'Сеть сама выбирает цели: сильна по разбросанной толпе, слаба по одиночной цели.',
     upgradePool: ['power', 'count', 'range', 'statusPotency', 'crit'],
     mutations: [
       {
@@ -341,27 +341,27 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'arc_capacitive',
         name: 'Ёмкостная дуга',
         tag: 'связка',
-        description: 'Неиспользованные jumps копят Charge.'
+        description: 'Неиспользованные прыжки цепи копят заряд.'
       },
       {
         id: 'arc_ground',
         name: 'Заземление',
         tag: 'фокус',
-        description: 'Marked/Embedded цели приоритетны.'
+        description: 'Цели с меткой или застрявшим снарядом получают приоритет.'
       },
       {
         id: 'arc_cage',
         parent: 'arc_forked',
         name: 'Дуговая клетка',
         tag: 'поле',
-        description: 'Повторные hits создают electric Field.'
+        description: 'Повторные попадания создают электрическое поле.'
       },
       {
         id: 'arc_relay',
         parent: 'arc_capacitive',
         name: 'Статический ретранслятор',
         tag: 'дальность',
-        description: 'Заметно увеличивает jump range.'
+        description: 'Заметно увеличивает дальность следующего прыжка цепи.'
       },
       {
         id: 'arc_groundloop',
@@ -387,20 +387,20 @@ export const skills: Record<SkillId, SkillDef> = {
     axes: ['multiplicity', 'precision', 'mobility', 'conductivity'],
     identity: 'Постоянная плотность контактов вокруг героя.',
     weakness: 'Практически не отвечает угрозам на дистанции.',
-    description: 'Контактный orbit: много мелких попаданий рядом с героем.',
+    description: 'Контактная орбита: много мелких попаданий рядом с героем.',
     upgradePool: ['power', 'count', 'coverage', 'crit', 'eliteDamage'],
     mutations: [
       {
         id: 'orbit_many',
         name: 'Много ножей',
         tag: 'зачистка',
-        description: 'Больше лезвий, меньше power каждого.'
+        description: 'Больше лезвий, но каждое наносит меньше урона.'
       },
       {
         id: 'orbit_saw',
         name: 'Пильная корона',
         tag: 'элита',
-        description: 'Меньше тяжёлых лезвий, лучше против Elite.'
+        description: 'Меньше тяжёлых лезвий, но они заметно лучше против элитных врагов.'
       },
       {
         id: 'orbit_outbound',
@@ -413,14 +413,14 @@ export const skills: Record<SkillId, SkillDef> = {
         parent: 'orbit_many',
         name: 'Защитное кольцо',
         tag: 'защита',
-        description: 'Лезвия ослабляют enemy projectiles.'
+        description: 'Лезвия ослабляют вражеские снаряды.'
       },
       {
         id: 'orbit_blood',
         parent: 'orbit_saw',
         name: 'Кровавая орбита',
         tag: 'масштаб',
-        description: 'Wounded enemies рядом ускоряют и усиливают orbit.'
+        description: 'Раненые враги рядом ускоряют и расширяют орбиту.'
       },
       {
         id: 'orbit_comet',
@@ -444,7 +444,7 @@ export const skills: Record<SkillId, SkillDef> = {
     baseRadius: 2.85,
     baseCrit: 0.03,
     axes: ['multiplicity', 'persistence', 'conductivity'],
-    identity: 'Движущийся источник артиллерии: позиция героя и Mark меняют маршрут захода.',
+    identity: 'Движущийся источник артиллерии: позиция героя и метка меняют маршрут захода.',
     weakness: 'Медленно перестраивает маршрут и требует предсказывать движение цели.',
     description: 'Автономный бомбардир делает последовательные заходы по маршруту и отмеченной цели.',
     upgradePool: ['power', 'coverage', 'count', 'range', 'crit'],
@@ -460,27 +460,27 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'mortar_fuse',
         name: 'Длинный фитиль',
         tag: 'риск',
-        description: 'Больше урон и Coverage, но атака визуально медленнее.'
+        description: 'Больше урон и площадь поражения, но атака визуально медленнее.'
       },
       {
         id: 'mortar_spotter',
         name: 'Наводчик',
         tag: 'фокус',
-        description: 'Marked Elite притягивают точку падения.'
+        description: 'Элитные враги с меткой притягивают точку падения.'
       },
       {
         id: 'mortar_crater',
         parent: 'mortar_fuse',
         name: 'Кратер',
         tag: 'контроль',
-        description: 'После взрыва остаётся slowing Field.'
+        description: 'После взрыва остаётся поле, замедляющее врагов.'
       },
       {
         id: 'mortar_airburst',
         parent: 'mortar_cluster',
         name: 'Воздушный разрыв',
         tag: 'геометрия',
-        description: 'Шире explosion, слабее центр, без persistent Field.'
+        description: 'Взрыв шире, но центр слабее и длительного поля не остаётся.'
       },
       {
         id: 'mortar_beacon',
@@ -506,40 +506,40 @@ export const skills: Record<SkillId, SkillDef> = {
     axes: ['persistence', 'precision', 'multiplicity', 'conductivity'],
     identity: 'Создаёт стабильный автономный канал урона и приоритет цели.',
     weakness: 'Требует времени присутствия и хуже при постоянной смене зоны.',
-    description: 'Автономный construct: стабилен против приоритетных целей, инертен при миграции.',
+    description: 'Автономная турель: стабильна против приоритетных целей, но медленно переносит огонь на другую часть поля.',
     upgradePool: ['power', 'range', 'duration', 'count', 'eliteDamage'],
     mutations: [
       {
         id: 'sentry_gatling',
         name: 'Гатлинг',
         tag: 'темп',
-        description: 'Частые слабые shots и быстрый target switching.'
+        description: 'Частые слабые выстрелы и быстрое переключение между целями.'
       },
       {
         id: 'sentry_rail',
         name: 'Рельсовая установка',
         tag: 'фокус',
-        description: 'Медленные тяжёлые shots с Elite priority.'
+        description: 'Медленные тяжёлые выстрелы в первую очередь ищут элитных врагов.'
       },
       {
         id: 'sentry_relay',
         name: 'Ретранслятор',
         tag: 'связка',
-        description: 'Турель усиливает Chain Arc как relay.'
+        description: 'Турель становится промежуточным узлом для цепной молнии.'
       },
       {
         id: 'sentry_crawler',
         parent: 'sentry_gatling',
         name: 'Ползун',
         tag: 'мобильность',
-        description: 'Construct ближе следует за игроком.'
+        description: 'Турель держится ближе к игроку.'
       },
       {
         id: 'sentry_salvager',
         parent: 'sentry_rail',
         name: 'Утилизатор',
         tag: 'экономика',
-        description: 'Elite kills с участием Sentry быстрее дают Core.'
+        description: 'Убийства элит при участии турелей быстрее дают ядра.'
       },
       {
         id: 'sentry_grid',
@@ -561,7 +561,7 @@ export const skills: Record<SkillId, SkillDef> = {
     baseDamage: 12,
     baseRange: 0,
     baseRadius: 4.5,
-    description: 'Большое persistent поле вокруг позиции героя.',
+    description: 'Большое длительное поле вокруг позиции героя.',
     baseCrit: 0,
     axes: ['persistence', 'conductivity'],
     identity: 'Держит площадь вокруг героя и наказывает давку без единого нажатия.',
@@ -572,13 +572,13 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'toxic_corrosive',
         name: 'Коррозия',
         tag: 'поддержка',
-        description: 'Toxin сильнее ослабляет защищённые цели.'
+        description: 'Яд сильнее ослабляет защищённые цели.'
       },
       {
         id: 'toxic_contagion',
         name: 'Заражение',
         tag: 'зачистка',
-        description: 'Смерть заражённого передаёт Toxin соседям.'
+        description: 'Смерть заражённого передаёт яд соседям.'
       },
       {
         id: 'toxic_distilled',
@@ -598,7 +598,7 @@ export const skills: Record<SkillId, SkillDef> = {
         parent: 'toxic_corrosive',
         name: 'Реактивный растворитель',
         tag: 'связка',
-        description: 'Wound/Ignite превращаются в дополнительный burst.'
+        description: 'Кровотечение и горение превращаются в дополнительный взрыв.'
       },
       {
         id: 'toxic_still',
@@ -621,7 +621,7 @@ export const skills: Record<SkillId, SkillDef> = {
     baseRange: 0,
     baseRadius: 3.0,
     description:
-      'Защитный pulse: отталкивает толпу, открывает пространство и может конвертировать контроль в Barrier.',
+      'Защитная волна отталкивает толпу, освобождает пространство и может превращать контроль в барьер.',
     baseCrit: 0.02,
     axes: ['conductivity', 'mobility'],
     identity: 'Расчищает место вокруг и превращает контроль в защиту.',
@@ -632,7 +632,7 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'repulse_gravity',
         name: 'Гравитационный колодец',
         tag: 'контроль',
-        description: 'Push превращается в Pull: собирает врагов для следующего AoE.'
+        description: 'Отталкивание превращается в притяжение и собирает врагов под следующую атаку по площади.'
       },
       {
         id: 'repulse_front',
@@ -644,21 +644,21 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'repulse_aegis',
         name: 'Эгида',
         tag: 'защита',
-        description: 'Каждый реально displaced враг даёт Barrier до лимита активации.'
+        description: 'Каждый реально отодвинутый враг даёт немного барьера до лимита активации.'
       },
       {
         id: 'repulse_relay',
         parent: 'repulse_gravity',
         name: 'Кинетический релей',
         tag: 'связка',
-        description: 'Величина displacement превращается в Charge следующего феномена.'
+        description: 'Чем сильнее сдвинуты враги, тем больше заряд следующего феномена.'
       },
       {
         id: 'repulse_rings',
         parent: 'repulse_front',
         name: 'Компрессионные кольца',
         tag: 'геометрия',
-        description: 'Два последовательных меньших кольца вместо одного pulse.'
+        description: 'Две последовательные меньшие волны вместо одной.'
       },
       {
         id: 'repulse_bastion',
@@ -682,9 +682,9 @@ export const skills: Record<SkillId, SkillDef> = {
     baseRadius: 0.38,
     baseCrit: 0.01,
     axes: ['tempo', 'precision', 'conductivity'],
-    identity: 'Огромная медленная масса физически катится по арене, ломает cover и разрывает строй.',
+    identity: 'Огромная медленная масса физически катится по арене, ломает укрытия и разрывает строй.',
     weakness: 'Медленный и требует заранее построить траекторию; промах дорог.',
-    description: 'Медленный тяжёлый валун: Force, разрушение cover и растущий импульс вместо ещё одного hitscan-луча.',
+    description: 'Медленный тяжёлый валун: сильный импульс, разрушение укрытий и растущая мощь по мере движения.',
     upgradePool: ['power', 'range', 'control', 'crit', 'eliteDamage'],
     mutations: [
       {
@@ -697,7 +697,7 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'mass_snowball',
         name: 'Снежный ком',
         tag: 'масштаб',
-        description: 'Урон растёт за каждого minor enemy на линии.'
+        description: 'Урон растёт за каждого обычного врага на линии.'
       },
       {
         id: 'mass_recoil',
@@ -710,14 +710,14 @@ export const skills: Record<SkillId, SkillDef> = {
         parent: 'mass_snowball',
         name: 'Груз',
         tag: 'комбо',
-        description: 'Corpses/Constructs на линии усиливают impact.'
+        description: 'Тела и созданные объекты на линии усиливают удар.'
       },
       {
         id: 'mass_terminal',
         parent: 'mass_rail',
         name: 'Предельная скорость',
         tag: 'связка',
-        description: 'Stored/Charge конвертируется в скорость и damage.'
+        description: 'Накопленный заряд превращается в скорость и урон.'
       },
       {
         id: 'mass_counterthrust',
@@ -1042,8 +1042,8 @@ export const skills: Record<SkillId, SkillDef> = {
     baseRadius: 0.45,
     baseCrit: 0.05,
     axes: ['conductivity', 'mobility'],
-    identity: 'Безопасно перестраивает толпу вокруг выбранной точки и готовит Rail/Frost/Chain.',
-    weakness: 'Сам по себе почти не убивает; ценность раскрывается через setup и Force.',
+    identity: 'Безопасно перестраивает толпу вокруг выбранной точки и готовит её под точный удар, заморозку или цепную молнию.',
+    weakness: 'Сам по себе почти не убивает; ценность раскрывается через подготовку целей и сильный импульс.',
     upgradePool: ['power', 'coverage', 'crit'],
     mutations: [
       {
@@ -1156,18 +1156,18 @@ export const skills: Record<SkillId, SkillDef> = {
  */
 const v011Apotheoses: Partial<Record<SkillId, MutationDef[]>> = {
   frost_ring: [
-    { id:'frost_glacier_heart', parent:'frost_skin', name:'Сердце ледника', tag:'АПОФЕОЗ · смерч', description:'Каждый Shatter выпускает движущийся ледяной смерч; он замораживает новую линию целей.', apotheosis:true },
-    { id:'frost_spirefall', parent:'frost_brittle', name:'Падение шпилей', tag:'АПОФЕОЗ · шипы', description:'Brittle/Shatter вызывает крест ледяных шпилей вокруг приоритетной цели.', apotheosis:true },
+    { id:'frost_glacier_heart', parent:'frost_skin', name:'Сердце ледника', tag:'АПОФЕОЗ · смерч', description:'Каждый раскол выпускает движущийся ледяной смерч; он замораживает новую линию целей.', apotheosis:true },
+    { id:'frost_spirefall', parent:'frost_brittle', name:'Падение шпилей', tag:'АПОФЕОЗ · шипы', description:'Раскол хрупкой цели вызывает крест ледяных шпилей вокруг неё.', apotheosis:true },
     { id:'frost_worldstorm', parent:'frost_whiteout', name:'Белый шторм', tag:'АПОФЕОЗ · фронт', description:'Фронт становится большим движущимся штормом, который проходит через значительную часть арены.', apotheosis:true }
   ],
   rail_spear: [
     { id:'rail_execution_line', parent:'rail_harpoon', name:'Казнящая тяга', tag:'АПОФЕОЗ · гарпун', description:'Гарпун фиксирует крупную цель и вызывает отложенный вертикальный удар в точку захвата.', apotheosis:true },
-    { id:'rail_sky_lance', parent:'rail_spot', name:'Небесное копьё', tag:'АПОФЕОЗ · приоритет', description:'Попадание по Mark создаёт заметный маяк; сверху падает отдельный мощный луч.', apotheosis:true },
+    { id:'rail_sky_lance', parent:'rail_spot', name:'Небесное копьё', tag:'АПОФЕОЗ · приоритет', description:'Попадание по цели с меткой создаёт заметный маяк; сверху падает отдельный мощный луч.', apotheosis:true },
     { id:'rail_lattice', parent:'rail_crossfire', name:'Лазерная решётка', tag:'АПОФЕОЗ · сеть', description:'После веера остаются две перекрёстные отложенные линии, повторно прорезающие пространство.', apotheosis:true }
   ],
   cleaver: [
-    { id:'cleaver_harvest_dance', parent:'cleaver_rhythm', name:'Танец жатвы', tag:'АПОФЕОЗ · цепь', description:'Убийство в ближнем бою запускает самостоятельный круговой добивающий взмах и Momentum.', apotheosis:true },
-    { id:'cleaver_rupture', parent:'cleaver_deep', name:'Разрыв плоти', tag:'АПОФЕОЗ · рана', description:'Глубокая Wound на элите накапливается и детонирует большим rupture вместо простого DoT.', apotheosis:true },
+    { id:'cleaver_harvest_dance', parent:'cleaver_rhythm', name:'Танец жатвы', tag:'АПОФЕОЗ · цепь', description:'Убийство в ближнем бою запускает самостоятельный круговой добивающий взмах и наращивает темп жатвы.', apotheosis:true },
+    { id:'cleaver_rupture', parent:'cleaver_deep', name:'Разрыв плоти', tag:'АПОФЕОЗ · рана', description:'Глубокая кровоточащая рана на элите накапливается и затем взрывается большим разрывом вместо обычного периодического урона.', apotheosis:true },
     { id:'cleaver_rift_hook', parent:'cleaver_chainhook', name:'Крюк разлома', tag:'АПОФЕОЗ · разлом', description:'Стянутые цели сходятся в точке удара, после чего наружу проходит большой режущий разлом.', apotheosis:true }
   ],
   chain_arc: [
@@ -1176,39 +1176,39 @@ const v011Apotheoses: Partial<Record<SkillId, MutationDef[]>> = {
     { id:'arc_closed_loop', parent:'arc_groundloop', name:'Замкнутый контур', tag:'АПОФЕОЗ · петля', description:'Последняя дуга возвращается к первой/приоритетной цели и замыкает мощный контур.', apotheosis:true }
   ],
   orbit_blades: [
-    { id:'orbit_aegis_crown', parent:'orbit_guard', name:'Корона эгиды', tag:'АПОФЕОЗ · защита', description:'Перехват projectile заряжает Barrier; полный заряд выпускает защитную shockwave.', apotheosis:true },
-    { id:'orbit_sanguine_crown', parent:'orbit_blood', name:'Кровавая корона', tag:'АПОФЕОЗ · кровь', description:'Wounded цели раздвигают орбиту и возвращают часть ближнего урона Barrier.', apotheosis:true },
-    { id:'orbit_phoenix', parent:'orbit_comet', name:'Фениксовый вылет', tag:'АПОФЕОЗ · возврат', description:'Часть лезвий физически вылетает к Mark/элите и возвращается, прорезая цели дважды.', apotheosis:true }
+    { id:'orbit_aegis_crown', parent:'orbit_guard', name:'Корона эгиды', tag:'АПОФЕОЗ · защита', description:'Перехват вражеского снаряда заряжает барьер; полный заряд выпускает защитную ударную волну.', apotheosis:true },
+    { id:'orbit_sanguine_crown', parent:'orbit_blood', name:'Кровавая корона', tag:'АПОФЕОЗ · кровь', description:'Раненые цели раздвигают орбиту и возвращают часть ближнего урона в виде барьера.', apotheosis:true },
+    { id:'orbit_phoenix', parent:'orbit_comet', name:'Фениксовый вылет', tag:'АПОФЕОЗ · возврат', description:'Часть лезвий физически вылетает к цели с меткой или элите и возвращается, прорезая цели дважды.', apotheosis:true }
   ],
   mortar_bloom: [
     { id:'mortar_gravity_field', parent:'mortar_crater', name:'Гравибомба', tag:'АПОФЕОЗ · поле', description:'После захода остаётся видимое поле, стягивающее толпу к эпицентру следующего сброса.', apotheosis:true },
     { id:'mortar_carpet', parent:'mortar_airburst', name:'Ковровый проход', tag:'АПОФЕОЗ · маршрут', description:'Бомбардир проходит над линией и сбрасывает серию разнесённых зарядов по траектории.', apotheosis:true },
-    { id:'mortar_hunter_pass', parent:'mortar_beacon', name:'Охотничий заход', tag:'АПОФЕОЗ · элита', description:'Marked elite получает три последовательных телеграфируемых захода с разных направлений.', apotheosis:true }
+    { id:'mortar_hunter_pass', parent:'mortar_beacon', name:'Охотничий заход', tag:'АПОФЕОЗ · элита', description:'Элита с меткой получает три последовательных, заранее показанных захода с разных направлений.', apotheosis:true }
   ],
   sentry: [
-    { id:'sentry_walker', parent:'sentry_crawler', name:'Ходячий бастион', tag:'АПОФЕОЗ · walker', description:'Турели собираются в подвижный кластер вокруг героя и создают короткие безопасные зоны.', apotheosis:true },
-    { id:'sentry_hunter_battery', parent:'sentry_salvager', name:'Охотничья батарея', tag:'АПОФЕОЗ · фокус', description:'Все турели синхронно Lock-on на Mark/элиту и периодически дают общий тяжёлый залп.', apotheosis:true },
+    { id:'sentry_walker', parent:'sentry_crawler', name:'Ходячий бастион', tag:'АПОФЕОЗ · бастион', description:'Турели собираются в подвижный кластер вокруг героя и создают короткие безопасные зоны.', apotheosis:true },
+    { id:'sentry_hunter_battery', parent:'sentry_salvager', name:'Охотничья батарея', tag:'АПОФЕОЗ · фокус', description:'Все турели одновременно захватывают цель с меткой или элиту и периодически дают общий тяжёлый залп.', apotheosis:true },
     { id:'sentry_gravity_grid', parent:'sentry_grid', name:'Грависеть', tag:'АПОФЕОЗ · сеть', description:'Соседние турели соединяются полями, которые тянут и повреждают противников между ними.', apotheosis:true }
   ],
   toxic_mist: [
     { id:'toxic_plague_road', parent:'toxic_plume', name:'Чумная дорога', tag:'АПОФЕОЗ · след', description:'Движение постоянно оставляет цепочку заражённых пятен; смерть переносит инфекцию дальше.', apotheosis:true },
-    { id:'toxic_septic_bloom', parent:'toxic_reactive', name:'Септический цветок', tag:'АПОФЕОЗ · детонация', description:'Съеденная Wound/Ignite детонирует Toxin вокруг цели и запускает цепную реакцию.', apotheosis:true },
+    { id:'toxic_septic_bloom', parent:'toxic_reactive', name:'Септический цветок', tag:'АПОФЕОЗ · детонация', description:'Поглощённое кровотечение или горение взрывает яд вокруг цели и запускает цепную реакцию.', apotheosis:true },
     { id:'toxic_pestilent_host', parent:'toxic_still', name:'Носитель мора', tag:'АПОФЕОЗ · сущность', description:'Плотное облако отделяется от героя и медленно преследует ближайшую элиту как самостоятельный объект.', apotheosis:true }
   ],
   mass_driver: [
-    { id:'mass_avalanche', parent:'mass_cargo', name:'Лавина', tag:'АПОФЕОЗ · масса', description:'Могильный вал физически растёт после каждого тела и куска разрушенного cover.', apotheosis:true },
-    { id:'mass_singularity', parent:'mass_terminal', name:'Терминальная масса', tag:'АПОФЕОЗ · коллапс', description:'В конце пути вал схлопывается в тяжёлый взрыв Force, особенно опасный для элиты.', apotheosis:true },
-    { id:'mass_comet_recoil', parent:'mass_counterthrust', name:'Кометная контртяга', tag:'АПОФЕОЗ · манёвр', description:'Запуск резко отбрасывает героя назад, даёт короткое defensive-window и выпускает сверхтяжёлый вал.', apotheosis:true }
+    { id:'mass_avalanche', parent:'mass_cargo', name:'Лавина', tag:'АПОФЕОЗ · масса', description:'Могильный вал физически растёт после каждого тела и куска разрушенного укрытия.', apotheosis:true },
+    { id:'mass_singularity', parent:'mass_terminal', name:'Терминальная масса', tag:'АПОФЕОЗ · коллапс', description:'В конце пути вал схлопывается в тяжёлый импульсный взрыв, особенно опасный для элиты.', apotheosis:true },
+    { id:'mass_comet_recoil', parent:'mass_counterthrust', name:'Кометная контртяга', tag:'АПОФЕОЗ · манёвр', description:'Запуск резко отбрасывает героя назад, даёт короткое защитное окно и выпускает сверхтяжёлый вал.', apotheosis:true }
   ],
   shard_fan: [
-    { id:'returner_execution', parent:'fan_needle', name:'Охотничий возврат', tag:'АПОФЕОЗ · элита', description:'Возвратный клинок цепляется за Mark/элиту и возвращается через неё после короткой задержки.', apotheosis:true },
+    { id:'returner_execution', parent:'fan_needle', name:'Охотничий возврат', tag:'АПОФЕОЗ · элита', description:'Возвратный клинок цепляется за цель с меткой или элиту и возвращается через неё после короткой задержки.', apotheosis:true },
     { id:'returner_carousel', parent:'fan_storm', name:'Карусель', tag:'АПОФЕОЗ · маршрут', description:'На пределе клинки делают полный оборот вокруг точки и только затем возвращаются.', apotheosis:true },
-    { id:'returner_phoenix', parent:'fan_cinder', name:'Феникс возврата', tag:'АПОФЕОЗ · след', description:'Оба прохода оставляют огненный след; встреча исходящего и обратного пути вызывает burst.', apotheosis:true }
+    { id:'returner_phoenix', parent:'fan_cinder', name:'Феникс возврата', tag:'АПОФЕОЗ · след', description:'Оба прохода оставляют огненный след; пересечение исходящего и обратного пути вызывает взрыв.', apotheosis:true }
   ],
   tether_drag: [
-    { id:'gravity_singularity', parent:'tether_anchor', name:'Сингулярность', tag:'АПОФЕОЗ · якорь', description:'Якорь накапливает массу стянутых целей и затем взрывается Force/Expose.', apotheosis:true },
+    { id:'gravity_singularity', parent:'tether_anchor', name:'Сингулярность', tag:'АПОФЕОЗ · якорь', description:'Якорь накапливает массу стянутых целей, затем взрывается и делает выживших уязвимее.', apotheosis:true },
     { id:'gravity_dragnet', parent:'tether_dragnet', name:'Орбитальная сеть', tag:'АПОФЕОЗ · сеть', description:'Вместо одного луча появляются три якоря, образующие широкую область стягивания.', apotheosis:true },
-    { id:'gravity_prison', parent:'tether_lock', name:'Гравитюрьма', tag:'АПОФЕОЗ · контроль', description:'Элита не тянется к герою: вокруг неё на время замыкается видимая клетка, повышающая Break.', apotheosis:true }
+    { id:'gravity_prison', parent:'tether_lock', name:'Гравитюрьма', tag:'АПОФЕОЗ · контроль', description:'Элита не тянется к герою: вокруг неё на время замыкается видимая клетка, быстрее ломающая её защиту.', apotheosis:true }
   ]
 };
 for (const [skill, defs] of Object.entries(v011Apotheoses) as [SkillId, MutationDef[]][]) {
@@ -1289,9 +1289,9 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     id: 'capacitor',
     name: 'Преобразователь массы',
     shortName: '×ЦЕЛИ',
-    desc: 'Число целей, задетых слева, превращается в дополнительные instances правого феномена. Не переносит урон.',
+    desc: 'Число целей, задетых слева, превращается в дополнительные срабатывания правого феномена. Урон напрямую не переносится.',
     color: '#70d8ff',
-    scope: 'converter'
+    scope: 'преобразование'
   },
   anchor: {
     id: 'anchor',
@@ -1299,31 +1299,31 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     shortName: 'ЦЕНТР',
     desc: 'Естественный такт справа перенаводится на центр массы, которую только что задел левый феномен.',
     color: '#8ce5c7',
-    scope: 'router'
+    scope: 'перенаведение'
   },
   reservoir: {
     id: 'reservoir',
     name: 'Резервуар событий',
     shortName: 'ПАМЯТЬ',
-    desc: 'Копит массовые попадания слева между циклами. После заполнения следующий естественный такт справа получает несколько дополнительных instances.',
+    desc: 'Копит массовые попадания слева между циклами. После заполнения следующий естественный такт справа получает несколько дополнительных срабатываний.',
     color: '#79e19b',
-    scope: 'memory'
+    scope: 'накопление'
   },
   echo_shard: {
     id: 'echo_shard',
     name: 'Эхо-отпечаток',
     shortName: 'ЭХО',
-    desc: 'Запоминает результат слева и один раз отражает часть результата правого в точке предыдущего воздействия. Базовый понятный proc-оператор.',
+    desc: 'Запоминает результат слева и один раз повторяет часть результата правого в точке предыдущего воздействия.',
     color: '#86d8ff',
-    scope: 'imprint'
+    scope: 'отпечаток'
   },
   relay: {
     id: 'relay',
     name: 'Реле убийств',
-    shortName: 'KILL→',
-    desc: 'Серия убийств слева гарантированно заряжает ослабленное внеочередное проявление правого. Это один из простых trigger-вариантов.',
+    shortName: 'УБИЙ→',
+    desc: 'Серия убийств слева гарантированно заряжает ослабленное внеочередное проявление правого феномена.',
     color: '#ffe27a',
-    scope: 'gate'
+    scope: 'запуск'
   },
   conduit: {
     id: 'conduit',
@@ -1331,7 +1331,7 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     shortName: 'СВОЙСТВО',
     desc: 'Правый феномен сохраняет свою форму, но переносит совместимое состояние/свойство результата слева на собственные цели.',
     color: '#7ee7d2',
-    scope: 'fusion'
+    scope: 'слияние'
   },
   overflow: {
     id: 'overflow',
@@ -1339,23 +1339,23 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     shortName: '↩',
     desc: 'Если слева было массовое успешное воздействие, после правого такта исполнение один раз возвращается к левому феномену. Меняет топологию, а не цифру урона.',
     color: '#ffb879',
-    scope: 'topology'
+    scope: 'петля'
   },
   aegis_relay: {
     id: 'aegis_relay',
     name: 'Эгида потока',
     shortName: 'ЩИТ',
-    desc: 'Массовый контроль слева превращается при следующем такте в Barrier. Катализатор создаёт защитный маршрут вместо дополнительной атаки.',
+    desc: 'Массовый контроль слева на следующем такте превращается в барьер. Катализатор создаёт защитную связку вместо дополнительной атаки.',
     color: '#72cfff',
-    scope: 'converter'
+    scope: 'преобразование'
   },
   backflow: {
     id: 'backflow',
     name: 'Обратная связь',
     shortName: '↶',
-    desc: 'Успешный правый такт меняет следующий естественный такт слева: добавляет один instance вместо простого усиления урона.',
+    desc: 'Успешный правый такт меняет следующий естественный такт слева: добавляет одно дополнительное срабатывание вместо простого усиления урона.',
     color: '#b7a0ff',
-    scope: 'feedback'
+    scope: 'обратная связь'
   },
   recoil: {
     id: 'recoil',
@@ -1506,7 +1506,7 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
     name: 'Множественность',
     shortName: '×N',
     description:
-      'Поддерживаемые феномены трактуют её как дополнительные снаряды, прыжки, лезвия, волны или constructs.',
+      'Поддерживаемые феномены получают дополнительные снаряды, прыжки, лезвия, волны или призванные объекты.',
     color: '#cf94ff'
   },
   precision: {
@@ -1522,7 +1522,7 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
     name: 'Присутствие',
     shortName: 'ДОЛГО',
     description:
-      'Увеличивает время существования полей, constructs и других длительных проявлений.',
+      'Увеличивает время существования полей, призванных объектов и других длительных эффектов.',
     color: '#79e19b'
   },
   conductivity: {
@@ -1530,7 +1530,7 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
     name: 'Проводимость',
     shortName: 'СВЯЗЬ',
     description:
-      'Улучшает ёмкость, пороги и передачу Catalyst-операторов, а не уровень отдельного камня.',
+      'Улучшает ёмкость, пороги и передачу эффектов катализаторов, а не отдельный камень.',
     color: '#75f0d2'
   },
   mobility: {
@@ -1538,7 +1538,7 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
     name: 'Подвижность',
     shortName: 'ХОД',
     description:
-      'Ускоряет перемещение героя; отдельные Phenomena могут естественно использовать движение как часть своей идентичности.',
+      'Ускоряет перемещение героя; отдельные феномены используют движение как часть своего поведения.',
     color: '#7de7f4'
   }
 };
@@ -1547,14 +1547,14 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
 export interface DoctrineDef { id: DoctrineId; name: string; shortName: string; description: string; glyph: string; color: string; }
 export const doctrineOrder: DoctrineId[] = ['might','size','quantity','duration','mobility','guard','force','precision'];
 export const doctrines: Record<DoctrineId, DoctrineDef> = {
-  might:{id:'might',name:'Мощь',shortName:'МОЩЬ',glyph:'✦',color:'#ffb66d',description:'Общий урон Phenomena. Надёжный путь, но не меняет их форму.'},
-  size:{id:'size',name:'Масштаб',shortName:'SIZE',glyph:'◎',color:'#8fe8ff',description:'Reach ближних атак, радиус орбит, зон и размер физических сущностей.'},
-  quantity:{id:'quantity',name:'Количество',shortName:'×N',glyph:'⁝',color:'#c89cff',description:'Дополнительные совместимые actors/projectiles/constructs. Не размножает всё подряд.'},
-  duration:{id:'duration',name:'Длительность',shortName:'ВРЕМЯ',glyph:'◴',color:'#83df9b',description:'Время полей, constructs, trail и roaming-эффектов.'},
-  mobility:{id:'mobility',name:'Подвижность',shortName:'ХОД',glyph:'➤',color:'#75e7f4',description:'Скорость движения и восстановление dash; особенно важна proximity-билдам.'},
-  guard:{id:'guard',name:'Оплот',shortName:'ЩИТ',glyph:'⬡',color:'#77bfff',description:'Close-hit создаёт Barrier, а входящий урон рядом с врагом уменьшается.'},
-  force:{id:'force',name:'Импульс',shortName:'FORCE',glyph:'✺',color:'#ffd36b',description:'Stagger, knockback, shield Stability damage и разрушение cover.'},
-  precision:{id:'precision',name:'Точность',shortName:'МЕТКА',glyph:'⌖',color:'#ff91ca',description:'Крит, Mark/weakpoint и приоритетные одиночные цели.'}
+  might:{id:'might',name:'Мощь',shortName:'МОЩЬ',glyph:'✦',color:'#ffb66d',description:'Увеличивает общий урон феноменов. Надёжное усиление без изменения их формы.'},
+  size:{id:'size',name:'Масштаб',shortName:'РАЗМЕР',glyph:'◎',color:'#8fe8ff',description:'Увеличивает дальность ближних атак, радиус орбит и зон, а также размер физических эффектов.'},
+  quantity:{id:'quantity',name:'Количество',shortName:'×N',glyph:'⁝',color:'#c89cff',description:'Добавляет дополнительные снаряды, призванные объекты или действующие элементы там, где это поддерживает оружие.'},
+  duration:{id:'duration',name:'Длительность',shortName:'ВРЕМЯ',glyph:'◴',color:'#83df9b',description:'Продлевает поля, призванные объекты, следы и другие длительные эффекты.'},
+  mobility:{id:'mobility',name:'Подвижность',shortName:'ХОД',glyph:'➤',color:'#75e7f4',description:'Ускоряет героя и восстановление рывка; особенно полезно сборкам, которые сражаются вблизи.'},
+  guard:{id:'guard',name:'Оплот',shortName:'ЩИТ',glyph:'⬡',color:'#77bfff',description:'Попадания вблизи дают барьер, а входящий урон рядом с врагами немного снижается.'},
+  force:{id:'force',name:'Импульс',shortName:'ИМП',glyph:'✺',color:'#ffd36b',description:'Сильнее отбрасывает врагов, быстрее ломает стойкость щитов элит и хрупкие укрытия.'},
+  precision:{id:'precision',name:'Точность',shortName:'МЕТКА',glyph:'⌖',color:'#ff91ca',description:'Повышает шанс критического удара и пользу меток против приоритетных одиночных целей.'}
 };
 
 export const rarityOrder: Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];

@@ -1111,13 +1111,18 @@ export class Simulation {
   }
 
   private initPois() {
+    // Build sources are intentionally distributed around the opening instead of hiding the
+    // whole run behind two far-away weapon nodes. The exact rewards stay random; the route to
+    // *a* build decision must be visible and reachable from several directions.
     this.pois = [
       { id: 1, kind: 'phenomenon', x: 14, z: -7, state: 'dormant', guardianId: 0 },
       { id: 2, kind: 'catalyst', x: -19, z: 9, state: 'dormant', guardianId: 0 },
       { id: 3, kind: 'resonance', x: -34, z: -23, state: 'dormant', guardianId: 0 },
       { id: 4, kind: 'vital', x: 2, z: 29, state: 'dormant', guardianId: 0 },
       { id: 5, kind: 'phenomenon', x: 34, z: 21, state: 'dormant', guardianId: 0 },
-      { id: 6, kind: 'catalyst', x: 35, z: -23, state: 'dormant', guardianId: 0 }
+      { id: 6, kind: 'catalyst', x: 35, z: -23, state: 'dormant', guardianId: 0 },
+      { id: 7, kind: 'phenomenon', x: -9, z: 15, state: 'dormant', guardianId: 0 },
+      { id: 8, kind: 'vital', x: -23, z: -14, state: 'dormant', guardianId: 0 }
     ];
   }
   private clampWorld() {

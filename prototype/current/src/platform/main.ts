@@ -9,7 +9,7 @@ import {
   skills
 } from '../content/definitions.js';
 import { catalystGlyph, itemCategoryColor, itemGlyph, mutationBadge, skillChoiceArt } from '../content/visuals.js';
-import { items as itemDefs } from '../content/items.js';
+import { itemCategoryName, items as itemDefs } from '../content/items.js';
 import { Simulation } from '../core/simulation.js';
 import type {
   CatalystId,
@@ -188,7 +188,7 @@ modeSelect.addEventListener('change', () => {
 });
 startSelect.addEventListener('change', () => {
   startingSkill = startSelect.value as SkillId;
-  pushLog(`Стартовый Phenomenon: ${skills[startingSkill].name}. Применится после рестарта.`);
+  pushLog(`Стартовый феномен: ${skills[startingSkill].name}. Применится после рестарта.`);
 });
 function esc(s: string) {
   return String(s).replace(
@@ -314,7 +314,7 @@ function togglePlanning() {
     keys.clear();
     plannerSignature = '';
     updatePlanner(s);
-    pushLog('Режим планирования: бой полностью остановлен.');
+    pushLog('Экран персонажа и сборки открыт: бой полностью остановлен.');
   }
   last = performance.now();
   acc = 0;
@@ -346,7 +346,7 @@ function restart() {
   $('eliteAlert').classList.remove('visible');
   $('pauseBtn').textContent = 'Пауза';
   pushLog(
-    `${runMode === 'clean' ? 'Чистый ран' : 'Showcase'}: исследуйте отмеченные узлы карты; Хранитель приходит в финале.`
+    `${runMode === 'clean' ? 'Чистый забег' : 'Демонстрация'}: исследуйте отмеченные структуры карты; Хранитель приходит в финале.`
   );
 }
 
@@ -362,15 +362,15 @@ const chassisName: Record<string, string> = {
   warden: 'Хранитель'
 };
 const chassisRole: Record<string, string> = {
-  marshal: 'legacy',
+  marshal: 'давит строем и ускоряет союзников',
   hunter: 'предсказывает движение и делает перехватывающий рывок',
   bulwark: 'запоминает источник: повтор защищает её, смена источника вскрывает',
-  architect: 'создаёт туман, в котором дальний auto-lock теряет цель',
-  harvester: 'поглощает Catalyst-derived события; прямые такты разбивают заряд',
+  architect: 'создаёт туман, в котором дальний автоматический захват теряет цель',
+  harvester: 'поглощает срабатывания катализаторов; прямые такты разбивают заряд',
   shepherd: 'эволюционирует от реальной сигнатуры полученного урона',
   broodmaker: 'частые попадания порождают копии; убийство копии ранит оригинал',
-  archivist: 'экспериментальный legacy',
-  warden: 'финальный босс: читаемые sweep / rupture / charge паттерны'
+  archivist: 'копирует боевые роли и меняет рисунок боя',
+  warden: 'финальный босс: заранее показывает взмах, разлом и таран'
 };
 const affixName: Record<string, string> = {
   none: 'Без аффикса',
@@ -405,16 +405,16 @@ function eventText(e: GameEvent) {
   if (e.type === 'EntityDied' && e.elite) return 'Элитка уничтожена.';
   if (e.type === 'EliteOrder') {
     const m = {
-      surge: 'Маршал: SURGE.',
-      pack: 'Legacy pack.',
-      screen: 'Legacy screen.',
-      wall: 'Legacy wall.',
-      harvest: 'Legacy harvest.',
-      regroup: 'Legacy regroup.',
-      brood: 'Legacy brood.',
+      surge: 'Маршал: НАТИСК.',
+      pack: 'Стая перестраивается.',
+      screen: 'Элита ставит заслон.',
+      wall: 'Элита формирует стену.',
+      harvest: 'Элита начинает сбор.',
+      regroup: 'Элита перегруппировывается.',
+      brood: 'Элита вызывает выводок.',
       archive: 'Архивист: скопирована роль.',
       predator: 'Хищник зафиксировал траекторию: сейчас будет перехват.',
-      veil: `Завеса развернула ${e.count ?? 3} зоны тумана: дальний auto-lock внутри глохнет.`,
+      veil: `Завеса развернула ${e.count ?? 3} зоны тумана: дальний автоматический захват цели внутри глохнет.`,
       replicate: 'Репликатор породил копию от частых попаданий. Уничтожение копии бьёт оригинал.',
       prism:
         'Призма запомнила источник. Повторять его подряд невыгодно — смена источника вскрывает защиту.',
@@ -423,13 +423,13 @@ function eventText(e: GameEvent) {
     };
     return m[e.order];
   }
-  if (e.type === 'LevelUp') return `Core Rank ${e.level}: базовая мощность всей Chain выросла.`;
+  if (e.type === 'LevelUp') return `Уровень ядра ${e.level}: базовая мощность всей цепочки выросла.`;
   if (e.type === 'MutationChosen')
     return `${skills[e.skill].name}: мутация «${mutationDef(e.skill, e.mutation).name}».`;
   if (e.type === 'EnemyRevived') return 'Палимпсест переписал себя и вернулся в бой.';
   if (e.type === 'Reaction') {
     const n = {
-      thermal_shock: 'THERMAL SHOCK',
+      thermal_shock: 'ТЕРМОШОК',
       detonation: 'ДЕТОНАЦИЯ',
       conduit: 'ПРОВОДНИК',
       echo: 'ЭХО',
@@ -440,9 +440,9 @@ function eventText(e: GameEvent) {
   // D7: exactly one declined card is conceded, and the hero is told which one.
   if (e.type === 'RewardRefused')
     return `Отвергнуто: «${e.title}». Карта ушла элитам и вернётся против тебя.`;
-  if (e.type === 'RivalCast') return `Элита применила Echo отвергнутого: ${skills[e.skill].name}.`;
+  if (e.type === 'RivalCast') return `Элита применила отражение отвергнутого феномена: ${skills[e.skill].name}.`;
   if (e.type === 'EliteEchoPhase')
-    return `Elite Echo · ${skills[e.skill].name}: ${e.phase === 'tell' ? 'подготовка' : e.phase === 'active' ? 'удар' : 'окно восстановления'}.`;
+    return `Отражение элиты · ${skills[e.skill].name}: ${e.phase === 'tell' ? 'подготовка' : e.phase === 'active' ? 'удар' : 'окно восстановления'}.`;
   if (e.type === 'RareEvent') return `${e.title}: ${e.detail}`;
   // D14: a relic is a shared source, so losing one to an elite has to be stated as a loss.
   if (e.type === 'RelicAppeared') return `На поле появилась находка: ${e.name}.`;
@@ -660,7 +660,7 @@ function updateChain(s: Snapshot) {
     .querySelectorAll<HTMLElement>('#chain .edge')
     .forEach((x) => x.classList.toggle('active', Number(x.dataset.edge) === s.chain.beat - 1));
   $('chainInfo').textContent =
-    `цикл ${s.chain.cycle + 1} · Tempo +${Math.round(s.chain.tempo * 100)}% · Tab = планирование`;
+    `цикл ${s.chain.cycle + 1} · темп +${Math.round(s.chain.tempo * 100)}% · Tab = сборка`;
 }
 function attachPlannerDnD(el: HTMLElement) {
   el.addEventListener('dragstart', (e) => {
@@ -702,7 +702,7 @@ function attachPlannerDnD(el: HTMLElement) {
       const ns = sim.snapshot();
       updatePlanner(ns);
       updateChain(ns);
-      pushLog(a[0] === 'skill' ? 'План: Phenomenon переставлен.' : 'План: Catalyst переставлен.');
+      pushLog(a[0] === 'skill' ? 'План: феномен переставлен.' : 'План: катализатор переставлен.');
     }
   });
 }
@@ -723,7 +723,8 @@ function plannerSkillNode(
       md2 = st.mutationUpgrade ? mutationDef(id, st.mutationUpgrade) : null;
     const radius = d.baseRadius ? d.baseRadius.toFixed(1) : '—',
       range = d.baseRange ? d.baseRange.toFixed(1) : '—';
-    el.innerHTML = `<img src="${skillVisualIcon(id, !!st.mutation)}" alt=""><div class="nm">${esc(d.name)}</div><div class="sm">Core ${s.player.level} · дальн. ${range} · радиус ${radius}</div><div class="effect"><b>${esc(d.identity ?? '')}</b>${d.weakness ? `<br>Слабость: ${esc(d.weakness)}` : ''}${md ? `<br>Мутация: ${esc(md.name)}${md2 ? ` → ${esc(md2.name)}` : ''}` : ''}</div>`;
+    const md3 = st.mutationApotheosis ? mutationDef(id, st.mutationApotheosis) : null;
+    el.innerHTML = `<img src="${skillVisualIcon(id, !!st.mutation)}" alt=""><div class="nm">${esc(d.name)}</div><div class="sm">Уровень ядра ${s.player.level} · дальность ${range} · радиус ${radius}</div><div class="effect"><b>${esc(d.identity ?? '')}</b>${d.weakness ? `<br>Слабость: ${esc(d.weakness)}` : ''}${md ? `<br>Мутация: ${esc(md.name)}${md2 ? ` → ${esc(md2.name)}` : ''}${md3 ? ` → ${esc(md3.name)}` : ''}` : ''}</div>`;
   } else el.innerHTML = '<div>пустой<br>слот</div>';
   attachPlannerDnD(el);
   return el;
@@ -741,7 +742,7 @@ function plannerCatNode(
   if (id) {
     const d = catalysts[id];
     el.style.setProperty('--cat-color', d.color);
-    el.innerHTML = `<div class="catdot"></div><div class="nm">${esc(d.name)}</div><div class="sm">${esc(d.scope)} · готовый оператор</div><div class="effect">${esc(d.desc)}</div>`;
+    el.innerHTML = `<div class="catdot"></div><div class="nm">${esc(d.name)}</div><div class="sm">Катализатор · ${esc(d.scope)}</div><div class="effect">${esc(d.desc)}</div>`;
   } else el.innerHTML = '<div>пустой<br>slot</div>';
   attachPlannerDnD(el);
   return el;
@@ -749,38 +750,58 @@ function plannerCatNode(
 function updatePlanner(s: Snapshot) {
   if (!planning) return;
   const sig =
-    s.chain.slots.join('|') +
-    '#' +
-    s.chain.skillReserve.join('|') +
-    '#' +
-    s.chain.catalysts.join('|') +
-    '#' +
-    s.chain.catalystReserve.join('|') +
-    '#' +
-    s.skills.map((x) => `${x.id}:${x.mutation}:${x.mutationUpgrade}`).join('|') +
-    '#' +
-    s.chain.catalystRuntime.map((x) => x.id).join('|') +
-    '#' +
-    JSON.stringify(s.resonance) +
-    '#' +
-    s.mutationCores +
-    '#' +
-    s.player.level;
+    s.chain.slots.join('|') + '#' + s.chain.skillReserve.join('|') + '#' +
+    s.chain.catalysts.join('|') + '#' + s.chain.catalystReserve.join('|') + '#' +
+    s.skills.map((x) => `${x.id}:${x.mutation}:${x.mutationUpgrade}:${x.mutationApotheosis}`).join('|') + '#' +
+    JSON.stringify(s.resonance) + '#' + JSON.stringify(s.doctrines) + '#' +
+    s.heldItems.join('|') + '#' + s.mutationCores + '#' + s.player.level + '#' +
+    [s.player.hp,s.player.maxHp,s.player.barrier,s.player.armor,s.player.moveSpeed,s.player.pickupRadius,s.player.power,s.player.fortune,s.player.dashCharge].map(x=>Number(x).toFixed(2)).join(':');
   if (sig === plannerSignature) return;
   plannerSignature = sig;
   const chain = $('plannerChain');
   chain.innerHTML = '';
   for (let i = 0; i < s.chain.slots.length; i++) {
     chain.append(plannerSkillNode(s.chain.slots[i], 'active', i, s));
-    if (i < s.chain.catalysts.length)
-      chain.append(plannerCatNode(s.chain.catalysts[i], 'active', i, s));
+    if (i < s.chain.catalysts.length) chain.append(plannerCatNode(s.chain.catalysts[i], 'active', i, s));
   }
   const reserve = $('plannerReserve');
   reserve.innerHTML = '';
   s.chain.skillReserve.forEach((id, i) => reserve.append(plannerSkillNode(id, 'reserve', i, s)));
   s.chain.catalystReserve.forEach((id, i) => reserve.append(plannerCatNode(id, 'reserve', i, s)));
   $('plannerStats').innerHTML =
-    `<span>Core Rank <b>${s.player.level}</b></span><span>Темп <b>${s.resonance.tempo}</b></span><span>Количество <b>${s.resonance.multiplicity}</b></span><span>Точность <b>${s.resonance.precision}</b></span><span>Длительность <b>${s.resonance.persistence}</b></span><span>Проводимость <b>${s.resonance.conductivity}</b></span><span>Подвижность <b>${s.resonance.mobility}</b></span><span>Ядра мутации <b>${s.mutationCores}</b></span>`;
+    `<span>Уровень ядра <b>${s.player.level}</b></span><span>Темп <b>+${Math.round(s.chain.tempo * 100)}%</b></span>` +
+    `<span>Мощность <b>+${Math.round(s.player.power * 100)}%</b></span><span>Скорость <b>${s.player.moveSpeed.toFixed(2)}</b></span>` +
+    `<span>Радиус подбора <b>${s.player.pickupRadius.toFixed(1)}</b></span><span>Ядра мутации <b>${s.mutationCores}</b></span>`;
+
+  $('plannerCharacter').innerHTML = [
+    ['Здоровье', `${Math.ceil(s.player.hp)} / ${Math.round(s.player.maxHp)}`],
+    ['Барьер', `${Math.ceil(s.player.barrier)}`],
+    ['Броня', `${Math.round(s.player.armor)}`],
+    ['Скорость', s.player.moveSpeed.toFixed(2)],
+    ['Рывок', s.player.dashReady ? 'готов' : `${Math.round(s.player.dashCharge * 100)}%`],
+    ['Подбор', s.player.pickupRadius.toFixed(1)],
+    ['Удача', s.player.fortune.toFixed(2)],
+    ['Опыт', `${Math.floor(s.player.xp)} / ${s.player.xpNeed}`]
+  ].map(([k,v])=>`<div class="sheet-stat"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+
+  const doctrineEntries = Object.entries(s.doctrines).filter(([,n])=>n>0);
+  $('plannerDoctrines').innerHTML = doctrineEntries.length ? doctrineEntries.map(([id,n])=>{
+    const d=doctrines[id as keyof typeof doctrines];
+    return `<div class="sheet-doctrine"><i style="color:${d.color}">${esc(d.glyph)}</i><div><b>${esc(d.name)} · ${n}</b><span>${esc(d.description)}</span></div></div>`;
+  }).join('') : '<div class="sheet-empty">Специализации ещё не выбраны.</div>';
+
+  const counts=new Map<string,number>();
+  for(const id of s.heldItems) counts.set(id,(counts.get(id)??0)+1);
+  $('plannerItems').innerHTML = counts.size ? [...counts].map(([id,n])=>{
+    const d=itemDefs[id as keyof typeof itemDefs];
+    return `<div class="sheet-item"><i style="color:${itemCategoryColor[d.category]}">${esc(itemGlyph[id as keyof typeof itemGlyph])}</i><div><b>${esc(d.name)}${n>1?` ×${n}`:''}</b><span>${esc(itemCategoryName[d.category])} · ${esc(d.description)}</span></div></div>`;
+  }).join('') : '<div class="sheet-empty">Предметов пока нет.</div>';
+
+  const r=s.resonance;
+  $('plannerDerived').innerHTML = [
+    ['Темп ядра', r.tempo],['Количество',r.multiplicity],['Точность',r.precision],
+    ['Длительность',r.persistence],['Проводимость',r.conductivity],['Подвижность',r.mobility]
+  ].map(([k,v])=>`<div class="sheet-stat"><span>${esc(String(k))}</span><b>${Number(v).toFixed(2)}</b></div>`).join('');
 }
 
 const eliteRarityName: Record<string, string> = {
@@ -807,94 +828,18 @@ function resize2d(c: HTMLCanvasElement) {
   return ctx;
 }
 function drawMinimap(s: Snapshot) {
-  const ctx = resize2d(minimap),
-    w = minimap.clientWidth,
-    h = minimap.clientHeight,
-    pad = 10;
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#071018d9';
-  ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = '#426272';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
-  const tx = (x: number) =>
-      pad + ((x - s.world.minX) / (s.world.maxX - s.world.minX)) * (w - pad * 2),
-    ty = (z: number) => pad + ((z - s.world.minZ) / (s.world.maxZ - s.world.minZ)) * (h - pad * 2);
-  for (const p of s.world.pois) {
-    ctx.globalAlpha = p.state === 'cleared' ? 0.22 : 1;
-    ctx.fillStyle =
-      p.kind === 'phenomenon'
-        ? '#ff9b4a'
-        : p.kind === 'catalyst'
-          ? '#c27aff'
-          : p.kind === 'resonance'
-            ? '#67d9ff'
-            : '#63f0a5';
-    ctx.beginPath();
-    ctx.arc(tx(p.x), ty(p.z), p.state === 'guarded' ? 5 : 4, 0, Math.PI * 2);
-    ctx.fill();
-    if (p.state === 'guarded' || (s.world.bossSpawned && p.state !== 'cleared')) {
-      ctx.strokeStyle = s.world.bossSpawned ? '#ff5b63' : '#fff';
-      ctx.lineWidth = s.world.bossSpawned ? 2 : 1;
-      ctx.stroke();
-    }
-  }
-  ctx.globalAlpha = 1;
-  // Relics belong on the minimap: deciding whether to go for one is a decision about the
-  // whole field, and it cannot be made from what happens to be on screen.
-  for (const r of s.relics) {
-    const x = tx(r.x),
-      y = ty(r.z);
-    ctx.fillStyle = relicMinimapTint[r.category] ?? '#fff';
-    ctx.beginPath();
-    ctx.moveTo(x, y - 4);
-    ctx.lineTo(x + 4, y);
-    ctx.lineTo(x, y + 4);
-    ctx.lineTo(x - 4, y);
-    ctx.closePath();
-    ctx.fill();
-    if (r.contested) {
-      ctx.strokeStyle = '#ff4b4b';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
-  }
-  for (const q of s.pickups) {
-    if (q.kind !== 'heal') continue;
-    const x = tx(q.x),
-      y = ty(q.z);
-    ctx.strokeStyle = '#7bffae';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(x - 3, y);
-    ctx.lineTo(x + 3, y);
-    ctx.moveTo(x, y - 3);
-    ctx.lineTo(x, y + 3);
-    ctx.stroke();
-  }
-  for (const e of s.entities) {
-    if (!e.elite) continue;
-    ctx.fillStyle = e.boss ? '#ff344c' : e.guardianPoi !== 0 ? '#fff06c' : '#ffd75a';
-    const x = tx(e.x),
-      y = ty(e.z),
-      r = e.boss ? 7 : 5;
-    ctx.beginPath();
-    ctx.moveTo(x, y - r);
-    ctx.lineTo(x + r, y);
-    ctx.lineTo(x, y + r);
-    ctx.lineTo(x - r, y);
-    ctx.closePath();
-    ctx.fill();
-  }
-  ctx.fillStyle = '#8ffff0';
-  ctx.beginPath();
-  ctx.arc(tx(s.player.x), ty(s.player.z), 4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = '#8ffff0';
-  ctx.beginPath();
-  ctx.moveTo(tx(s.player.x), ty(s.player.z));
-  ctx.lineTo(tx(s.player.x + s.player.aimX * 3), ty(s.player.z + s.player.aimZ * 3));
-  ctx.stroke();
+  const ctx = resize2d(minimap), w=minimap.clientWidth, h=minimap.clientHeight, pad=10;
+  ctx.clearRect(0,0,w,h);ctx.fillStyle='#071018d9';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#426272';ctx.lineWidth=1;ctx.strokeRect(pad,pad,w-pad*2,h-pad*2);
+  const tx=(x:number)=>pad+((x-s.world.minX)/(s.world.maxX-s.world.minX))*(w-pad*2),
+    ty=(z:number)=>pad+((z-s.world.minZ)/(s.world.maxZ-s.world.minZ))*(h-pad*2);
+  for(const p of s.world.pois){ctx.globalAlpha=p.state==='cleared'?0.18:1;drawMapPoi(ctx,p.kind,tx(p.x),ty(p.z),p.state==='guarded',s.world.bossSpawned&&p.state!=='cleared');}
+  ctx.globalAlpha=1;
+  for(const r of s.relics){const x=tx(r.x),y=ty(r.z);ctx.fillStyle=relicMinimapTint[r.category]??'#fff';ctx.beginPath();ctx.moveTo(x,y-5);ctx.lineTo(x+5,y);ctx.lineTo(x,y+5);ctx.lineTo(x-5,y);ctx.closePath();ctx.fill();if(r.contested){ctx.strokeStyle='#ff4b4b';ctx.lineWidth=1.7;ctx.strokeRect(x-7,y-7,14,14);}}
+  for(const q of s.pickups){if(q.kind!=='heal'&&q.kind!=='mutation'&&q.kind!=='core')continue;const x=tx(q.x),y=ty(q.z);ctx.strokeStyle=q.kind==='heal'?'#7bffae':q.kind==='mutation'?'#d59cff':'#75e5ff';ctx.lineWidth=2;if(q.kind==='heal'){ctx.beginPath();ctx.moveTo(x-4,y);ctx.lineTo(x+4,y);ctx.moveTo(x,y-4);ctx.lineTo(x,y+4);ctx.stroke();}else{ctx.strokeRect(x-3,y-3,6,6);}}
+  for(const e of s.entities){if(!e.elite)continue;ctx.fillStyle=e.boss?'#ff344c':e.guardianPoi!==0?'#fff06c':'#ffd75a';const x=tx(e.x),y=ty(e.z),r=e.boss?7:5;ctx.beginPath();ctx.moveTo(x,y-r);ctx.lineTo(x+r,y);ctx.lineTo(x,y+r);ctx.lineTo(x-r,y);ctx.closePath();ctx.fill();}
+  // Player is an arrow, not another ambiguous map dot.
+  const px=tx(s.player.x),py=ty(s.player.z),a=Math.atan2(s.player.aimZ,s.player.aimX),rr=6;
+  ctx.fillStyle='#8ffff0';ctx.beginPath();ctx.moveTo(px+Math.cos(a)*rr,py+Math.sin(a)*rr);ctx.lineTo(px+Math.cos(a+2.5)*4,py+Math.sin(a+2.5)*4);ctx.lineTo(px+Math.cos(a-2.5)*4,py+Math.sin(a-2.5)*4);ctx.closePath();ctx.fill();
 }
 const hudImageCache = new Map<string, HTMLImageElement>();
 function hudImage(src: string): HTMLImageElement | null {
@@ -1056,6 +1001,13 @@ function drawCombatHud(s: Snapshot) {
   ctx.textBaseline = 'middle';
   drawDashGauge(ctx, s);
   drawHeldItems(ctx, s);
+  const nearRelic = [...s.relics].sort((a,b)=>Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0];
+  if (nearRelic && Math.hypot(nearRelic.x-s.player.x,nearRelic.z-s.player.z) < 5.5) {
+    const d=itemDefs[nearRelic.item], p=renderer.worldToScreen(nearRelic.x,nearRelic.z,s), text=`${d.name} · ${d.description}`;
+    ctx.font='800 11px system-ui';const tw=Math.min(360,ctx.measureText(text).width+18);ctx.fillStyle='rgba(5,9,13,.88)';ctx.fillRect(p.x-tw/2,p.y-78,tw,24);ctx.strokeStyle=nearRelic.contested?'#ff5b63':(relicMinimapTint[d.category]??'#fff');ctx.strokeRect(p.x-tw/2,p.y-78,tw,24);ctx.fillStyle='#eef7fa';ctx.fillText(text.length>62?text.slice(0,59)+'…':text,p.x,p.y-66);
+  }
+  const nearPoi=[...s.world.pois].filter(p=>p.state!=='cleared').sort((a,b)=>Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0];
+  if(nearPoi && Math.hypot(nearPoi.x-s.player.x,nearPoi.z-s.player.z)<7){const p=renderer.worldToScreen(nearPoi.x,nearPoi.z,s), promise=nearPoi.kind==='phenomenon'?'ВЫБОР НОВОГО ФЕНОМЕНА':nearPoi.kind==='catalyst'?'ВЫБОР КАТАЛИЗАТОРА':nearPoi.kind==='resonance'?'УСИЛЕНИЕ ЯДРА':'ВОССТАНОВЛЕНИЕ';ctx.font='900 11px system-ui';ctx.fillStyle='rgba(5,9,13,.9)';ctx.fillRect(p.x-88,p.y-118,176,22);ctx.strokeStyle='#8ba7b5';ctx.strokeRect(p.x-88,p.y-118,176,22);ctx.fillStyle='#fff';ctx.fillText(promise,p.x,p.y-107);}
   for (const e of s.entities) {
     const p = renderer.worldToScreen(e.x, e.z, s),
       margin = 34,
@@ -1173,12 +1125,12 @@ function updateUi(s: Snapshot) {
       .toString()
       .padStart(2, '0');
   $('time').textContent = `${mm}:${ss} / ${rm}:${rs}`;
-  $('level').textContent = `CORE ${s.player.level}`;
+  $('level').textContent = `УРОВЕНЬ ${s.player.level}`;
   $('hpbar').style.width = `${Math.max(0, (s.player.hp / s.player.maxHp) * 100)}%`;
   $('hptext').textContent =
     `HP ${Math.ceil(s.player.hp)} / ${Math.round(s.player.maxHp)}${s.player.barrier > 0 ? ` + ${Math.ceil(s.player.barrier)} щит` : ''}`;
   $('xpbar').style.width = `${Math.max(0, Math.min(100, (s.player.xp / s.player.xpNeed) * 100))}%`;
-  $('xptext').textContent = `XP ${Math.floor(s.player.xp)} / ${s.player.xpNeed}`;
+  $('xptext').textContent = `ОПЫТ ${Math.floor(s.player.xp)} / ${s.player.xpNeed}`;
   const cleared = s.world.pois.filter((p) => p.state === 'cleared').length,
     remaining = Math.max(0, s.runDuration * 0.875 - s.time),
     bossSupport = s.entities.filter((e) => e.elite && !e.boss && e.guardianPoi !== 0).length;
@@ -1191,7 +1143,7 @@ function updateUi(s: Snapshot) {
       )
         .toString()
         .padStart(2, '0')}`;
-  $('mode').textContent = s.mode === 'clean' ? 'Чистый ран' : 'Showcase';
+  $('mode').textContent = s.mode === 'clean' ? 'Чистый забег' : 'Демонстрация';
   $('perf').textContent = `${Math.round(fps)} · WebGL2`;
   updateThreatPanel(s);
   drawMinimap(s);
@@ -1288,19 +1240,19 @@ function refreshChoiceAction(label: string, action: () => boolean) {
 }
 function offerKind(o: RewardOffer) {
   return o.kind === 'skill_add'
-    ? 'НОВЫЙ PHENOMENON'
+    ? 'НОВЫЙ ФЕНОМЕН'
     : o.kind === 'skill_swap'
-      ? 'ЗАМЕНА PHENOMENON'
+      ? 'ЗАМЕНА ФЕНОМЕНА'
       : o.kind === 'item_grant'
         ? 'НАХОДКА'
         : o.kind === 'catalyst_add'
-          ? 'НОВЫЙ CATALYST'
+          ? 'НОВЫЙ КАТАЛИЗАТОР'
           : o.kind === 'mutation_target'
             ? 'ЯДРО МУТАЦИИ'
             : o.kind === 'resonance'
               ? 'ОСЬ ЯДРА'
               : o.kind === 'elite'
-                ? 'ELITE CACHE'
+                ? 'ТАЙНИК ЭЛИТЫ'
                 : o.kind === 'doctrine'
                   ? 'ДОКТРИНА'
                   : 'ОБЩИЙ СТАТ';
@@ -1327,7 +1279,7 @@ function shortPromise(text: string) {
   return first.length > 112 ? first.slice(0,109) + '…' : first;
 }
 function categoryLabel(cat: string) {
-  return ({phenomenon:'PHENOMENON',catalyst:'CATALYST',item:'ITEM',resonance:'RESONANCE',doctrine:'DOCTRINE',mutation:'MUTATION',global:'CORE'} as Record<string,string>)[cat] ?? cat.toUpperCase();
+  return ({phenomenon:'ФЕНОМЕН',catalyst:'КАТАЛИЗАТОР',item:'ПРЕДМЕТ',resonance:'УСИЛЕНИЕ ЯДРА',doctrine:'СПЕЦИАЛИЗАЦИЯ',mutation:'МУТАЦИЯ',global:'ЯДРО'} as Record<string,string>)[cat] ?? cat.toUpperCase();
 }
 function syncChoiceUI(s: Snapshot, force = false) {
   const has = !!s.mutationOffer || !!s.rewardOffers,
@@ -1369,7 +1321,7 @@ function syncChoiceUI(s: Snapshot, force = false) {
     $('choiceTitle').textContent = `${m.tier === 3 ? '✦' : '◆'} ${tierName} · ${skills[m.skill].name}`;
     $('choiceSub').textContent = m.tier === 3
       ? 'Финальная трансформация: выбирай новое поведение, а не процент.'
-      : 'Выбор ветки меняет поведение Phenomenon; подробности можно открыть без спешки.';
+      : 'Выбор ветки меняет поведение феномена; подробности можно открыть без спешки.';
     $('choiceFoot').textContent = m.refusalAvailable
       ? 'Один раз за ран можно заменить один из предложенных вариантов.'
       : 'Токен отказа уже использован.';
@@ -1409,23 +1361,23 @@ function syncChoiceUI(s: Snapshot, force = false) {
     const categories = [...new Set(s.rewardOffers.map(offerCategory))];
     choiceBox.classList.add(categories.length === 1 ? `cat-${categories[0]}` : 'cat-mixed');
     $('choiceTitle').textContent = elite
-      ? '★ ELITE CACHE'
+      ? '★ ТАЙНИК ЭЛИТЫ'
       : discovery
-        ? '◈ DISCOVERY · PHENOMENON'
+        ? '◈ ОТКРЫТИЕ · ФЕНОМЕН'
         : categories.length === 1 && categories[0] === 'doctrine'
-          ? `◇ CORE ${s.player.level} · ДОКТРИНА`
+          ? `◇ УРОВЕНЬ ${s.player.level} · СПЕЦИАЛИЗАЦИЯ`
           : `Уровень ${s.player.level}`;
     $('choiceSub').textContent = elite
-      ? 'Элитка дала структурную награду: Catalyst должен сразу менять работу связки.'
+      ? 'Элита оставила особую награду: катализатор должен сразу менять работу связки.'
       : discovery
-        ? 'Новый Phenomenon сразу использует текущий Core Rank: поздняя находка не отстаёт по персональным уровням.'
+        ? 'Новый феномен сразу использует текущий уровень ядра: поздняя находка не отстаёт по силе.'
         : categories.length === 1 && categories[0] === 'doctrine'
           ? 'Один слой, один вопрос: какую специализацию строить дальше? Иконка и короткое обещание читаются до полного текста.'
           : 'Выберите награду текущего канала прогрессии.';
     $('choiceFoot').textContent =
       elite || discovery
         ? 'Этот выбор нельзя пропустить или перероллить.'
-        : `Reroll: ${s.rerolls} · Skip сохраняет ~30% требования XP.`;
+        : `Переброс: ${s.rerolls} · Пропуск сохраняет ~30% требования опыта.`;
     cards.className = `cards ${s.rewardOffers.length === 2 ? 'two' : ''}`;
     s.rewardOffers.forEach((o, i) => {
       const card = document.createElement('div'),
@@ -1435,7 +1387,7 @@ function syncChoiceUI(s: Snapshot, force = false) {
       card.dataset.choice = String(i);
       card.setAttribute('role', 'button');
       card.tabIndex = 0;
-      card.style.setProperty('--rarity', rar ? rarityColor[rar] : o.doctrine ? doctrines[o.doctrine].color : o.catalyst ? catalysts[o.catalyst].color : '#7c94a4');
+      card.style.setProperty('--rarity', rar ? rarityColor[rar] : '#365064');
       if (o.marked) card.classList.add('marked');
       card.innerHTML = `${o.marked ? '<div class="claimtag">ЭТО ЗАБЕРУТ ЭЛИТЫ, ЕСЛИ ОСТАВИШЬ</div>' : ''}<span class="choice-key">${i + 1}</span><div class="card-head"><div class="choice-icon">${offerIcon(o)}</div><div><div class="tag">${categoryLabel(cat)}${rar ? ' · ' + esc(rarityName[rar]) : ''}</div><h3>${esc(o.title)}</h3></div></div><div class="sub">${esc(o.subtitle)}</div><div class="promise">${esc(shortPromise(o.description))}</div>${o.before && o.after ? `<div class="beforeafter">${esc(o.before)} → <b>${esc(o.after)}</b></div>` : ''}<details><summary>Подробнее</summary><p>${esc(o.description)}</p></details>`;
       const choose = () => finishChoiceAction(`reward:${i}:${o.id}`, () => sim.chooseReward(i));
@@ -1515,12 +1467,12 @@ async function start() {
     $('gpuName').textContent = renderer.rendererName;
     $('loading').classList.add('hidden');
     pushLog(
-      'v0.11: XP развивает Doctrines; Phenomena, Catalysts, Items и Mutation Core приходят из отдельных каналов.'
+      'v0.11: опыт развивает специализации; феномены, катализаторы, предметы и ядра мутаций приходят из отдельных источников.'
     );
     pushLog(
       runMode === 'clean'
         ? `Чистый старт: только «${skills[startingSkill].name}», без камней и Архива.`
-        : 'Showcase: заполненная Chain для быстрой проверки взаимодействий.'
+        : 'Демонстрация: заполненная цепочка для быстрой проверки взаимодействий.'
     );
     const s = sim.snapshot();
     presentation.reset(s);
@@ -1540,3 +1492,23 @@ async function start() {
   }
 }
 start();
+
+
+function drawMapPoi(ctx: CanvasRenderingContext2D, kind: string, x: number, y: number, guarded: boolean, danger: boolean) {
+  const color = kind === 'phenomenon' ? '#ffb06a' : kind === 'catalyst' ? '#d0a0ff' : kind === 'resonance' ? '#76e1ff' : '#75f0a9';
+  ctx.save(); ctx.translate(x,y); ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=1.7;
+  if (kind === 'phenomenon') {
+    ctx.beginPath();ctx.moveTo(0,-4);ctx.lineTo(-6,-7);ctx.lineTo(-5,5);ctx.lineTo(0,7);ctx.lineTo(5,5);ctx.lineTo(6,-7);ctx.closePath();ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,-4);ctx.lineTo(0,7);ctx.stroke();
+  } else if (kind === 'catalyst') {
+    ctx.beginPath();ctx.moveTo(-8,0);ctx.lineTo(-4,-4);ctx.lineTo(0,0);ctx.lineTo(-4,4);ctx.closePath();ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(4,-4);ctx.lineTo(8,0);ctx.lineTo(4,4);ctx.closePath();ctx.stroke();
+  } else if (kind === 'resonance') {
+    ctx.beginPath();for(let i=0;i<6;i++){const a=-Math.PI/2+i*Math.PI/3,px=Math.cos(a)*6,py=Math.sin(a)*6;i?ctx.lineTo(px,py):ctx.moveTo(px,py);}ctx.closePath();ctx.stroke();
+    ctx.beginPath();ctx.moveTo(-5,0);ctx.lineTo(5,0);ctx.moveTo(0,-5);ctx.lineTo(0,5);ctx.stroke();
+  } else {
+    ctx.fillRect(-2,-7,4,14);ctx.fillRect(-7,-2,14,4);
+  }
+  if (guarded || danger) { ctx.strokeStyle=danger?'#ff5962':'#fff';ctx.lineWidth=danger?2:1;ctx.strokeRect(-10,-10,20,20); }
+  ctx.restore();
+}
