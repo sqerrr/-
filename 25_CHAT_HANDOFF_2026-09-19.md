@@ -1,3 +1,5 @@
+> **ARCHIVED / HISTORICAL:** historical handoff; its “read first” instruction applied on 2026-09-19 only. Current entry point: `00_START_HERE.md`.
+
 # Хэндофф чата, 19 сентября 2026
 
 Этот файл — точка продолжения. Читать **первым**.
