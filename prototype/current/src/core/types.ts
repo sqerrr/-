@@ -246,6 +246,11 @@ export interface FieldSnapshot {
   radius: number;
   ttl: number;
   kind: 'ink' | 'fire' | 'frost' | 'arc' | 'toxic' | 'index' | 'architect' | 'veil';
+  /** Presentation-critical ownership: hostile persistent zones must never look friendly. */
+  faction: 'hero' | 'rival';
+  source: string;
+  mutation: MutationId | null;
+  behavior?: 'host';
 }
 export interface ConstructSnapshot {
   id: number;
@@ -254,6 +259,10 @@ export interface ConstructSnapshot {
   ttl: number;
   range: number;
   kind: 'sentry';
+  faction: 'hero' | 'rival';
+  mutation: MutationId | null;
+  mutationUpgrade: MutationId | null;
+  mutationApotheosis: MutationId | null;
 }
 export interface ProjectileSnapshot {
   id: number;
@@ -265,6 +274,16 @@ export interface ProjectileSnapshot {
   guarded: boolean;
   behavior?: 'normal' | 'roller' | 'returner' | 'echo';
   phase?: number;
+  mutation: MutationId | null;
+  apotheosis: MutationId | null;
+  carousel: boolean;
+}
+export interface OrbitSnapshot {
+  active: boolean;
+  count: number;
+  radius: number;
+  mutation: MutationId | null;
+  apotheosis: MutationId | null;
 }
 export interface PoiSnapshot {
   id: number;
@@ -462,6 +481,8 @@ export interface Snapshot {
   fields: FieldSnapshot[];
   constructs: ConstructSnapshot[];
   projectiles: ProjectileSnapshot[];
+  /** Continuously simulated orbit is not a Projectile[], but its real blade count still belongs in presentation. */
+  orbit: OrbitSnapshot;
   world: WorldSnapshot;
   chain: ChainSnapshot;
   skills: SkillRuntime[];
