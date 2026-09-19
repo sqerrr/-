@@ -1,9 +1,34 @@
 import { Simulation } from '../core/simulation.js';
 import { items } from '../content/items.js';
-import { pickOffer, steer } from './driver.js';
-import type { ItemId } from '../core/types.js';
+import { pickOffer } from './driver.js';
+import type { ItemId, Snapshot } from '../core/types.js';
 
 const hz=60, checkpoints=[120,240,360,470], seeds=[12345,24680,97531];
+
+function routeAwareSteer(s:Snapshot, tick:number, hz:number){
+  const ownedPhenomena=s.chain.slots.filter(Boolean).length+s.chain.skillReserve.filter(Boolean).length,
+    ownedCatalysts=s.chain.catalysts.filter(Boolean).length+s.chain.catalystReserve.filter(Boolean).length,
+    open=s.world.pois.filter(p=>p.state!=='cleared');
+  const wanted = ownedPhenomena < 2 ? 'phenomenon' : ownedCatalysts < 1 ? 'catalyst' : null;
+  let candidates = wanted ? open.filter(p=>p.kind===wanted) : open;
+  if(!candidates.length) candidates=open;
+  let target=candidates.sort((a,b)=>Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0];
+  // Nearby contested/non-contested items are worth a short detour once the build has its first connector.
+  const nearRelic=[...s.relics].sort((a,b)=>Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0];
+  let moveX=0,moveZ=0;
+  if(nearRelic && ownedPhenomena>=2 && Math.hypot(nearRelic.x-s.player.x,nearRelic.z-s.player.z)<7){
+    const dx=nearRelic.x-s.player.x,dz=nearRelic.z-s.player.z,m=Math.hypot(dx,dz)||1;moveX=dx/m;moveZ=dz/m;
+  } else if(target){
+    const dx=target.x-s.player.x,dz=target.z-s.player.z,m=Math.hypot(dx,dz)||1;moveX=dx/m;moveZ=dz/m;
+  } else {
+    const a=tick/(hz*4.3),sx=Math.cos(a)*.65,sy=Math.sin(a*.73)*.58;moveX=(sx+sy)*.7071;moveZ=(-sx+sy)*.7071;
+  }
+  const threats=[...s.entities].sort((a,b)=>Number(b.elite)-Number(a.elite)||Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z));
+  const e=threats[0];let aimX=1,aimZ=0;
+  if(e){const dx=e.x-s.player.x,dz=e.z-s.player.z,m=Math.hypot(dx,dz)||1;aimX=dx/m;aimZ=dz/m;}
+  return {moveX,moveZ,aimX,aimZ};
+}
+
 
 function playerDamageFactor(s:any){
   let itemDamage=1;
@@ -19,7 +44,7 @@ for(const seed of seeds){
   const rows:any[]=[];
   let next=0,eliteActions=0;
   for(let i=0;i<480*hz;i++){
-    const pre=sim.snapshot(), cmd=steer(pre,i,hz);
+    const pre=sim.snapshot(), cmd=routeAwareSteer(pre,i,hz);
     sim.step(cmd);
     for(const ev of sim.events) if(ev.type==='EliteOrder' && ['predator','veil','replicate','prism','null','metamorph'].includes(ev.order)) eliteActions++;
     let guard=0;
