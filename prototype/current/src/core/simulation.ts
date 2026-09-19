@@ -4415,7 +4415,11 @@ export class Simulation {
   }
 
   private castArc(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut=st.mutation,maxJumps=(mut==='arc_forked'?7:4)+Math.max(0,st.count-1)+this.resonance.multiplicity+(this.mutationContinuation(st)?.countAdd??0),jumpRange=this.skillRange(st,this.mutationIs(st,'arc_relay')?5.8:4.2);
+    const mut=st.mutation,
+      maxJumps=(mut==='arc_forked'?7:4)+Math.max(0,st.count-1)+this.resonance.multiplicity+
+        (!src.owner?Math.min(3,Math.floor(this.doctrines.quantity/2)):0)+
+        this.activationCountBonus+(this.mutationContinuation(st)?.countAdd??0),
+      jumpRange=this.skillRange(st,this.mutationIs(st,'arc_relay')?5.8:4.2);
     const available=this.targetsFor(src).filter(e=>e.hp>0&&this.targetVisible(src,e)&&Math.hypot(e.x-src.x,e.z-src.z)<this.skillRange(st,skills.chain_arc.baseRange));
     let current:Ent|undefined;const embedded=available.filter(e=>e.embedded>0);if(embedded.length)current=embedded.sort((a,b)=>b.embedded-a.embedded)[0];if(mut==='arc_ground')current=available.filter(e=>e.markUntil>this.time||e.embedded>0).sort((a,b)=>Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];if(!current)current=available.sort((a,b)=>Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];if(!current)return;
     const hit=new Set<number>(),path:Ent[]=[];let jumps=0,prevX=src.x,prevZ=src.z;
