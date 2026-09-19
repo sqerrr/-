@@ -29,7 +29,10 @@ export type EnemyKind =
   | 'indexer'
   | 'inkblot'
   | 'marginwalker'
-  | 'elite';
+  | 'elite'
+  // The hero participates in combat as a target when a rival owns the cast.
+  // It never enters the enemy roster, so spawn tables exclude it explicitly.
+  | 'hero';
 export type EliteChassis =
   | 'marshal'
   | 'hunter'

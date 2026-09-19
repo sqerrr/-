@@ -95,6 +95,63 @@ type Ent = {
   lastArcAt: number;
   sentryTouchedUntil: number;
 };
+
+const HERO_HIT_RADIUS = 0.45;
+
+function makeHeroEnt(): Ent {
+  return {
+    id: -1,
+    kind: 'hero',
+    x: 0,
+    z: 0,
+    hp: 1,
+    maxHp: 1,
+    radius: HERO_HIT_RADIUS,
+    speed: 0,
+    contactDps: 0,
+    facingX: 0,
+    facingZ: 1,
+    state: 'normal',
+    stateTimer: 0,
+    cooldown: 0,
+    lockedX: 0,
+    lockedZ: 0,
+    linkedTo: 0,
+    linkTimer: 0,
+    revivesLeft: 0,
+    revived: false,
+    buffUntil: 0,
+    orbitHitAt: 0,
+    affix: 'none',
+    adaptAt: 0,
+    lastDamageAt: 0,
+    shieldAngle: 0,
+    boss: false,
+    guardianPoi: 0,
+    adaptCooldown: 0,
+    adaptStage: 0,
+    bossPhase: 0,
+    bossPattern: '',
+    orderX: 0,
+    orderZ: 0,
+    orderUntil: 0,
+    regenTick: 0,
+    affixTimer: 0,
+    affixPulse: 0,
+    markUntil: 0,
+    igniteUntil: 0,
+    chillUntil: 0,
+    woundUntil: 0,
+    woundDps: 0,
+    toxinUntil: 0,
+    toxinDps: 0,
+    exposedUntil: 0,
+    displacedUntil: 0,
+    embedded: 0,
+    lastArcAt: 0,
+    sentryTouchedUntil: 0
+  };
+}
 type Pickup = { id: number; x: number; z: number; value: number; kind: 'xp' | 'core' | 'heal' };
 type Field = {
   id: number;
@@ -168,7 +225,7 @@ export interface BenchmarkLoadout {
   catalystPotency?: number;
 }
 
-const enemyCost: Record<Exclude<EnemyKind, 'elite'>, number> = {
+const enemyCost: Record<Exclude<EnemyKind, 'elite' | 'hero'>, number> = {
   palimpsest: 3.5,
   bookmark: 2.5,
   footnote: 2,
@@ -178,7 +235,7 @@ const enemyCost: Record<Exclude<EnemyKind, 'elite'>, number> = {
   inkblot: 2.5,
   marginwalker: 3
 };
-const baseHp: Record<Exclude<EnemyKind, 'elite'>, number> = {
+const baseHp: Record<Exclude<EnemyKind, 'elite' | 'hero'>, number> = {
   footnote: 42,
   bookmark: 63,
   binder: 101,
@@ -298,6 +355,9 @@ export class Simulation {
   private rng: Rng;
   private nextId = 1;
   private ents: Ent[] = [];
+  // Synthetic combatant standing in for the player whenever a rival owns the cast.
+  // Deliberately kept OUT of `ents` so every existing loop keeps its exact behaviour.
+  private hero: Ent = makeHeroEnt();
   private pickups: Pickup[] = [];
   private fields: Field[] = [];
   private constructs: Construct[] = [];
@@ -362,6 +422,9 @@ export class Simulation {
     z: 0
   };
   private damageBySource = new Map<string, number>();
+  // Mirror of damageBySource for blows that landed on the player. Feeds the "what hit me"
+  // half of the elite telemetry (D52). Deliberately kept out of the canonical hash.
+  private damageToHeroBySource = new Map<string, number>();
   private rewardOffers: RewardOffer[] | null = null;
   private mutationOffer: MutationOffer | null = null;
   private mutationRefusalToken = true;
@@ -829,7 +892,7 @@ export class Simulation {
       guard++;
     }
   }
-  private pickEnemyKind(): Exclude<EnemyKind, 'elite'> {
+  private pickEnemyKind(): Exclude<EnemyKind, 'elite' | 'hero'> {
     const t = this.time / this.runDuration,
       r = this.rng.float();
     if (t < 0.12) return r < 0.48 ? 'palimpsest' : r < 0.86 ? 'bookmark' : 'footnote';
@@ -877,12 +940,12 @@ export class Simulation {
                   ? 'redactor'
                   : 'indexer';
   }
-  private spawnEnemy(kind: Exclude<EnemyKind, 'elite'>) {
+  private spawnEnemy(kind: Exclude<EnemyKind, 'elite' | 'hero'>) {
     const q = this.pointAroundPlayer(13.5, 19.5);
     this.spawnEnemyAt(kind, q.x, q.z);
   }
   private spawnEnemyAt(
-    kind: Exclude<EnemyKind, 'elite'>,
+    kind: Exclude<EnemyKind, 'elite' | 'hero'>,
     x: number,
     z: number,
     buffedFor = 0,
@@ -2265,6 +2328,18 @@ export class Simulation {
       this.pz += dz;
     }
   }
+  // Who a cast is allowed to hit. A hero cast sweeps the enemy roster; a rival cast
+  // resolves against the single synthetic hero combatant, refreshed from live player state.
+  private targetsFor(src: CastSource): Ent[] {
+    if (src.faction === 'hero') return this.ents;
+    this.hero.x = this.px;
+    this.hero.z = this.pz;
+    this.hero.hp = this.php;
+    this.hero.maxHp = this.maxHp;
+    this.hero.facingX = this.aimX;
+    this.hero.facingZ = this.aimZ;
+    return [this.hero];
+  }
   private rayHits(
     src: CastSource,
     ax: number,
@@ -2274,7 +2349,7 @@ export class Simulation {
     maxHits = 99
   ) {
     const hits: { e: Ent; t: number; lat: number }[] = [];
-    for (const e of this.ents) {
+    for (const e of this.targetsFor(src)) {
       if (e.hp <= 0) continue;
       const dx = e.x - src.x,
         dz = e.z - src.z,
@@ -2329,7 +2404,7 @@ export class Simulation {
   private aimPoint(src: CastSource, range: number) {
     let best: Ent | undefined,
       bestScore = 999;
-    for (const e of this.ents) {
+    for (const e of this.targetsFor(src)) {
       if (e.hp <= 0 || !this.targetVisible(src, e)) continue;
       const dx = e.x - src.x,
         dz = e.z - src.z,
@@ -2408,7 +2483,7 @@ export class Simulation {
         );
         this.noteState('ignite');
         if (chilled) {
-          for (const o of this.ents) {
+          for (const o of this.targetsFor(src)) {
             if (o !== h.e && o.hp > 0 && Math.hypot(o.x - h.e.x, o.z - h.e.z) < 1.65)
               this.damage(o, dmg * 0.35, 'thermal_shock', false, h.e.x, h.e.z);
           }
@@ -2438,7 +2513,7 @@ export class Simulation {
           ? 1 + Math.min(0.4, this.charge * 0.08)
           : 1;
     this.combatShape('frost_ring', { kind: 'circle', x: src.x, z: src.z, radius: r }, 'control');
-    for (const e of this.ents) {
+    for (const e of this.targetsFor(src)) {
       const d = Math.hypot(e.x - src.x, e.z - src.z);
       if (d > r + e.radius) continue;
       let dmg =
@@ -2461,7 +2536,7 @@ export class Simulation {
           z: e.z,
           amount: dmg * 0.42
         });
-        for (const o of this.ents) {
+        for (const o of this.targetsFor(src)) {
           if (o !== e && o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < 1.7)
             this.damage(o, dmg * 0.42, 'thermal_shock', false, e.x, e.z);
         }
@@ -2579,7 +2654,7 @@ export class Simulation {
       halfAngle: half
     });
     let kills = 0;
-    for (const e of this.ents) {
+    for (const e of this.targetsFor(src)) {
       const dx = e.x - src.x,
         dz = e.z - src.z,
         d = Math.hypot(dx, dz);
@@ -2644,7 +2719,7 @@ export class Simulation {
         (mut === 'arc_forked' ? 7 : 4) + Math.max(0, st.count - 1) + this.resonance.multiplicity,
       jumpRange = this.skillRange(st, mut === 'arc_relay' ? 5.8 : 4.2);
     let current: Ent | undefined;
-    const available = this.ents.filter(
+    const available = this.targetsFor(src).filter(
       (e) =>
         e.hp > 0 &&
         this.targetVisible(src, e) &&
@@ -2700,7 +2775,7 @@ export class Simulation {
       jumps++;
       let next: Ent | undefined,
         best = 999;
-      for (const e of this.ents) {
+      for (const e of this.targetsFor(src)) {
         if (e.hp <= 0 || hit.has(e.id)) continue;
         const dd = Math.hypot(e.x - prevX, e.z - prevZ);
         if (dd < jumpRange && dd < best) {
@@ -2717,7 +2792,7 @@ export class Simulation {
     if (st.mutation === 'orbit_outbound') {
       const r = this.skillRadius(st, 4.6, slot);
       this.combatShape('orbit_blades', { kind: 'circle', x: src.x, z: src.z, radius: r });
-      for (const e of this.ents) {
+      for (const e of this.targetsFor(src)) {
         if (Math.hypot(e.x - src.x, e.z - src.z) < r)
           this.damage(
             e,
@@ -2748,7 +2823,7 @@ export class Simulation {
         cx = p.x + Math.cos(a) * rr,
         cz = p.z + Math.sin(a) * rr;
       this.combatShape('mortar_bloom', { kind: 'circle', x: cx, z: cz, radius: r });
-      for (const e of this.ents) {
+      for (const e of this.targetsFor(src)) {
         const d = Math.hypot(e.x - cx, e.z - cz);
         if (d <= r + e.radius) {
           let dmg =
@@ -2813,7 +2888,7 @@ export class Simulation {
       z = st.mutation === 'toxic_plume' ? src.z - src.vz * 0.55 : src.z;
     this.combatShape('toxic_mist', { kind: 'circle', x, z, radius: r }, 'field');
     if (st.mutation === 'toxic_reactive') {
-      for (const e of this.ents) {
+      for (const e of this.targetsFor(src)) {
         if (e.hp <= 0 || Math.hypot(e.x - x, e.z - z) > r + e.radius) continue;
         const reactive = e.woundUntil > this.time || e.igniteUntil > this.time;
         if (reactive) {
@@ -2867,7 +2942,7 @@ export class Simulation {
         { kind: 'circle', x: src.x, z: src.z, radius: r },
         'control'
       );
-      for (const e of this.ents) {
+      for (const e of this.targetsFor(src)) {
         if (e.hp <= 0) continue;
         const dx = e.x - src.x,
           dz = e.z - src.z,
@@ -2972,6 +3047,9 @@ export class Simulation {
     sourceX = this.px,
     sourceZ = this.pz
   ) {
+    // A rival-owned cast resolves against the player, not against the enemy roster.
+    // None of the bookkeeping below applies: it is all scored from the hero's point of view.
+    if (e === this.hero) return this.damageHero(amount, source);
     if (e.hp <= 0) return false;
     let actual = amount;
     const skill = this.skillsRuntime.get(source as SkillId);
@@ -3131,6 +3209,14 @@ export class Simulation {
       }
     }
     return killed;
+  }
+  // Damage landing on the player. Mitigation, barrier and death are owned by hitPlayer,
+  // so this only records the source and reports whether the blow was lethal.
+  private damageHero(amount: number, source: string) {
+    if (this.php <= 0) return false;
+    this.hitPlayer(amount);
+    this.damageToHeroBySource.set(source, (this.damageToHeroBySource.get(source) ?? 0) + amount);
+    return this.php <= 0;
   }
   private angleDiff(a: number, b: number) {
     let d = a - b;
