@@ -334,7 +334,8 @@ export class Simulation {
     reactions: 0,
     maxEnemies: 0,
     enemyCountSum: 0,
-    enemySamples: 0
+    enemySamples: 0,
+    rivalCasts: 0
   };
   readonly runDuration: number;
   readonly mode: RunMode;
@@ -469,6 +470,22 @@ export class Simulation {
    * the combat stream means recording a refusal can never perturb the fight.
    */
   private refusalRng: Rng;
+  /**
+   * Phenomena an elite is allowed to field today. Fields, turrets and orbiting bodies are
+   * still bound to the hero by construction, so a phenomenon that spawns one would fight
+   * on the wrong side. Those stay out until step 3 gives such effects an owner.
+   */
+  private static readonly RIVAL_CASTABLE: SkillId[] = [
+    'ember_lance',
+    'frost_ring',
+    'cleaver',
+    'chain_arc',
+    'mass_driver'
+  ];
+  /** Per-elite runtimes for claimed phenomena, keyed "<entity>:<skill>". */
+  private rivalSkills = new Map<string, SkillRuntime>();
+  /** Next moment each elite may field a refusal, keyed by entity id. */
+  private rivalCastAt = new Map<number, number>();
 
   constructor(cfg: SimConfig) {
     this.hz = cfg.hz;
@@ -1139,9 +1156,76 @@ export class Simulation {
   }
   /** D11: the cards of a fallen elite go back to the store for the next one to pick up. */
   private releaseRepertoire(e: Ent) {
+    const prefix = e.id + ':';
+    for (const k of [...this.rivalSkills.keys()])
+      if (k.startsWith(prefix)) this.rivalSkills.delete(k);
+    this.rivalCastAt.delete(e.id);
     if (!e.repertoire.length) return;
     for (const c of this.refusalStore) if (c.heldBy === e.id) c.heldBy = 0;
     e.repertoire.length = 0;
+  }
+  private rivalRuntime(e: Ent, id: SkillId): SkillRuntime {
+    const key = e.id + ':' + id;
+    let st = this.rivalSkills.get(key);
+    if (!st) {
+      st = this.newSkill(id);
+      this.rivalSkills.set(key, st);
+    }
+    return st;
+  }
+  /**
+   * The payoff of the draft: an elite turns a phenomenon the hero declined back on them.
+   * Cadence and reach are deliberately slack - the point here is that the link reads, and
+   * D49 calibration only becomes possible once the telemetry of step 11 exists.
+   */
+  private fieldRefusals(e: Ent, d: number) {
+    if (e.hp <= 0 || !e.repertoire.length) return;
+    const ready = this.rivalCastAt.get(e.id);
+    if (ready === undefined) {
+      // Never open with a refusal: the hero should read the elite's own shape first.
+      this.rivalCastAt.set(e.id, this.time + this.rng.range(2.6, 4.6));
+      return;
+    }
+    if (this.time < ready || d > 15) return;
+    const usable = e.repertoire
+      .map((serial) => this.refusalStore.find((c) => c.serial === serial))
+      .filter(
+        (c): c is RefusedCard =>
+          !!c && !!c.skill && Simulation.RIVAL_CASTABLE.includes(c.skill as SkillId)
+      );
+    if (!usable.length) {
+      this.rivalCastAt.set(e.id, this.time + 4);
+      return;
+    }
+    const card = usable[this.rng.int(usable.length)];
+    const id = card.skill as SkillId;
+    const dx = this.px - e.x,
+      dz = this.pz - e.z,
+      m = Math.hypot(dx, dz) || 1;
+    const src: CastSource = {
+      faction: 'rival',
+      owner: e,
+      x: e.x,
+      z: e.z,
+      aimX: dx / m,
+      aimZ: dz / m,
+      vx: 0,
+      vz: 0
+    };
+    this.dispatchSkill(id, this.rivalRuntime(e, id), 0, src);
+    this.metrics.rivalCasts++;
+    this.events.push({
+      type: 'RivalCast',
+      tick: this.tick,
+      entity: e.id,
+      skill: id,
+      serial: card.serial,
+      x: e.x,
+      z: e.z
+    });
+    // A deeper repertoire presses harder, but never faster than roughly one blow per two seconds.
+    const gap = Math.max(2.1, this.rng.range(3.4, 5.4) - e.repertoire.length * 0.25);
+    this.rivalCastAt.set(e.id, this.time + gap);
   }
   private spawnElite() {
     const pool: EliteChassis[] = [
@@ -1500,6 +1584,7 @@ export class Simulation {
     }
   }
   private updateEliteAI(e: Ent, speed: number, d: number, nx: number, nz: number) {
+    this.fieldRefusals(e, d);
     const c = e.chassis!;
     if (c === 'hunter') {
       // PREDATOR: predictive intercept, not a faster normal mob.

@@ -222,6 +222,8 @@ export interface Metrics {
   maxEnemies: number;
   enemyCountSum: number;
   enemySamples: number;
+  /** D52: how often an elite turned one of the hero's declined phenomena back on them. */
+  rivalCasts: number;
 }
 export interface RewardOffer {
   id: string;
@@ -397,6 +399,15 @@ export type GameEvent =
   | { type: 'MutationChosen'; tick: number; skill: SkillId; mutation: MutationId }
   | { type: 'RewardChosen'; tick: number; title: string }
   | { type: 'RewardRefused'; tick: number; title: string; kind: RefusalKind; serial: number }
+  | {
+      type: 'RivalCast';
+      tick: number;
+      entity: number;
+      skill: SkillId;
+      serial: number;
+      x: number;
+      z: number;
+    }
   | { type: 'PlayerHit'; tick: number; amount: number; x: number; z: number }
   | { type: 'EnemyRevived'; tick: number; entity: number; x: number; z: number }
   | {

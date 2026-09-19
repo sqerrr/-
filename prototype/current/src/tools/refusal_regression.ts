@@ -20,6 +20,8 @@ let refusedEvents = 0;
 let maxRefusalsAfterResolve = 0;
 let elitesSeen = 0;
 let armedElites = 0;
+let rivalCasts = 0;
+const castSkills = new Set<string>();
 const tiers: Record<string, number> = { common: 0, uplifted: 0, legendary: 0 };
 const knownElites = new Set<number>();
 
@@ -77,7 +79,20 @@ for (let i = 0; i < 3600; i++) {
   }
   // step() clears the event list, so read it after the draft is resolved to catch both
   // the combat events of this tick and anything the choice pushed.
-  for (const ev of sim.events) if (ev.type === 'RewardRefused') refusedEvents++;
+  for (const ev of sim.events) {
+    if (ev.type === 'RewardRefused') refusedEvents++;
+    if (ev.type === 'RivalCast') {
+      rivalCasts++;
+      castSkills.add(ev.skill);
+      const live = sim.snapshot();
+      const caster = live.entities.find((e) => e.id === ev.entity);
+      assert(!!caster && caster.elite, 'a non-elite fielded a refusal');
+      const card = live.refusals.find((c) => c.serial === ev.serial);
+      assert(!!card, 'a rival cast referenced a serial that is not in the store');
+      assert(card!.skill === ev.skill, 'a rival cast used a skill the card does not carry');
+      assert(card!.heldBy === ev.entity, 'an elite fielded a card claimed by someone else');
+    }
+  }
 
   for (const e of sim.snapshot().entities) {
     if (!e.elite || e.boss || knownElites.has(e.id)) continue;
@@ -130,9 +145,19 @@ assert(
   'a serial was claimed twice'
 );
 
-// The whole point of the slice: elites must actually end up carrying refusals.
+// The whole point of the slice: elites must actually end up carrying refusals and using
+// them. A silent store would make the whole draft invisible to the player.
 assert(elitesSeen > 0, 'the run produced no elites to arm');
-assert(armedElites > 0, 'no elite ever fielded a refused card');
+assert(armedElites > 0, 'no elite ever claimed a refused card');
+assert(rivalCasts > 0, 'no elite ever turned a refusal back on the hero');
+assert(
+  rivalCasts === s.metrics.rivalCasts,
+  'event count ' + rivalCasts + ' disagrees with metric ' + s.metrics.rivalCasts
+);
+// Only self-contained attacks may be fielded: fields and turrets still belong to the hero.
+const CASTABLE = new Set(['ember_lance', 'frost_ring', 'cleaver', 'chain_arc', 'mass_driver']);
+for (const id of castSkills)
+  assert(CASTABLE.has(id), 'an elite fielded ' + id + ', which is not rival-safe yet');
 
 const byKind: Record<string, number> = {};
 for (const c of s.refusals) byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
@@ -143,5 +168,7 @@ console.log('refusal-regression OK', {
   byKind,
   elites: elitesSeen,
   armed: armedElites,
-  tiers
+  tiers,
+  rivalCasts,
+  castSkills: [...castSkills]
 });
