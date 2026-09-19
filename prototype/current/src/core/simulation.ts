@@ -3435,11 +3435,48 @@ export class Simulation {
     }
   }
 
+  private orbitProfile(st: SkillRuntime) {
+    let count =
+      3 +
+      Math.max(0, Math.round(st.count) - 1) +
+      (this.supportsAxis(st.id, 'multiplicity') ? this.resonance.multiplicity : 0) +
+      Math.min(3, Math.floor(this.doctrines.quantity / 2)),
+      damageMul = 1;
+    if (st.mutation === 'orbit_many') { count += 3; damageMul *= 0.9; }
+    else if (st.mutation === 'orbit_saw') { count = Math.max(2, count - 1); damageMul *= 1.4; }
+    count = Math.max(2, Math.min(12, count));
+    let radius = this.skillRadius(st, skills.orbit_blades.baseRadius),
+      wounded = 0;
+    if (this.mutationIs(st,'orbit_blood')) {
+      wounded=this.ents.filter(e=>e.woundUntil>this.time&&Math.hypot(e.x-this.px,e.z-this.pz)<6).length;
+      if(this.mutationIs(st,'orbit_sanguine_crown')) radius*=1+Math.min(0.42,wounded*0.045);
+    }
+    // Count is real gameplay density, not only decoration. More blades shorten the interval
+    // moderately; the square-root curve avoids turning Quantity into a linear DPS multiplier.
+    const hitInterval=Math.max(0.22,Math.min(0.5,0.38*Math.sqrt(3/count)));
+    return { count, radius, damageMul, wounded, hitInterval };
+  }
+
   private updateOrbitBlades() {
-    const st=this.skillsRuntime.get('orbit_blades');if(!st||!this.isActiveSkill('orbit_blades'))return;this.orbitAcc+=this.dt;if(this.orbitAcc<0.13)return;this.orbitAcc-=0.13;const mut=st.mutation;let radius=this.skillRadius(st,skills.orbit_blades.baseRadius),dmg=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36,count=3+Math.max(0,st.count-1)+this.resonance.multiplicity;if(mut==='orbit_many'){count+=3;dmg*=0.9;}else if(mut==='orbit_saw'){count=2+Math.max(0,st.count-1)+this.resonance.multiplicity;dmg*=1.4;}let blood=1,wounded=0;if(this.mutationIs(st,'orbit_blood')){wounded=this.ents.filter(e=>e.woundUntil>this.time&&Math.hypot(e.x-this.px,e.z-this.pz)<6).length;blood=1+Math.min(0.7,wounded*0.07);if(this.mutationIs(st,'orbit_sanguine_crown'))radius*=1+Math.min(0.42,wounded*0.045);}
-    for(const e of this.ents){if(e.hp<=0||this.time-e.orbitHitAt<0.38)continue;const d=Math.hypot(e.x-this.px,e.z-this.pz);if(Math.abs(d-radius)<0.62){e.orbitHitAt=this.time;let m=dmg*blood;if(mut==='orbit_saw'&&e.kind==='elite')m*=1.9;this.damage(e,m,'orbit_blades',false,this.px,this.pz,this.slots.indexOf('orbit_blades'));this.closeDamage+=m;if(this.mutationIs(st,'orbit_sanguine_crown')&&e.woundUntil>this.time)this.grantBarrier(Math.min(4,m*0.025));}}
-    if(this.mutationIs(st,'orbit_aegis_crown')&&this.aegisCharge>=6){this.aegisCharge=0;this.grantBarrier(16);const rr=radius+1.8;this.combatShape('orbit_aegis_crown',{kind:'circle',x:this.px,z:this.pz,radius:rr},'control');for(const e of this.ents){const dx=e.x-this.px,dz=e.z-this.pz,d=Math.hypot(dx,dz)||1;if(d<rr+e.radius){this.damage(e,22*this.powerBucket(st),'orbit_blades',false);e.x+=dx/d*0.75;e.z+=dz/d*0.75;}}this.events.push({type:'RareEvent',tick:this.tick,title:'КОРОНА ЭГИДЫ',detail:'Перехваты выпущены ударной волной',x:this.px,z:this.pz});}
-    if(this.mutationIs(st,'orbit_phoenix')&&this.time>=this.orbitPhoenixAt){this.orbitPhoenixAt=this.time+1.35;const t=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number((b.markUntil>this.time)||b.kind==='elite')-Number((a.markUntil>this.time)||a.kind==='elite')||Math.hypot(a.x-this.px,a.z-this.pz)-Math.hypot(b.x-this.px,b.z-this.pz))[0];if(t){const dx=t.x-this.px,dz=t.z-this.pz,m=Math.hypot(dx,dz)||1;this.spawnProjectile({x:this.px+dx/m*radius,z:this.pz+dz/m*radius,vx:dx/m*8.5,vz:dz/m*8.5,radius:0.28,ttl:2.8,damage:skills.orbit_blades.baseDamage*this.powerBucket(st)*1.25,coverDamage:16,faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:this.slots.indexOf('orbit_blades'),mutation:st.mutation,apotheosis:'orbit_phoenix',rivalConcentration:1,behavior:'returner',returnAt:1.3,phase:0,hitIds:[]});}}
+    const st=this.skillsRuntime.get('orbit_blades');if(!st||!this.isActiveSkill('orbit_blades'))return;
+    this.orbitAcc+=this.dt;if(this.orbitAcc<0.13)return;this.orbitAcc-=0.13;
+    const mut=st.mutation, profile=this.orbitProfile(st);
+    let dmg=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36*profile.damageMul,
+      blood=1;
+    if(this.mutationIs(st,'orbit_blood')) blood=1+Math.min(0.7,profile.wounded*0.07);
+    for(const e of this.ents){
+      if(e.hp<=0||this.time-e.orbitHitAt<profile.hitInterval)continue;
+      const d=Math.hypot(e.x-this.px,e.z-this.pz);
+      if(Math.abs(d-profile.radius)<0.62){
+        e.orbitHitAt=this.time;let m=dmg*blood;
+        if(mut==='orbit_saw'&&e.kind==='elite')m*=1.9;
+        this.damage(e,m,'orbit_blades',false,this.px,this.pz,this.slots.indexOf('orbit_blades'));
+        this.closeDamage+=m;
+        if(this.mutationIs(st,'orbit_sanguine_crown')&&e.woundUntil>this.time)this.grantBarrier(Math.min(4,m*0.025));
+      }
+    }
+    if(this.mutationIs(st,'orbit_aegis_crown')&&this.aegisCharge>=6){this.aegisCharge=0;this.grantBarrier(16);const rr=profile.radius+1.8;this.combatShape('orbit_aegis_crown',{kind:'circle',x:this.px,z:this.pz,radius:rr},'control');for(const e of this.ents){const dx=e.x-this.px,dz=e.z-this.pz,d=Math.hypot(dx,dz)||1;if(d<rr+e.radius){this.damage(e,22*this.powerBucket(st),'orbit_blades',false);e.x+=dx/d*0.75;e.z+=dz/d*0.75;}}this.events.push({type:'RareEvent',tick:this.tick,title:'КОРОНА ЭГИДЫ',detail:'Перехваты выпущены ударной волной',x:this.px,z:this.pz});}
+    if(this.mutationIs(st,'orbit_phoenix')&&this.time>=this.orbitPhoenixAt){this.orbitPhoenixAt=this.time+1.35;const t=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number((b.markUntil>this.time)||b.kind==='elite')-Number((a.markUntil>this.time)||a.kind==='elite')||Math.hypot(a.x-this.px,a.z-this.pz)-Math.hypot(b.x-this.px,b.z-this.pz))[0];if(t){const dx=t.x-this.px,dz=t.z-this.pz,m=Math.hypot(dx,dz)||1;this.spawnProjectile({x:this.px+dx/m*profile.radius,z:this.pz+dz/m*profile.radius,vx:dx/m*8.5,vz:dz/m*8.5,radius:0.28,ttl:2.8,damage:skills.orbit_blades.baseDamage*this.powerBucket(st)*1.25,coverDamage:16,faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:this.slots.indexOf('orbit_blades'),mutation:st.mutation,apotheosis:'orbit_phoenix',rivalConcentration:1,behavior:'returner',returnAt:1.3,phase:0,hitIds:[]});}}
   }
 
   private effectiveTempo() {
@@ -4422,7 +4459,16 @@ export class Simulation {
   }
 
   private castSentry(st: SkillRuntime, slot: number, src: CastSource) {
-    const count=Math.max(1,Math.min(5,st.count+Math.ceil(this.resonance.multiplicity/2)));for(let i=0;i<count;i++){const a=i*Math.PI*2/count+this.cycle*0.7,r=1.2;this.constructs.push({id:this.nextId++,x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r,ttl:this.persistentDuration(st,7.5,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});this.events.push({type:'ConstructSpawned',tick:this.tick,skill:'sentry',x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r});}while(this.constructs.length>7)this.constructs.shift();this.noteState('construct');
+    let count=Math.max(1,Math.round(st.count))+this.activationCountBonus+(this.mutationContinuation(st)?.countAdd??0);
+    if(this.supportsAxis(st.id,'multiplicity')) count+=Math.ceil(this.resonance.multiplicity/2);
+    if(!src.owner) count+=Math.min(2,Math.floor(this.doctrines.quantity/2));
+    count=Math.max(1,Math.min(5,count));
+    for(let i=0;i<count;i++){
+      const a=i*Math.PI*2/count+this.cycle*0.7,r=1.2;
+      this.constructs.push({id:this.nextId++,x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r,ttl:this.persistentDuration(st,7.5,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
+      this.events.push({type:'ConstructSpawned',tick:this.tick,skill:'sentry',x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r});
+    }
+    while(this.constructs.length>7)this.constructs.shift();this.noteState('construct');
   }
 
   private castToxic(st: SkillRuntime, slot: number, src: CastSource) {
@@ -5754,7 +5800,11 @@ export class Simulation {
             z: f.z,
             radius: f.radius,
             ttl: f.ttl,
-            kind: f.kind
+            kind: f.kind,
+            faction: f.faction ?? 'hero',
+            source: f.source ?? f.kind,
+            mutation: f.mutation ?? null,
+            behavior: f.behavior
           }) as FieldSnapshot
       ),
       constructs: this.constructs.map((c) => ({
@@ -5763,7 +5813,11 @@ export class Simulation {
         z: c.z,
         ttl: c.ttl,
         range: c.range,
-        kind: 'sentry'
+        kind: 'sentry',
+        faction: c.faction,
+        mutation: c.mutation,
+        mutationUpgrade: c.mutationUpgrade,
+        mutationApotheosis: c.mutationApotheosis ?? null
       })),
       projectiles: this.projectiles.map((p) => ({
         id: p.id,
@@ -5774,8 +5828,17 @@ export class Simulation {
         source: p.source,
         guarded: p.guarded,
         behavior: p.behavior ?? 'normal',
-        phase: p.phase ?? 0
+        phase: p.phase ?? 0,
+        mutation: p.mutation,
+        apotheosis: p.apotheosis ?? null,
+        carousel: !!p.carousel
       })),
+      orbit: (() => {
+        const st=this.skillsRuntime.get('orbit_blades');
+        if(!st||!this.isActiveSkill('orbit_blades')) return {active:false,count:0,radius:0,mutation:null,apotheosis:null};
+        const p=this.orbitProfile(st);
+        return {active:true,count:p.count,radius:p.radius,mutation:st.mutation,apotheosis:st.mutationApotheosis};
+      })(),
       world: {
         ...this.world,
         pois: this.pois.map((p) => ({ ...p })),
