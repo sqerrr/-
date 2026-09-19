@@ -22,3 +22,5 @@ jobs:
         run: npm install --no-save typescript@5.9
       - name: Run full prototype suite
         run: npm test
+      - name: Probe full-run progression
+        run: node dist/tools/progression_probe.js
