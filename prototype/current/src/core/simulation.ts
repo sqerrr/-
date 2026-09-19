@@ -517,6 +517,16 @@ export class Simulation {
     'mass_driver'
   ];
   /**
+   * How far a phenomenon actually reaches from whoever owns it. Ranged work carries
+   * baseRange, while a ring or a sweep carries only baseRadius and does nothing at all
+   * from across the field. Without this an elite cheerfully swings a 2.35-unit cleaver
+   * from twelve units away, which is exactly what the telemetry caught it doing.
+   */
+  private static rivalReach(id: SkillId): number {
+    const def = skills[id];
+    return Math.max(def.baseRange ?? 0, def.baseRadius ?? 0);
+  }
+  /**
    * Distance inside which an elite counts as being in the fight for telemetry. Set just past
    * the reach of the longest phenomenon, so the measure tracks time the hero could actually
    * be hitting it. Diagnostic only - nothing in the simulation branches on this.
@@ -1367,15 +1377,25 @@ export class Simulation {
       this.rivalCastAt.set(e.id, this.time + this.rng.range(2.6, 4.6));
       return;
     }
-    if (this.time < ready || d > 15) return;
+    if (this.time < ready) return;
     const usable = e.repertoire
       .map((serial) => this.refusalStore.find((c) => c.serial === serial))
       .filter(
         (c): c is RefusedCard =>
-          !!c && !!c.skill && Simulation.RIVAL_CASTABLE.includes(c.skill as SkillId)
+          !!c &&
+          !!c.skill &&
+          Simulation.RIVAL_CASTABLE.includes(c.skill as SkillId) &&
+          d <= Simulation.rivalReach(c.skill as SkillId)
       );
     if (!usable.length) {
-      this.rivalCastAt.set(e.id, this.time + 4);
+      // Out of reach is a waiting game, not a dead end: poll often so the blow lands the
+      // moment the elite closes. A repertoire with nothing castable at all is a dead end,
+      // so back off there instead of asking again every tick.
+      const holdsCastable = e.repertoire.some((serial) => {
+        const c = this.refusalStore.find((x) => x.serial === serial);
+        return !!c && !!c.skill && Simulation.RIVAL_CASTABLE.includes(c.skill as SkillId);
+      });
+      this.rivalCastAt.set(e.id, this.time + (holdsCastable ? 0.35 : 4));
       return;
     }
     const card = usable[this.rng.int(usable.length)];
