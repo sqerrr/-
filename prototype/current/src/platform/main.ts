@@ -828,94 +828,18 @@ function resize2d(c: HTMLCanvasElement) {
   return ctx;
 }
 function drawMinimap(s: Snapshot) {
-  const ctx = resize2d(minimap),
-    w = minimap.clientWidth,
-    h = minimap.clientHeight,
-    pad = 10;
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#071018d9';
-  ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = '#426272';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
-  const tx = (x: number) =>
-      pad + ((x - s.world.minX) / (s.world.maxX - s.world.minX)) * (w - pad * 2),
-    ty = (z: number) => pad + ((z - s.world.minZ) / (s.world.maxZ - s.world.minZ)) * (h - pad * 2);
-  for (const p of s.world.pois) {
-    ctx.globalAlpha = p.state === 'cleared' ? 0.22 : 1;
-    ctx.fillStyle =
-      p.kind === 'phenomenon'
-        ? '#ff9b4a'
-        : p.kind === 'catalyst'
-          ? '#c27aff'
-          : p.kind === 'resonance'
-            ? '#67d9ff'
-            : '#63f0a5';
-    ctx.beginPath();
-    ctx.arc(tx(p.x), ty(p.z), p.state === 'guarded' ? 5 : 4, 0, Math.PI * 2);
-    ctx.fill();
-    if (p.state === 'guarded' || (s.world.bossSpawned && p.state !== 'cleared')) {
-      ctx.strokeStyle = s.world.bossSpawned ? '#ff5b63' : '#fff';
-      ctx.lineWidth = s.world.bossSpawned ? 2 : 1;
-      ctx.stroke();
-    }
-  }
-  ctx.globalAlpha = 1;
-  // Relics belong on the minimap: deciding whether to go for one is a decision about the
-  // whole field, and it cannot be made from what happens to be on screen.
-  for (const r of s.relics) {
-    const x = tx(r.x),
-      y = ty(r.z);
-    ctx.fillStyle = relicMinimapTint[r.category] ?? '#fff';
-    ctx.beginPath();
-    ctx.moveTo(x, y - 4);
-    ctx.lineTo(x + 4, y);
-    ctx.lineTo(x, y + 4);
-    ctx.lineTo(x - 4, y);
-    ctx.closePath();
-    ctx.fill();
-    if (r.contested) {
-      ctx.strokeStyle = '#ff4b4b';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
-  }
-  for (const q of s.pickups) {
-    if (q.kind !== 'heal') continue;
-    const x = tx(q.x),
-      y = ty(q.z);
-    ctx.strokeStyle = '#7bffae';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(x - 3, y);
-    ctx.lineTo(x + 3, y);
-    ctx.moveTo(x, y - 3);
-    ctx.lineTo(x, y + 3);
-    ctx.stroke();
-  }
-  for (const e of s.entities) {
-    if (!e.elite) continue;
-    ctx.fillStyle = e.boss ? '#ff344c' : e.guardianPoi !== 0 ? '#fff06c' : '#ffd75a';
-    const x = tx(e.x),
-      y = ty(e.z),
-      r = e.boss ? 7 : 5;
-    ctx.beginPath();
-    ctx.moveTo(x, y - r);
-    ctx.lineTo(x + r, y);
-    ctx.lineTo(x, y + r);
-    ctx.lineTo(x - r, y);
-    ctx.closePath();
-    ctx.fill();
-  }
-  ctx.fillStyle = '#8ffff0';
-  ctx.beginPath();
-  ctx.arc(tx(s.player.x), ty(s.player.z), 4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = '#8ffff0';
-  ctx.beginPath();
-  ctx.moveTo(tx(s.player.x), ty(s.player.z));
-  ctx.lineTo(tx(s.player.x + s.player.aimX * 3), ty(s.player.z + s.player.aimZ * 3));
-  ctx.stroke();
+  const ctx = resize2d(minimap), w=minimap.clientWidth, h=minimap.clientHeight, pad=10;
+  ctx.clearRect(0,0,w,h);ctx.fillStyle='#071018d9';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#426272';ctx.lineWidth=1;ctx.strokeRect(pad,pad,w-pad*2,h-pad*2);
+  const tx=(x:number)=>pad+((x-s.world.minX)/(s.world.maxX-s.world.minX))*(w-pad*2),
+    ty=(z:number)=>pad+((z-s.world.minZ)/(s.world.maxZ-s.world.minZ))*(h-pad*2);
+  for(const p of s.world.pois){ctx.globalAlpha=p.state==='cleared'?0.18:1;drawMapPoi(ctx,p.kind,tx(p.x),ty(p.z),p.state==='guarded',s.world.bossSpawned&&p.state!=='cleared');}
+  ctx.globalAlpha=1;
+  for(const r of s.relics){const x=tx(r.x),y=ty(r.z);ctx.fillStyle=relicMinimapTint[r.category]??'#fff';ctx.beginPath();ctx.moveTo(x,y-5);ctx.lineTo(x+5,y);ctx.lineTo(x,y+5);ctx.lineTo(x-5,y);ctx.closePath();ctx.fill();if(r.contested){ctx.strokeStyle='#ff4b4b';ctx.lineWidth=1.7;ctx.strokeRect(x-7,y-7,14,14);}}
+  for(const q of s.pickups){if(q.kind!=='heal'&&q.kind!=='mutation'&&q.kind!=='core')continue;const x=tx(q.x),y=ty(q.z);ctx.strokeStyle=q.kind==='heal'?'#7bffae':q.kind==='mutation'?'#d59cff':'#75e5ff';ctx.lineWidth=2;if(q.kind==='heal'){ctx.beginPath();ctx.moveTo(x-4,y);ctx.lineTo(x+4,y);ctx.moveTo(x,y-4);ctx.lineTo(x,y+4);ctx.stroke();}else{ctx.strokeRect(x-3,y-3,6,6);}}
+  for(const e of s.entities){if(!e.elite)continue;ctx.fillStyle=e.boss?'#ff344c':e.guardianPoi!==0?'#fff06c':'#ffd75a';const x=tx(e.x),y=ty(e.z),r=e.boss?7:5;ctx.beginPath();ctx.moveTo(x,y-r);ctx.lineTo(x+r,y);ctx.lineTo(x,y+r);ctx.lineTo(x-r,y);ctx.closePath();ctx.fill();}
+  // Player is an arrow, not another ambiguous map dot.
+  const px=tx(s.player.x),py=ty(s.player.z),a=Math.atan2(s.player.aimZ,s.player.aimX),rr=6;
+  ctx.fillStyle='#8ffff0';ctx.beginPath();ctx.moveTo(px+Math.cos(a)*rr,py+Math.sin(a)*rr);ctx.lineTo(px+Math.cos(a+2.5)*4,py+Math.sin(a+2.5)*4);ctx.lineTo(px+Math.cos(a-2.5)*4,py+Math.sin(a-2.5)*4);ctx.closePath();ctx.fill();
 }
 const hudImageCache = new Map<string, HTMLImageElement>();
 function hudImage(src: string): HTMLImageElement | null {
@@ -1077,6 +1001,13 @@ function drawCombatHud(s: Snapshot) {
   ctx.textBaseline = 'middle';
   drawDashGauge(ctx, s);
   drawHeldItems(ctx, s);
+  const nearRelic = [...s.relics].sort((a,b)=>Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0];
+  if (nearRelic && Math.hypot(nearRelic.x-s.player.x,nearRelic.z-s.player.z) < 5.5) {
+    const d=itemDefs[nearRelic.item], p=renderer.worldToScreen(nearRelic.x,nearRelic.z,s), text=`${d.name} · ${d.description}`;
+    ctx.font='800 11px system-ui';const tw=Math.min(360,ctx.measureText(text).width+18);ctx.fillStyle='rgba(5,9,13,.88)';ctx.fillRect(p.x-tw/2,p.y-78,tw,24);ctx.strokeStyle=nearRelic.contested?'#ff5b63':(relicMinimapTint[d.category]??'#fff');ctx.strokeRect(p.x-tw/2,p.y-78,tw,24);ctx.fillStyle='#eef7fa';ctx.fillText(text.length>62?text.slice(0,59)+'…':text,p.x,p.y-66);
+  }
+  const nearPoi=[...s.world.pois].filter(p=>p.state!=='cleared').sort((a,b)=>Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0];
+  if(nearPoi && Math.hypot(nearPoi.x-s.player.x,nearPoi.z-s.player.z)<7){const p=renderer.worldToScreen(nearPoi.x,nearPoi.z,s), promise=nearPoi.kind==='phenomenon'?'ВЫБОР НОВОГО ФЕНОМЕНА':nearPoi.kind==='catalyst'?'ВЫБОР КАТАЛИЗАТОРА':nearPoi.kind==='resonance'?'УСИЛЕНИЕ ЯДРА':'ВОССТАНОВЛЕНИЕ';ctx.font='900 11px system-ui';ctx.fillStyle='rgba(5,9,13,.9)';ctx.fillRect(p.x-88,p.y-118,176,22);ctx.strokeStyle='#8ba7b5';ctx.strokeRect(p.x-88,p.y-118,176,22);ctx.fillStyle='#fff';ctx.fillText(promise,p.x,p.y-107);}
   for (const e of s.entities) {
     const p = renderer.worldToScreen(e.x, e.z, s),
       margin = 34,
@@ -1194,12 +1125,12 @@ function updateUi(s: Snapshot) {
       .toString()
       .padStart(2, '0');
   $('time').textContent = `${mm}:${ss} / ${rm}:${rs}`;
-  $('level').textContent = `CORE ${s.player.level}`;
+  $('level').textContent = `УРОВЕНЬ ${s.player.level}`;
   $('hpbar').style.width = `${Math.max(0, (s.player.hp / s.player.maxHp) * 100)}%`;
   $('hptext').textContent =
     `HP ${Math.ceil(s.player.hp)} / ${Math.round(s.player.maxHp)}${s.player.barrier > 0 ? ` + ${Math.ceil(s.player.barrier)} щит` : ''}`;
   $('xpbar').style.width = `${Math.max(0, Math.min(100, (s.player.xp / s.player.xpNeed) * 100))}%`;
-  $('xptext').textContent = `XP ${Math.floor(s.player.xp)} / ${s.player.xpNeed}`;
+  $('xptext').textContent = `ОПЫТ ${Math.floor(s.player.xp)} / ${s.player.xpNeed}`;
   const cleared = s.world.pois.filter((p) => p.state === 'cleared').length,
     remaining = Math.max(0, s.runDuration * 0.875 - s.time),
     bossSupport = s.entities.filter((e) => e.elite && !e.boss && e.guardianPoi !== 0).length;
@@ -1212,7 +1143,7 @@ function updateUi(s: Snapshot) {
       )
         .toString()
         .padStart(2, '0')}`;
-  $('mode').textContent = s.mode === 'clean' ? 'Чистый ран' : 'Showcase';
+  $('mode').textContent = s.mode === 'clean' ? 'Чистый забег' : 'Демонстрация';
   $('perf').textContent = `${Math.round(fps)} · WebGL2`;
   updateThreatPanel(s);
   drawMinimap(s);
@@ -1309,19 +1240,19 @@ function refreshChoiceAction(label: string, action: () => boolean) {
 }
 function offerKind(o: RewardOffer) {
   return o.kind === 'skill_add'
-    ? 'НОВЫЙ PHENOMENON'
+    ? 'НОВЫЙ ФЕНОМЕН'
     : o.kind === 'skill_swap'
-      ? 'ЗАМЕНА PHENOMENON'
+      ? 'ЗАМЕНА ФЕНОМЕНА'
       : o.kind === 'item_grant'
         ? 'НАХОДКА'
         : o.kind === 'catalyst_add'
-          ? 'НОВЫЙ CATALYST'
+          ? 'НОВЫЙ КАТАЛИЗАТОР'
           : o.kind === 'mutation_target'
             ? 'ЯДРО МУТАЦИИ'
             : o.kind === 'resonance'
               ? 'ОСЬ ЯДРА'
               : o.kind === 'elite'
-                ? 'ELITE CACHE'
+                ? 'ТАЙНИК ЭЛИТЫ'
                 : o.kind === 'doctrine'
                   ? 'ДОКТРИНА'
                   : 'ОБЩИЙ СТАТ';
@@ -1348,7 +1279,7 @@ function shortPromise(text: string) {
   return first.length > 112 ? first.slice(0,109) + '…' : first;
 }
 function categoryLabel(cat: string) {
-  return ({phenomenon:'PHENOMENON',catalyst:'CATALYST',item:'ITEM',resonance:'RESONANCE',doctrine:'DOCTRINE',mutation:'MUTATION',global:'CORE'} as Record<string,string>)[cat] ?? cat.toUpperCase();
+  return ({phenomenon:'ФЕНОМЕН',catalyst:'КАТАЛИЗАТОР',item:'ПРЕДМЕТ',resonance:'УСИЛЕНИЕ ЯДРА',doctrine:'СПЕЦИАЛИЗАЦИЯ',mutation:'МУТАЦИЯ',global:'ЯДРО'} as Record<string,string>)[cat] ?? cat.toUpperCase();
 }
 function syncChoiceUI(s: Snapshot, force = false) {
   const has = !!s.mutationOffer || !!s.rewardOffers,
@@ -1390,7 +1321,7 @@ function syncChoiceUI(s: Snapshot, force = false) {
     $('choiceTitle').textContent = `${m.tier === 3 ? '✦' : '◆'} ${tierName} · ${skills[m.skill].name}`;
     $('choiceSub').textContent = m.tier === 3
       ? 'Финальная трансформация: выбирай новое поведение, а не процент.'
-      : 'Выбор ветки меняет поведение Phenomenon; подробности можно открыть без спешки.';
+      : 'Выбор ветки меняет поведение феномена; подробности можно открыть без спешки.';
     $('choiceFoot').textContent = m.refusalAvailable
       ? 'Один раз за ран можно заменить один из предложенных вариантов.'
       : 'Токен отказа уже использован.';
@@ -1430,23 +1361,23 @@ function syncChoiceUI(s: Snapshot, force = false) {
     const categories = [...new Set(s.rewardOffers.map(offerCategory))];
     choiceBox.classList.add(categories.length === 1 ? `cat-${categories[0]}` : 'cat-mixed');
     $('choiceTitle').textContent = elite
-      ? '★ ELITE CACHE'
+      ? '★ ТАЙНИК ЭЛИТЫ'
       : discovery
-        ? '◈ DISCOVERY · PHENOMENON'
+        ? '◈ ОТКРЫТИЕ · ФЕНОМЕН'
         : categories.length === 1 && categories[0] === 'doctrine'
-          ? `◇ CORE ${s.player.level} · ДОКТРИНА`
+          ? `◇ УРОВЕНЬ ${s.player.level} · СПЕЦИАЛИЗАЦИЯ`
           : `Уровень ${s.player.level}`;
     $('choiceSub').textContent = elite
-      ? 'Элитка дала структурную награду: Catalyst должен сразу менять работу связки.'
+      ? 'Элита оставила особую награду: катализатор должен сразу менять работу связки.'
       : discovery
-        ? 'Новый Phenomenon сразу использует текущий Core Rank: поздняя находка не отстаёт по персональным уровням.'
+        ? 'Новый феномен сразу использует текущий уровень ядра: поздняя находка не отстаёт по силе.'
         : categories.length === 1 && categories[0] === 'doctrine'
           ? 'Один слой, один вопрос: какую специализацию строить дальше? Иконка и короткое обещание читаются до полного текста.'
           : 'Выберите награду текущего канала прогрессии.';
     $('choiceFoot').textContent =
       elite || discovery
         ? 'Этот выбор нельзя пропустить или перероллить.'
-        : `Reroll: ${s.rerolls} · Skip сохраняет ~30% требования XP.`;
+        : `Переброс: ${s.rerolls} · Пропуск сохраняет ~30% требования опыта.`;
     cards.className = `cards ${s.rewardOffers.length === 2 ? 'two' : ''}`;
     s.rewardOffers.forEach((o, i) => {
       const card = document.createElement('div'),
@@ -1456,7 +1387,7 @@ function syncChoiceUI(s: Snapshot, force = false) {
       card.dataset.choice = String(i);
       card.setAttribute('role', 'button');
       card.tabIndex = 0;
-      card.style.setProperty('--rarity', rar ? rarityColor[rar] : o.doctrine ? doctrines[o.doctrine].color : o.catalyst ? catalysts[o.catalyst].color : '#7c94a4');
+      card.style.setProperty('--rarity', rar ? rarityColor[rar] : '#365064');
       if (o.marked) card.classList.add('marked');
       card.innerHTML = `${o.marked ? '<div class="claimtag">ЭТО ЗАБЕРУТ ЭЛИТЫ, ЕСЛИ ОСТАВИШЬ</div>' : ''}<span class="choice-key">${i + 1}</span><div class="card-head"><div class="choice-icon">${offerIcon(o)}</div><div><div class="tag">${categoryLabel(cat)}${rar ? ' · ' + esc(rarityName[rar]) : ''}</div><h3>${esc(o.title)}</h3></div></div><div class="sub">${esc(o.subtitle)}</div><div class="promise">${esc(shortPromise(o.description))}</div>${o.before && o.after ? `<div class="beforeafter">${esc(o.before)} → <b>${esc(o.after)}</b></div>` : ''}<details><summary>Подробнее</summary><p>${esc(o.description)}</p></details>`;
       const choose = () => finishChoiceAction(`reward:${i}:${o.id}`, () => sim.chooseReward(i));
@@ -1536,12 +1467,12 @@ async function start() {
     $('gpuName').textContent = renderer.rendererName;
     $('loading').classList.add('hidden');
     pushLog(
-      'v0.11: XP развивает Doctrines; Phenomena, Catalysts, Items и Mutation Core приходят из отдельных каналов.'
+      'v0.11: опыт развивает специализации; феномены, катализаторы, предметы и ядра мутаций приходят из отдельных источников.'
     );
     pushLog(
       runMode === 'clean'
         ? `Чистый старт: только «${skills[startingSkill].name}», без камней и Архива.`
-        : 'Showcase: заполненная Chain для быстрой проверки взаимодействий.'
+        : 'Демонстрация: заполненная цепочка для быстрой проверки взаимодействий.'
     );
     const s = sim.snapshot();
     presentation.reset(s);
