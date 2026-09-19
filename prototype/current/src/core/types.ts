@@ -90,6 +90,8 @@ export interface Command {
   moveZ: number;
   aimX: number;
   aimZ: number;
+  /** D17: request a single directional dash with a brief window of invulnerability. */
+  dash?: boolean;
 }
 export interface SkillRuntime {
   id: SkillId;
@@ -224,6 +226,9 @@ export interface Metrics {
   enemySamples: number;
   /** D52: how often an elite turned one of the hero's declined phenomena back on them. */
   rivalCasts: number;
+  /** D52: dashes taken, and how many of those windows actually turned a blow aside. */
+  dashes: number;
+  dashIFrameSaves: number;
 }
 export interface RewardOffer {
   id: string;
@@ -311,6 +316,11 @@ export interface Snapshot {
     power: number;
     pickupRadius: number;
     fortune: number;
+    dashing: boolean;
+    dashReady: boolean;
+    /** 0 while the dash is on cooldown, 1 the moment it is available again. */
+    dashCharge: number;
+    invulnerable: boolean;
   };
   entities: SnapshotEntity[];
   pickups: PickupSnapshot[];

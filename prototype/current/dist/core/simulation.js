@@ -165,7 +165,9 @@ export class Simulation {
         maxEnemies: 0,
         enemyCountSum: 0,
         enemySamples: 0,
-        rivalCasts: 0
+        rivalCasts: 0,
+        dashes: 0,
+        dashIFrameSaves: 0
     };
     runDuration;
     mode;
@@ -227,6 +229,23 @@ export class Simulation {
     firstElite = false;
     orbitAcc = 0;
     moveAmount = 0;
+    /**
+     * D17. The window is deliberately shorter than the dash itself, so the tail of every
+     * dash is exposed, and the cooldown only starts once the dash ends. Together that
+     * leaves a guaranteed gap of vulnerability between windows, which is what the design
+     * note means by refusing an endless chain of invulnerability. Nothing refunds a dash,
+     * kills included.
+     */
+    static DASH_SPEED = 22;
+    static DASH_DURATION = 0.18;
+    static DASH_IFRAMES = 0.13;
+    static DASH_COOLDOWN = 1.6;
+    dashDirX = 0;
+    dashDirZ = 0;
+    dashUntil = -99;
+    dashIFramesUntil = -99;
+    dashReadyAt = 0;
+    dashWindowSaved = false;
     playerVX = 0;
     playerVZ = 0;
     directionalDamage = 0;
@@ -696,7 +715,30 @@ export class Simulation {
         this.moveAmount = Math.min(1, mag);
         this.playerVX = 0;
         this.playerVZ = 0;
-        if (mag > 0.001) {
+        if (cmd.dash && this.time >= this.dashUntil && this.time >= this.dashReadyAt) {
+            let dx = cmd.moveX, dz = cmd.moveZ, dm = Math.hypot(dx, dz);
+            if (dm <= 0.001) {
+                dx = this.aimX;
+                dz = this.aimZ;
+                dm = 1;
+            }
+            this.dashDirX = dx / dm;
+            this.dashDirZ = dz / dm;
+            this.dashUntil = this.time + Simulation.DASH_DURATION;
+            this.dashIFramesUntil = this.time + Simulation.DASH_IFRAMES;
+            this.dashReadyAt = this.dashUntil + Simulation.DASH_COOLDOWN;
+            this.dashWindowSaved = false;
+            this.metrics.dashes++;
+        }
+        if (this.time < this.dashUntil) {
+            this.moveAmount = 1;
+            this.playerVX = this.dashDirX * Simulation.DASH_SPEED;
+            this.playerVZ = this.dashDirZ * Simulation.DASH_SPEED;
+            this.px += this.playerVX * this.dt;
+            this.pz += this.playerVZ * this.dt;
+            this.clampWorld();
+        }
+        else if (mag > 0.001) {
             this.playerVX = (cmd.moveX / mag) * this.moveSpeed;
             this.playerVZ = (cmd.moveZ / mag) * this.moveSpeed;
             this.px += this.playerVX * this.dt;
@@ -1723,6 +1765,13 @@ export class Simulation {
     hitPlayer(amount, attacker = null) {
         if (amount <= 0 || this.php <= 0)
             return;
+        if (this.time < this.dashIFramesUntil) {
+            if (!this.dashWindowSaved) {
+                this.dashWindowSaved = true;
+                this.metrics.dashIFrameSaves++;
+            }
+            return;
+        }
         const reduction = this.armor / (this.armor + 100), mitigated = amount * (1 - reduction);
         if (attacker) {
             const record = this.eliteLogById.get(attacker.id);
@@ -3912,7 +3961,11 @@ export class Simulation {
                 aimZ: this.aimZ,
                 power: this.globalPower,
                 pickupRadius: this.pickupRadius,
-                fortune: this.fortune
+                fortune: this.fortune,
+                dashing: this.time < this.dashUntil,
+                dashReady: this.time >= this.dashReadyAt && this.time >= this.dashUntil,
+                dashCharge: Math.max(0, Math.min(1, 1 - (this.dashReadyAt - this.time) / Math.max(0.0001, Simulation.DASH_COOLDOWN))),
+                invulnerable: this.time < this.dashIFramesUntil
             },
             entities: this.ents.map((e) => ({
                 id: e.id,
@@ -4013,7 +4066,7 @@ export class Simulation {
      * folded into the hash, so a stale baseline fails loudly instead of silently matching
      * a different layout. Never change the layout without bumping.
      */
-    static CANONICAL_SCHEMA_VERSION = 2;
+    static CANONICAL_SCHEMA_VERSION = 3;
     /**
      * Explicit, ordered schema of everything that defines a run.
      *
@@ -4038,6 +4091,7 @@ export class Simulation {
         put('player.pos', this.px, this.pz);
         put('player.hp', this.php, this.maxHp);
         put('player.mitigation', this.barrier, this.armor);
+        put('player.dash', this.dashUntil, this.dashIFramesUntil, this.dashReadyAt);
         put('player.xp', this.level, this.xp, this.xpNeed);
         put('chain.beat', this.beat, this.cycle);
         put('chain.charges', this.capacitorCharge, this.overflowCharge, this.aegisCharge);

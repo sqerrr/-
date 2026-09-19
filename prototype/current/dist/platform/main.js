@@ -161,6 +161,10 @@ function pushLog(t) {
         log.pop();
     $('eventLog').innerHTML = log.map((x) => `<div class="event">${esc(x)}</div>`).join('');
 }
+// D17. The dash is edge triggered: holding the key does not keep dashing, and the
+// request survives until a simulation step consumes it, so a press between two
+// frames is never swallowed.
+let dashQueued = false;
 function screenMove() {
     const sx = (keys.has('d') || keys.has('arrowright') ? 1 : 0) -
         (keys.has('a') || keys.has('arrowleft') ? 1 : 0), sy = (keys.has('s') || keys.has('arrowdown') ? 1 : 0) -
@@ -183,7 +187,8 @@ function keyHandled(k) {
         ' ',
         'r',
         'p',
-        'tab'
+        'tab',
+        'shift'
     ].includes(k);
 }
 window.addEventListener('keydown', (e) => {
@@ -200,6 +205,8 @@ window.addEventListener('keydown', (e) => {
         togglePause();
     else if (!e.repeat && k === 'r')
         restart();
+    else if (!e.repeat && k === 'shift')
+        dashQueued = true;
     keys.add(k);
 });
 window.addEventListener('keyup', (e) => {
@@ -209,6 +216,13 @@ window.addEventListener('keyup', (e) => {
     keys.delete(k);
 });
 window.addEventListener('blur', () => keys.clear());
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+canvas.addEventListener('pointerdown', (e) => {
+    if (e.button === 2) {
+        e.preventDefault();
+        dashQueued = true;
+    }
+});
 canvas.addEventListener('pointermove', (e) => {
     if (renderer)
         aim = renderer.screenAim(e.clientX, e.clientY);
@@ -808,11 +822,41 @@ function drawRefusalRow(ctx, icons, cx, cy, tint) {
         x += size + gap;
     }
 }
+// D17 gives the dash one charge with a recovery, so the player has to know when it is back.
+// The gauge sits under the hero's feet rather than in a corner: this is a positioning decision
+// taken mid-fight, and the eye is on the hero, not on the panel.
+function drawDashGauge(ctx, s) {
+    if (s.player.hp <= 0)
+        return;
+    const p = renderer.worldToScreen(s.player.x, s.player.z, s), cy = p.y + 30, r = 15, charge = Math.max(0, Math.min(1, s.player.dashCharge));
+    ctx.save();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#0a0f14b0';
+    ctx.beginPath();
+    ctx.arc(p.x, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    if (charge > 0.001) {
+        ctx.strokeStyle = s.player.dashReady ? '#7fe4ff' : '#3d6f86';
+        ctx.beginPath();
+        ctx.arc(p.x, cy, r, -Math.PI / 2, -Math.PI / 2 + charge * Math.PI * 2);
+        ctx.stroke();
+    }
+    // The invulnerable window is far shorter than the dash itself, so it gets its own mark.
+    if (s.player.invulnerable) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y - 18, 34, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    ctx.restore();
+}
 function drawCombatHud(s) {
     const ctx = resize2d(combatHud), w = combatHud.clientWidth, h = combatHud.clientHeight;
     ctx.clearRect(0, 0, w, h);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    drawDashGauge(ctx, s);
     for (const e of s.entities) {
         const p = renderer.worldToScreen(e.x, e.z, s), margin = 34, off = p.x < margin || p.x > w - margin || p.y < margin || p.y > h - margin;
         if (off) {
@@ -1141,7 +1185,8 @@ function frame(now) {
     if (!paused && !planning && !sim.hasChoice && sim.php > 0 && !sim.finished) {
         acc = Math.min(0.25, acc + (now - last) / 1000);
         while (acc >= sim.dt) {
-            sim.step({ moveX: mv.x, moveZ: mv.z, aimX: aim.x, aimZ: aim.z });
+            sim.step({ moveX: mv.x, moveZ: mv.z, aimX: aim.x, aimZ: aim.z, dash: dashQueued });
+            dashQueued = false;
             const snap = sim.snapshot(), cues = presentation.consume(sim.events, sim.time, snap);
             renderer.consume(cues, snap);
             pushEvents(sim.events);

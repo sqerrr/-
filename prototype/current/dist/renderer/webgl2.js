@@ -80,6 +80,9 @@ export class WebGLRenderer {
     lastPlayerZ = 0;
     lastPlayerAnimTime = 0;
     playerMoveBlend = 0;
+    // Short ring of recent hero positions. Only read while dashing, to draw the streak
+    // that tells the player the dash actually fired and where it came from.
+    heroTrail = [];
     cssW = 1;
     cssH = 1;
     dpr = 1;
@@ -1312,6 +1315,22 @@ export class WebGLRenderer {
                 add(s.player.x + Math.cos(a) * rad, s.player.z + Math.sin(a) * rad, 13, 28, cellFor.white, [0.45, 1, 0.82, 0.92], 0);
             }
         }
+        // The dash is worthless if the player cannot see when the window is open, so the hero
+        // is lit while invulnerable and merely brightened for the vulnerable tail of the dash.
+        const dashing = s.player.dashing === true, invulnerable = s.player.invulnerable === true;
+        const heroR = invulnerable ? 1.7 : dashing ? 1.2 : 1, heroG = invulnerable ? 2.1 : dashing ? 1.3 : 1, heroB = invulnerable ? 2.4 : dashing ? 1.5 : 1;
+        this.heroTrail.push({ x: s.player.x, z: s.player.z, t: s.time });
+        while (this.heroTrail.length > 0 && s.time - this.heroTrail[0].t > 0.26)
+            this.heroTrail.shift();
+        if (dashing) {
+            const trailFlip = s.player.aimX - s.player.aimZ < 0 ? 1 : 0;
+            for (const g of this.heroTrail) {
+                const age = (s.time - g.t) / 0.26;
+                if (age <= 0.02)
+                    continue;
+                addActor(g.x, g.z, 96 * (1 - age * 0.25), 120 * (1 - age * 0.25), 'player_idle', [heroR, heroG, heroB, 0.34 * (1 - age)], trailFlip);
+            }
+        }
         // Keep the v0.9 locomotion fix: auto-attacks do not restart the dirty 4-frame cast strip.
         // Weapon VFX and canonical combat geometry carry the attack readability instead.
         const playerPulse = 1 + 0.008 * Math.sin(s.time * 4.0), moved = Math.hypot(s.player.x - this.lastPlayerX, s.player.z - this.lastPlayerZ) > 0.002, flip = s.player.aimX - s.player.aimZ < 0 ? 1 : 0;
@@ -1320,15 +1339,15 @@ export class WebGLRenderer {
         const heroW = 96 * playerPulse, heroH = 120 * playerPulse;
         if (this.playerMoveBlend > 0.02) {
             if (this.playerMoveBlend < 0.98)
-                addActor(s.player.x, s.player.z, heroW, heroH, 'player_idle', [1, 1, 1, 1 - this.playerMoveBlend], flip);
+                addActor(s.player.x, s.player.z, heroW, heroH, 'player_idle', [heroR, heroG, heroB, 1 - this.playerMoveBlend], flip);
             // Four dedicated frames replace the two atlas cells the hero used to share.
             // Cadence matches the old ping-pong: 4.4 steps a second, two steps per cycle.
             const phase = (s.time * 8.8) % PLAYER_RUN_FRAMES, frame = Math.floor(phase), next = (frame + 1) % PLAYER_RUN_FRAMES, w = phase - frame;
-            addActor(s.player.x, s.player.z, heroW, heroH, 'player_run_' + frame, [1, 1, 1, this.playerMoveBlend * (1 - w)], flip);
-            addActor(s.player.x, s.player.z, heroW, heroH, 'player_run_' + next, [1, 1, 1, this.playerMoveBlend * w], flip);
+            addActor(s.player.x, s.player.z, heroW, heroH, 'player_run_' + frame, [heroR, heroG, heroB, this.playerMoveBlend * (1 - w)], flip);
+            addActor(s.player.x, s.player.z, heroW, heroH, 'player_run_' + next, [heroR, heroG, heroB, this.playerMoveBlend * w], flip);
         }
         else
-            addActor(s.player.x, s.player.z, heroW, heroH, 'player_idle', [1, 1, 1, 1], flip);
+            addActor(s.player.x, s.player.z, heroW, heroH, 'player_idle', [heroR, heroG, heroB, 1], flip);
         this.lastPlayerX = s.player.x;
         this.lastPlayerZ = s.player.z;
         this.lastPlayerAnimTime = s.time;

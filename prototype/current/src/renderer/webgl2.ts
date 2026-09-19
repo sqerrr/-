@@ -167,6 +167,9 @@ export class WebGLRenderer {
   private lastPlayerZ = 0;
   private lastPlayerAnimTime = 0;
   private playerMoveBlend = 0;
+  // Short ring of recent hero positions. Only read while dashing, to draw the streak
+  // that tells the player the dash actually fired and where it came from.
+  private heroTrail: { x: number; z: number; t: number }[] = [];
   private cssW = 1;
   private cssH = 1;
   private dpr = 1;
@@ -1597,6 +1600,31 @@ export class WebGLRenderer {
         );
       }
     }
+    // The dash is worthless if the player cannot see when the window is open, so the hero
+    // is lit while invulnerable and merely brightened for the vulnerable tail of the dash.
+    const dashing = s.player.dashing === true,
+      invulnerable = s.player.invulnerable === true;
+    const heroR = invulnerable ? 1.7 : dashing ? 1.2 : 1,
+      heroG = invulnerable ? 2.1 : dashing ? 1.3 : 1,
+      heroB = invulnerable ? 2.4 : dashing ? 1.5 : 1;
+    this.heroTrail.push({ x: s.player.x, z: s.player.z, t: s.time });
+    while (this.heroTrail.length > 0 && s.time - this.heroTrail[0].t > 0.26) this.heroTrail.shift();
+    if (dashing) {
+      const trailFlip = s.player.aimX - s.player.aimZ < 0 ? 1 : 0;
+      for (const g of this.heroTrail) {
+        const age = (s.time - g.t) / 0.26;
+        if (age <= 0.02) continue;
+        addActor(
+          g.x,
+          g.z,
+          96 * (1 - age * 0.25),
+          120 * (1 - age * 0.25),
+          'player_idle',
+          [heroR, heroG, heroB, 0.34 * (1 - age)],
+          trailFlip
+        );
+      }
+    }
     // Keep the v0.9 locomotion fix: auto-attacks do not restart the dirty 4-frame cast strip.
     // Weapon VFX and canonical combat geometry carry the attack readability instead.
     const playerPulse = 1 + 0.008 * Math.sin(s.time * 4.0),
@@ -1617,7 +1645,7 @@ export class WebGLRenderer {
           heroW,
           heroH,
           'player_idle',
-          [1, 1, 1, 1 - this.playerMoveBlend],
+          [heroR, heroG, heroB, 1 - this.playerMoveBlend],
           flip
         );
       // Four dedicated frames replace the two atlas cells the hero used to share.
@@ -1632,7 +1660,7 @@ export class WebGLRenderer {
         heroW,
         heroH,
         'player_run_' + frame,
-        [1, 1, 1, this.playerMoveBlend * (1 - w)],
+        [heroR, heroG, heroB, this.playerMoveBlend * (1 - w)],
         flip
       );
       addActor(
@@ -1641,10 +1669,11 @@ export class WebGLRenderer {
         heroW,
         heroH,
         'player_run_' + next,
-        [1, 1, 1, this.playerMoveBlend * w],
+        [heroR, heroG, heroB, this.playerMoveBlend * w],
         flip
       );
-    } else addActor(s.player.x, s.player.z, heroW, heroH, 'player_idle', [1, 1, 1, 1], flip);
+    } else
+      addActor(s.player.x, s.player.z, heroW, heroH, 'player_idle', [heroR, heroG, heroB, 1], flip);
     this.lastPlayerX = s.player.x;
     this.lastPlayerZ = s.player.z;
     this.lastPlayerAnimTime = s.time;
