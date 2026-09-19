@@ -1768,6 +1768,8 @@ export class Simulation {
    */
   private rollEliteAffix(rarity: EliteRarity): EliteAffix {
     const t = Math.min(1, this.time / this.runDuration);
+    // The first minute teaches chassis language before combinations appear.
+    if (t < 0.12) return 'none';
     if (rarity === 'common') {
       if (t < 0.12 || this.rng.float() < 0.58 - t * 0.18) return 'none';
       const pool: EliteAffix[] = ['regenerating', 'volatile', 'shielded'];
