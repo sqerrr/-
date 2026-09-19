@@ -1625,7 +1625,7 @@ export class WebGLRenderer {
         );
       }
     }
-    // Keep the v0.9 locomotion fix: auto-attacks do not restart the dirty 4-frame cast strip.
+    // Auto-attacks do not restart locomotion; canonical combat VFX carry attack readability.
     // Weapon VFX and canonical combat geometry carry the attack readability instead.
     const playerPulse = 1 + 0.008 * Math.sin(s.time * 4.0),
       moved = Math.hypot(s.player.x - this.lastPlayerX, s.player.z - this.lastPlayerZ) > 0.002,
