@@ -1,3 +1,5 @@
+> **ARCHIVED / HISTORICAL:** historical decision ledger; later owner instructions and documents 30–33 supersede conflicting current-state claims. Current entry point: `00_START_HERE.md`.
+
 # v0.10 PRIORITY OVERRIDE — CORE REBUILD IS NOW PLAYABLE
 
 **This section supersedes conflicting v0.9C/v0.9B progression, Catalyst and free-Elite conclusions below.**
