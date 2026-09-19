@@ -90,7 +90,7 @@ export const skills: Record<SkillId, SkillDef> = {
     axes: ['tempo', 'precision', 'multiplicity', 'conductivity'],
     identity: 'Очень частая точная атака с высоким естественным шансом крита.',
     weakness: 'Почти не решает плотную толпу без синергии.',
-    description: 'Точная одиночная атака: высокий крит, узкая линия, быстрый retarget.',
+    description: 'Точная одиночная атака: высокий шанс критического удара, узкая линия и быстрое переключение цели.',
     upgradePool: ['power', 'range', 'count', 'statusPotency', 'crit'],
     mutations: [
       {
@@ -104,7 +104,7 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'ember_brand',
         name: 'Клеймо',
         tag: 'связка',
-        description: 'Метка усиливает следующий другой Skill.'
+        description: 'Метка усиливает следующее попадание другого феномена.'
       },
       {
         id: 'ember_furnace',
@@ -117,14 +117,14 @@ export const skills: Record<SkillId, SkillDef> = {
         parent: 'ember_volley',
         name: 'Пронзатель',
         tag: 'элита',
-        description: 'Один пробивающий снаряд особенно силён против Elite.'
+        description: 'Один пробивающий снаряд особенно силён против элитных врагов.'
       },
       {
         id: 'ember_backdraft',
         parent: 'ember_brand',
         name: 'Обратная тяга',
         tag: 'контроль',
-        description: 'Убийство стягивает соседей и вызывает burst.'
+        description: 'Убийство стягивает соседей и вызывает дополнительный взрыв.'
       },
       {
         id: 'ember_foundry',
@@ -157,7 +157,7 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'frost_snap',
         name: 'Мгновенная заморозка',
         tag: 'взрыв',
-        description: 'Повторный Chill вызывает shatter-burst.'
+        description: 'Повторное охлаждение раскалывает цель и наносит дополнительный урон вокруг неё.'
       },
       {
         id: 'frost_rim',
@@ -169,21 +169,21 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'frost_front',
         name: 'Холодный фронт',
         tag: 'поле',
-        description: 'Кольцо становится расширяющимся persistent Field.'
+        description: 'Кольцо превращается в расширяющееся длительное поле.'
       },
       {
         id: 'frost_skin',
         parent: 'frost_snap',
         name: 'Хрустальная кожа',
         tag: 'защита',
-        description: 'Убийства охлаждённых целей дают Barrier.'
+        description: 'Убийства охлаждённых целей дают барьер.'
       },
       {
         id: 'frost_brittle',
         parent: 'frost_rim',
         name: 'Хрупкость',
         tag: 'связка',
-        description: 'Chill открывает цель для следующего line/strike.'
+        description: 'Охлаждённая цель сильнее страдает от следующего тяжёлого попадания.'
       },
       {
         id: 'frost_whiteout',
@@ -216,13 +216,13 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'rail_rack',
         name: 'Стойка пронзателей',
         tag: 'подготовка',
-        description: 'Ниже direct damage, но больше Embeds.'
+        description: 'Меньше прямого урона, но больше снарядов застревает в цели.'
       },
       {
         id: 'rail_gun',
         name: 'Рельсотрон',
         tag: 'фокус',
-        description: 'Раз в два цикла — один почти экранный сверхтяжёлый shot. Quantity не клонирует ствол: для множества линий есть отдельная ветвь.'
+        description: 'Раз в два цикла — один почти экранный сверхтяжёлый выстрел. Количество не клонирует его: для множества линий есть отдельная ветвь.'
       },
       {
         id: 'rail_fan',
@@ -242,7 +242,7 @@ export const skills: Record<SkillId, SkillDef> = {
         parent: 'rail_gun',
         name: 'Точечное копьё',
         tag: 'связка',
-        description: 'Marked-цели приоритетны и становятся Exposed.'
+        description: 'Цели с меткой получают приоритет и становятся уязвимее.'
       },
       {
         id: 'rail_crossfire',
@@ -275,7 +275,7 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'cleaver_guillotine',
         name: 'Гильотина',
         tag: 'добивание',
-        description: 'Узкий взмах резко усиливается по low-HP целям.'
+        description: 'Узкий взмах резко усиливается по целям с малым запасом здоровья.'
       },
       {
         id: 'cleaver_roundhouse',
@@ -301,8 +301,8 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'cleaver_deep',
         parent: 'cleaver_guillotine',
         name: 'Глубокий порез',
-        tag: 'DoT',
-        description: 'Меньше direct damage, сильнее Wound.'
+        tag: 'длительный урон',
+        description: 'Меньше прямого урона, но сильнее кровоточащая рана.'
       },
       {
         id: 'cleaver_chainhook',
@@ -328,7 +328,7 @@ export const skills: Record<SkillId, SkillDef> = {
     axes: ['tempo', 'multiplicity', 'conductivity'],
     identity: 'Распределяет воздействие между разрозненными целями.',
     weakness: 'Резко теряет эффективность, когда целей мало.',
-    description: 'Auto-target сеть: сильна по разбросанной толпе, слаба по одиночной цели.',
+    description: 'Сеть сама выбирает цели: сильна по разбросанной толпе, слаба по одиночной цели.',
     upgradePool: ['power', 'count', 'range', 'statusPotency', 'crit'],
     mutations: [
       {
@@ -341,27 +341,27 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'arc_capacitive',
         name: 'Ёмкостная дуга',
         tag: 'связка',
-        description: 'Неиспользованные jumps копят Charge.'
+        description: 'Неиспользованные прыжки цепи копят заряд.'
       },
       {
         id: 'arc_ground',
         name: 'Заземление',
         tag: 'фокус',
-        description: 'Marked/Embedded цели приоритетны.'
+        description: 'Цели с меткой или застрявшим снарядом получают приоритет.'
       },
       {
         id: 'arc_cage',
         parent: 'arc_forked',
         name: 'Дуговая клетка',
         tag: 'поле',
-        description: 'Повторные hits создают electric Field.'
+        description: 'Повторные попадания создают электрическое поле.'
       },
       {
         id: 'arc_relay',
         parent: 'arc_capacitive',
         name: 'Статический ретранслятор',
         tag: 'дальность',
-        description: 'Заметно увеличивает jump range.'
+        description: 'Заметно увеличивает дальность следующего прыжка цепи.'
       },
       {
         id: 'arc_groundloop',
@@ -387,20 +387,20 @@ export const skills: Record<SkillId, SkillDef> = {
     axes: ['multiplicity', 'precision', 'mobility', 'conductivity'],
     identity: 'Постоянная плотность контактов вокруг героя.',
     weakness: 'Практически не отвечает угрозам на дистанции.',
-    description: 'Контактный orbit: много мелких попаданий рядом с героем.',
+    description: 'Контактная орбита: много мелких попаданий рядом с героем.',
     upgradePool: ['power', 'count', 'coverage', 'crit', 'eliteDamage'],
     mutations: [
       {
         id: 'orbit_many',
         name: 'Много ножей',
         tag: 'зачистка',
-        description: 'Больше лезвий, меньше power каждого.'
+        description: 'Больше лезвий, но каждое наносит меньше урона.'
       },
       {
         id: 'orbit_saw',
         name: 'Пильная корона',
         tag: 'элита',
-        description: 'Меньше тяжёлых лезвий, лучше против Elite.'
+        description: 'Меньше тяжёлых лезвий, но они заметно лучше против элитных врагов.'
       },
       {
         id: 'orbit_outbound',
@@ -413,14 +413,14 @@ export const skills: Record<SkillId, SkillDef> = {
         parent: 'orbit_many',
         name: 'Защитное кольцо',
         tag: 'защита',
-        description: 'Лезвия ослабляют enemy projectiles.'
+        description: 'Лезвия ослабляют вражеские снаряды.'
       },
       {
         id: 'orbit_blood',
         parent: 'orbit_saw',
         name: 'Кровавая орбита',
         tag: 'масштаб',
-        description: 'Wounded enemies рядом ускоряют и усиливают orbit.'
+        description: 'Раненые враги рядом ускоряют и расширяют орбиту.'
       },
       {
         id: 'orbit_comet',
@@ -444,7 +444,7 @@ export const skills: Record<SkillId, SkillDef> = {
     baseRadius: 2.85,
     baseCrit: 0.03,
     axes: ['multiplicity', 'persistence', 'conductivity'],
-    identity: 'Движущийся источник артиллерии: позиция героя и Mark меняют маршрут захода.',
+    identity: 'Движущийся источник артиллерии: позиция героя и метка меняют маршрут захода.',
     weakness: 'Медленно перестраивает маршрут и требует предсказывать движение цели.',
     description: 'Автономный бомбардир делает последовательные заходы по маршруту и отмеченной цели.',
     upgradePool: ['power', 'coverage', 'count', 'range', 'crit'],
@@ -460,27 +460,27 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'mortar_fuse',
         name: 'Длинный фитиль',
         tag: 'риск',
-        description: 'Больше урон и Coverage, но атака визуально медленнее.'
+        description: 'Больше урон и площадь поражения, но атака визуально медленнее.'
       },
       {
         id: 'mortar_spotter',
         name: 'Наводчик',
         tag: 'фокус',
-        description: 'Marked Elite притягивают точку падения.'
+        description: 'Элитные враги с меткой притягивают точку падения.'
       },
       {
         id: 'mortar_crater',
         parent: 'mortar_fuse',
         name: 'Кратер',
         tag: 'контроль',
-        description: 'После взрыва остаётся slowing Field.'
+        description: 'После взрыва остаётся поле, замедляющее врагов.'
       },
       {
         id: 'mortar_airburst',
         parent: 'mortar_cluster',
         name: 'Воздушный разрыв',
         tag: 'геометрия',
-        description: 'Шире explosion, слабее центр, без persistent Field.'
+        description: 'Взрыв шире, но центр слабее и длительного поля не остаётся.'
       },
       {
         id: 'mortar_beacon',
@@ -506,40 +506,40 @@ export const skills: Record<SkillId, SkillDef> = {
     axes: ['persistence', 'precision', 'multiplicity', 'conductivity'],
     identity: 'Создаёт стабильный автономный канал урона и приоритет цели.',
     weakness: 'Требует времени присутствия и хуже при постоянной смене зоны.',
-    description: 'Автономный construct: стабилен против приоритетных целей, инертен при миграции.',
+    description: 'Автономная турель: стабильна против приоритетных целей, но медленно переносит огонь на другую часть поля.',
     upgradePool: ['power', 'range', 'duration', 'count', 'eliteDamage'],
     mutations: [
       {
         id: 'sentry_gatling',
         name: 'Гатлинг',
         tag: 'темп',
-        description: 'Частые слабые shots и быстрый target switching.'
+        description: 'Частые слабые выстрелы и быстрое переключение между целями.'
       },
       {
         id: 'sentry_rail',
         name: 'Рельсовая установка',
         tag: 'фокус',
-        description: 'Медленные тяжёлые shots с Elite priority.'
+        description: 'Медленные тяжёлые выстрелы в первую очередь ищут элитных врагов.'
       },
       {
         id: 'sentry_relay',
         name: 'Ретранслятор',
         tag: 'связка',
-        description: 'Турель усиливает Chain Arc как relay.'
+        description: 'Турель становится промежуточным узлом для цепной молнии.'
       },
       {
         id: 'sentry_crawler',
         parent: 'sentry_gatling',
         name: 'Ползун',
         tag: 'мобильность',
-        description: 'Construct ближе следует за игроком.'
+        description: 'Турель держится ближе к игроку.'
       },
       {
         id: 'sentry_salvager',
         parent: 'sentry_rail',
         name: 'Утилизатор',
         tag: 'экономика',
-        description: 'Elite kills с участием Sentry быстрее дают Core.'
+        description: 'Убийства элит при участии турелей быстрее дают ядра.'
       },
       {
         id: 'sentry_grid',
@@ -561,7 +561,7 @@ export const skills: Record<SkillId, SkillDef> = {
     baseDamage: 12,
     baseRange: 0,
     baseRadius: 4.5,
-    description: 'Большое persistent поле вокруг позиции героя.',
+    description: 'Большое длительное поле вокруг позиции героя.',
     baseCrit: 0,
     axes: ['persistence', 'conductivity'],
     identity: 'Держит площадь вокруг героя и наказывает давку без единого нажатия.',
@@ -572,13 +572,13 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'toxic_corrosive',
         name: 'Коррозия',
         tag: 'поддержка',
-        description: 'Toxin сильнее ослабляет защищённые цели.'
+        description: 'Яд сильнее ослабляет защищённые цели.'
       },
       {
         id: 'toxic_contagion',
         name: 'Заражение',
         tag: 'зачистка',
-        description: 'Смерть заражённого передаёт Toxin соседям.'
+        description: 'Смерть заражённого передаёт яд соседям.'
       },
       {
         id: 'toxic_distilled',
@@ -598,7 +598,7 @@ export const skills: Record<SkillId, SkillDef> = {
         parent: 'toxic_corrosive',
         name: 'Реактивный растворитель',
         tag: 'связка',
-        description: 'Wound/Ignite превращаются в дополнительный burst.'
+        description: 'Кровотечение и горение превращаются в дополнительный взрыв.'
       },
       {
         id: 'toxic_still',
@@ -621,7 +621,7 @@ export const skills: Record<SkillId, SkillDef> = {
     baseRange: 0,
     baseRadius: 3.0,
     description:
-      'Защитный pulse: отталкивает толпу, открывает пространство и может конвертировать контроль в Barrier.',
+      'Защитная волна отталкивает толпу, освобождает пространство и может превращать контроль в барьер.',
     baseCrit: 0.02,
     axes: ['conductivity', 'mobility'],
     identity: 'Расчищает место вокруг и превращает контроль в защиту.',
@@ -632,7 +632,7 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'repulse_gravity',
         name: 'Гравитационный колодец',
         tag: 'контроль',
-        description: 'Push превращается в Pull: собирает врагов для следующего AoE.'
+        description: 'Отталкивание превращается в притяжение и собирает врагов под следующую атаку по площади.'
       },
       {
         id: 'repulse_front',
@@ -644,21 +644,21 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'repulse_aegis',
         name: 'Эгида',
         tag: 'защита',
-        description: 'Каждый реально displaced враг даёт Barrier до лимита активации.'
+        description: 'Каждый реально отодвинутый враг даёт немного барьера до лимита активации.'
       },
       {
         id: 'repulse_relay',
         parent: 'repulse_gravity',
         name: 'Кинетический релей',
         tag: 'связка',
-        description: 'Величина displacement превращается в Charge следующего феномена.'
+        description: 'Чем сильнее сдвинуты враги, тем больше заряд следующего феномена.'
       },
       {
         id: 'repulse_rings',
         parent: 'repulse_front',
         name: 'Компрессионные кольца',
         tag: 'геометрия',
-        description: 'Два последовательных меньших кольца вместо одного pulse.'
+        description: 'Две последовательные меньшие волны вместо одной.'
       },
       {
         id: 'repulse_bastion',
@@ -682,9 +682,9 @@ export const skills: Record<SkillId, SkillDef> = {
     baseRadius: 0.38,
     baseCrit: 0.01,
     axes: ['tempo', 'precision', 'conductivity'],
-    identity: 'Огромная медленная масса физически катится по арене, ломает cover и разрывает строй.',
+    identity: 'Огромная медленная масса физически катится по арене, ломает укрытия и разрывает строй.',
     weakness: 'Медленный и требует заранее построить траекторию; промах дорог.',
-    description: 'Медленный тяжёлый валун: Force, разрушение cover и растущий импульс вместо ещё одного hitscan-луча.',
+    description: 'Медленный тяжёлый валун: сильный импульс, разрушение укрытий и растущая мощь по мере движения.',
     upgradePool: ['power', 'range', 'control', 'crit', 'eliteDamage'],
     mutations: [
       {
@@ -697,7 +697,7 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'mass_snowball',
         name: 'Снежный ком',
         tag: 'масштаб',
-        description: 'Урон растёт за каждого minor enemy на линии.'
+        description: 'Урон растёт за каждого обычного врага на линии.'
       },
       {
         id: 'mass_recoil',
