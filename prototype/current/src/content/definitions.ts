@@ -1203,12 +1203,12 @@ const v011Apotheoses: Partial<Record<SkillId, MutationDef[]>> = {
   shard_fan: [
     { id:'returner_execution', parent:'fan_needle', name:'Охотничий возврат', tag:'АПОФЕОЗ · элита', description:'Возвратный клинок цепляется за цель с меткой или элиту и возвращается через неё после короткой задержки.', apotheosis:true },
     { id:'returner_carousel', parent:'fan_storm', name:'Карусель', tag:'АПОФЕОЗ · маршрут', description:'На пределе клинки делают полный оборот вокруг точки и только затем возвращаются.', apotheosis:true },
-    { id:'returner_phoenix', parent:'fan_cinder', name:'Феникс возврата', tag:'АПОФЕОЗ · след', description:'Оба прохода оставляют огненный след; встреча исходящего и обратного пути вызывает burst.', apotheosis:true }
+    { id:'returner_phoenix', parent:'fan_cinder', name:'Феникс возврата', tag:'АПОФЕОЗ · след', description:'Оба прохода оставляют огненный след; пересечение исходящего и обратного пути вызывает взрыв.', apotheosis:true }
   ],
   tether_drag: [
-    { id:'gravity_singularity', parent:'tether_anchor', name:'Сингулярность', tag:'АПОФЕОЗ · якорь', description:'Якорь накапливает массу стянутых целей и затем взрывается Force/Expose.', apotheosis:true },
+    { id:'gravity_singularity', parent:'tether_anchor', name:'Сингулярность', tag:'АПОФЕОЗ · якорь', description:'Якорь накапливает массу стянутых целей, затем взрывается и делает выживших уязвимее.', apotheosis:true },
     { id:'gravity_dragnet', parent:'tether_dragnet', name:'Орбитальная сеть', tag:'АПОФЕОЗ · сеть', description:'Вместо одного луча появляются три якоря, образующие широкую область стягивания.', apotheosis:true },
-    { id:'gravity_prison', parent:'tether_lock', name:'Гравитюрьма', tag:'АПОФЕОЗ · контроль', description:'Элита не тянется к герою: вокруг неё на время замыкается видимая клетка, повышающая Break.', apotheosis:true }
+    { id:'gravity_prison', parent:'tether_lock', name:'Гравитюрьма', tag:'АПОФЕОЗ · контроль', description:'Элита не тянется к герою: вокруг неё на время замыкается видимая клетка, быстрее ломающая её защиту.', apotheosis:true }
   ]
 };
 for (const [skill, defs] of Object.entries(v011Apotheoses) as [SkillId, MutationDef[]][]) {
@@ -1289,9 +1289,9 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     id: 'capacitor',
     name: 'Преобразователь массы',
     shortName: '×ЦЕЛИ',
-    desc: 'Число целей, задетых слева, превращается в дополнительные instances правого феномена. Не переносит урон.',
+    desc: 'Число целей, задетых слева, превращается в дополнительные срабатывания правого феномена. Урон напрямую не переносится.',
     color: '#70d8ff',
-    scope: 'converter'
+    scope: 'преобразование'
   },
   anchor: {
     id: 'anchor',
@@ -1299,31 +1299,31 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     shortName: 'ЦЕНТР',
     desc: 'Естественный такт справа перенаводится на центр массы, которую только что задел левый феномен.',
     color: '#8ce5c7',
-    scope: 'router'
+    scope: 'перенаведение'
   },
   reservoir: {
     id: 'reservoir',
     name: 'Резервуар событий',
     shortName: 'ПАМЯТЬ',
-    desc: 'Копит массовые попадания слева между циклами. После заполнения следующий естественный такт справа получает несколько дополнительных instances.',
+    desc: 'Копит массовые попадания слева между циклами. После заполнения следующий естественный такт справа получает несколько дополнительных срабатываний.',
     color: '#79e19b',
-    scope: 'memory'
+    scope: 'накопление'
   },
   echo_shard: {
     id: 'echo_shard',
     name: 'Эхо-отпечаток',
     shortName: 'ЭХО',
-    desc: 'Запоминает результат слева и один раз отражает часть результата правого в точке предыдущего воздействия. Базовый понятный proc-оператор.',
+    desc: 'Запоминает результат слева и один раз повторяет часть результата правого в точке предыдущего воздействия.',
     color: '#86d8ff',
-    scope: 'imprint'
+    scope: 'отпечаток'
   },
   relay: {
     id: 'relay',
     name: 'Реле убийств',
-    shortName: 'KILL→',
-    desc: 'Серия убийств слева гарантированно заряжает ослабленное внеочередное проявление правого. Это один из простых trigger-вариантов.',
+    shortName: 'УБИЙ→',
+    desc: 'Серия убийств слева гарантированно заряжает ослабленное внеочередное проявление правого феномена.',
     color: '#ffe27a',
-    scope: 'gate'
+    scope: 'запуск'
   },
   conduit: {
     id: 'conduit',
@@ -1331,7 +1331,7 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     shortName: 'СВОЙСТВО',
     desc: 'Правый феномен сохраняет свою форму, но переносит совместимое состояние/свойство результата слева на собственные цели.',
     color: '#7ee7d2',
-    scope: 'fusion'
+    scope: 'слияние'
   },
   overflow: {
     id: 'overflow',
@@ -1339,23 +1339,23 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     shortName: '↩',
     desc: 'Если слева было массовое успешное воздействие, после правого такта исполнение один раз возвращается к левому феномену. Меняет топологию, а не цифру урона.',
     color: '#ffb879',
-    scope: 'topology'
+    scope: 'петля'
   },
   aegis_relay: {
     id: 'aegis_relay',
     name: 'Эгида потока',
     shortName: 'ЩИТ',
-    desc: 'Массовый контроль слева превращается при следующем такте в Barrier. Катализатор создаёт защитный маршрут вместо дополнительной атаки.',
+    desc: 'Массовый контроль слева на следующем такте превращается в барьер. Катализатор создаёт защитную связку вместо дополнительной атаки.',
     color: '#72cfff',
-    scope: 'converter'
+    scope: 'преобразование'
   },
   backflow: {
     id: 'backflow',
     name: 'Обратная связь',
     shortName: '↶',
-    desc: 'Успешный правый такт меняет следующий естественный такт слева: добавляет один instance вместо простого усиления урона.',
+    desc: 'Успешный правый такт меняет следующий естественный такт слева: добавляет одно дополнительное срабатывание вместо простого усиления урона.',
     color: '#b7a0ff',
-    scope: 'feedback'
+    scope: 'обратная связь'
   },
   recoil: {
     id: 'recoil',
@@ -1506,7 +1506,7 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
     name: 'Множественность',
     shortName: '×N',
     description:
-      'Поддерживаемые феномены трактуют её как дополнительные снаряды, прыжки, лезвия, волны или constructs.',
+      'Поддерживаемые феномены получают дополнительные снаряды, прыжки, лезвия, волны или призванные объекты.',
     color: '#cf94ff'
   },
   precision: {
@@ -1522,7 +1522,7 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
     name: 'Присутствие',
     shortName: 'ДОЛГО',
     description:
-      'Увеличивает время существования полей, constructs и других длительных проявлений.',
+      'Увеличивает время существования полей, призванных объектов и других длительных эффектов.',
     color: '#79e19b'
   },
   conductivity: {
@@ -1530,7 +1530,7 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
     name: 'Проводимость',
     shortName: 'СВЯЗЬ',
     description:
-      'Улучшает ёмкость, пороги и передачу Catalyst-операторов, а не уровень отдельного камня.',
+      'Улучшает ёмкость, пороги и передачу эффектов катализаторов, а не отдельный камень.',
     color: '#75f0d2'
   },
   mobility: {
@@ -1538,7 +1538,7 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
     name: 'Подвижность',
     shortName: 'ХОД',
     description:
-      'Ускоряет перемещение героя; отдельные Phenomena могут естественно использовать движение как часть своей идентичности.',
+      'Ускоряет перемещение героя; отдельные феномены используют движение как часть своего поведения.',
     color: '#7de7f4'
   }
 };
@@ -1547,14 +1547,14 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
 export interface DoctrineDef { id: DoctrineId; name: string; shortName: string; description: string; glyph: string; color: string; }
 export const doctrineOrder: DoctrineId[] = ['might','size','quantity','duration','mobility','guard','force','precision'];
 export const doctrines: Record<DoctrineId, DoctrineDef> = {
-  might:{id:'might',name:'Мощь',shortName:'МОЩЬ',glyph:'✦',color:'#ffb66d',description:'Общий урон Phenomena. Надёжный путь, но не меняет их форму.'},
-  size:{id:'size',name:'Масштаб',shortName:'SIZE',glyph:'◎',color:'#8fe8ff',description:'Reach ближних атак, радиус орбит, зон и размер физических сущностей.'},
-  quantity:{id:'quantity',name:'Количество',shortName:'×N',glyph:'⁝',color:'#c89cff',description:'Дополнительные совместимые actors/projectiles/constructs. Не размножает всё подряд.'},
-  duration:{id:'duration',name:'Длительность',shortName:'ВРЕМЯ',glyph:'◴',color:'#83df9b',description:'Время полей, constructs, trail и roaming-эффектов.'},
-  mobility:{id:'mobility',name:'Подвижность',shortName:'ХОД',glyph:'➤',color:'#75e7f4',description:'Скорость движения и восстановление dash; особенно важна proximity-билдам.'},
-  guard:{id:'guard',name:'Оплот',shortName:'ЩИТ',glyph:'⬡',color:'#77bfff',description:'Close-hit создаёт Barrier, а входящий урон рядом с врагом уменьшается.'},
-  force:{id:'force',name:'Импульс',shortName:'FORCE',glyph:'✺',color:'#ffd36b',description:'Stagger, knockback, shield Stability damage и разрушение cover.'},
-  precision:{id:'precision',name:'Точность',shortName:'МЕТКА',glyph:'⌖',color:'#ff91ca',description:'Крит, Mark/weakpoint и приоритетные одиночные цели.'}
+  might:{id:'might',name:'Мощь',shortName:'МОЩЬ',glyph:'✦',color:'#ffb66d',description:'Увеличивает общий урон феноменов. Надёжное усиление без изменения их формы.'},
+  size:{id:'size',name:'Масштаб',shortName:'РАЗМЕР',glyph:'◎',color:'#8fe8ff',description:'Увеличивает дальность ближних атак, радиус орбит и зон, а также размер физических эффектов.'},
+  quantity:{id:'quantity',name:'Количество',shortName:'×N',glyph:'⁝',color:'#c89cff',description:'Добавляет дополнительные снаряды, призванные объекты или действующие элементы там, где это поддерживает оружие.'},
+  duration:{id:'duration',name:'Длительность',shortName:'ВРЕМЯ',glyph:'◴',color:'#83df9b',description:'Продлевает поля, призванные объекты, следы и другие длительные эффекты.'},
+  mobility:{id:'mobility',name:'Подвижность',shortName:'ХОД',glyph:'➤',color:'#75e7f4',description:'Ускоряет героя и восстановление рывка; особенно полезно сборкам, которые сражаются вблизи.'},
+  guard:{id:'guard',name:'Оплот',shortName:'ЩИТ',glyph:'⬡',color:'#77bfff',description:'Попадания вблизи дают барьер, а входящий урон рядом с врагами немного снижается.'},
+  force:{id:'force',name:'Импульс',shortName:'ИМП',glyph:'✺',color:'#ffd36b',description:'Сильнее отбрасывает врагов, быстрее ломает стойкость щитов элит и хрупкие укрытия.'},
+  precision:{id:'precision',name:'Точность',shortName:'МЕТКА',glyph:'⌖',color:'#ff91ca',description:'Повышает шанс критического удара и пользу меток против приоритетных одиночных целей.'}
 };
 
 export const rarityOrder: Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
