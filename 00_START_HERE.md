@@ -31,15 +31,17 @@ v0.10 is a focused attempt to test a different foundation rather than another re
 ## Read in this order
 
 1. `21_SLICE_DECISIONS_2026-09-18.md`: **owner decisions. Highest authority among the design documents.**
-2. `17_DECISIONS_AND_PROGRESS_2026-09-18.md`: accepted, deferred and open decisions; work status; code audit findings.
-3. `22_CATALOG_D29_AUDIT_2026-09-18.md`: audit of the catalogue against the owner's rules and rework of the twelve entries that failed. A proposal; only the parts accepted as D39-D48 are binding.
-4. `20_CONTENT_GAME_DESIGN_STUDY_2026-09-18.md`: proposed catalogue of 18 phenomena and 20 catalysts, combination grammar, risks and engine cost. A proposal, not a decision. Sections 7.1, 7.2 and build Ж are obsolete under D33.
-5. `16_NEXT_SLICE_DRAFT_2026-09-18.md`: draft requirements, boundaries and future acceptance probes.
-6. `15_RIVAL_DRAFT_CONCEPT_DISCUSSION_2026-09-18.md`: detailed discussion and explicit status of proposals.
-7. `18_V010_SYSTEM_SNAPSHOT_2026-09-18.md`: the owner's factual snapshot, copied without content changes. Known to omit the dead subsystems listed above.
-8. `13_V010_CORE_REBUILD_SPEC.md` and `14_V010_IMPLEMENTATION_NOTES_2026-09-17.md`: historical v0.10 experiment and implementation details.
-9. `prototype/current/PLAYTEST_CHECKLIST.md`: old prototype checklist, not acceptance of the new concept.
-10. Documents 01-12, `docs/`, `reports/` and `legacy/` as historical evidence where needed.
+2. `24_BUILD_PROGRESS_2026-09-19.md`: **what is actually built, what was measured, what is owed.** Start here for the state of the code.
+3. `17_DECISIONS_AND_PROGRESS_2026-09-18.md`: accepted, deferred and open decisions; work status; code audit findings.
+4. `23_DISPUTED_QUESTIONS_LOG.md`: calls the assistant made on its own once the owner handed over that right. Carries no authority over document 21; read it to see what may need reversing.
+5. `22_CATALOG_D29_AUDIT_2026-09-18.md`: audit of the catalogue against the owner's rules and rework of the twelve entries that failed. A proposal; only the parts accepted as D39-D48 are binding.
+6. `20_CONTENT_GAME_DESIGN_STUDY_2026-09-18.md`: proposed catalogue of 18 phenomena and 20 catalysts, combination grammar, risks and engine cost. A proposal, not a decision. Sections 7.1, 7.2 and build Ж are obsolete under D33.
+7. `16_NEXT_SLICE_DRAFT_2026-09-18.md`: draft requirements, boundaries and future acceptance probes.
+8. `15_RIVAL_DRAFT_CONCEPT_DISCUSSION_2026-09-18.md`: detailed discussion and explicit status of proposals.
+9. `18_V010_SYSTEM_SNAPSHOT_2026-09-18.md`: the owner's factual snapshot, copied without content changes. Known to omit the dead subsystems listed above.
+10. `13_V010_CORE_REBUILD_SPEC.md` and `14_V010_IMPLEMENTATION_NOTES_2026-09-17.md`: historical v0.10 experiment and implementation details.
+11. `prototype/current/PLAYTEST_CHECKLIST.md`: old prototype checklist, not acceptance of the new concept.
+12. Documents 01-12, `docs/`, `reports/` and `legacy/` as historical evidence where needed.
 
 ## Current source-of-truth order
 
