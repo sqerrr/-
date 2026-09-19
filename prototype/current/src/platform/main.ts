@@ -484,7 +484,7 @@ function eliteAlert(e: GameEvent): [string, string] | null {
           : 'Сместись поперёк красной линии; после тарана атакуй.'
     ];
   if (e.type === 'PoiAwakened')
-    return [poiLabel(e.kind), `Страж активирован. Убей его, чтобы забрать награду узла.`];
+    return [poiLabel(e.kind), 'Источник найден — выбери награду этого типа.'];
   if (e.type === 'PoiCleared') return ['УЗЕЛ ОЧИЩЕН', `${poiLabel(e.kind)} теперь безопасен.`];
   if (e.type === 'EntitySpawned' && e.kind === 'elite' && !e.boss) {
     const c = e.chassis ?? 'marshal';
@@ -499,12 +499,11 @@ function eliteAlert(e: GameEvent): [string, string] | null {
       'Дистанция не сбрасывает бой: элита возвращена рядом с игроком.'
     ];
   if (e.type === 'EliteEchoPhase' && e.phase === 'tell')
-    return [`ЭХО · ${skills[e.skill].shortName.toUpperCase()}`, 'ПОДГОТОВКА — смотри на телеграф. Направление фиксируется до удара.'];
+    return [`ОТРАЖЕНИЕ · ${skills[e.skill].shortName.toUpperCase()}`, 'ПОДГОТОВКА — красная геометрия показывает опасную область до удара.'];
   if (e.type === 'RareEvent') return [e.title, e.detail];
-  if (e.type === 'EliteOrder') {
-    const t = eventText(e);
-    return t ? ['МЕХАНИКА ЭЛИТЫ', t] : null;
-  }
+  // Chassis actions are frequent combat language now. Local red geometry + the threat
+  // panel carry them; a full-width banner for every action would recreate the same clutter.
+  if (e.type === 'EliteOrder') return null;
   return null;
 }
 function showEliteAlert(title: string, body: string, duration = 3400, rare = false) {
