@@ -1288,6 +1288,27 @@ export class WebGLRenderer {
         b = this.worldToScreen(corners[(i + 1) % 4][0], corners[(i + 1) % 4][1], s);
       line(a.x, a.y, b.x, b.y, 3, rgba('#b9d3d7', 0.34));
     }
+    }
+
+    // Procedural cover presentation. Physics keeps a circular conservative hull, but the player
+    // sees fractured stone islands with deterministic silhouettes, scars and rubble instead of
+    // a pile of obvious collision circles.
+    const hash01 = (n: number) => {
+      const q = Math.sin(n * 91.733 + 17.17) * 43758.5453;
+      return q - Math.floor(q);
+    };
+    for (const o of s.world.obstacles) {
+      const hp = o.destructible ? Math.max(0, o.hp / Math.max(1, o.maxHp)) : 1,
+        count = 8 + (o.id % 4), center = this.worldToScreen(o.x, o.z, s), pts: { x: number; y: number }[] = [];
+      for (let i = 0; i < count; i++) { const a=(i/count)*Math.PI*2+hash01(o.id*3.1)*0.45,jag=0.68+hash01(o.id*47+i*13)*0.46,squash=0.82+hash01(o.id*19+4)*0.3; pts.push(this.worldToScreen(o.x+Math.cos(a)*o.radius*jag,o.z+Math.sin(a)*o.radius*jag*squash,s)); }
+      const body=rgba(o.destructible?'#27222a':'#171c25',0.96),edge=rgba(o.destructible?'#d49b6a':'#7e8ca5',o.destructible?0.28+hp*0.55:0.72);
+      for(let i=0;i<pts.length;i++)tri(center,pts[i],pts[(i+1)%pts.length],body);
+      for(let i=0;i<pts.length;i++){const a=pts[i],b=pts[(i+1)%pts.length];line(a.x,a.y,b.x,b.y,1.2+(i%3===0?0.7:0),edge);}
+      for(let k=0;k<3;k++){const a=pts[(k*3+o.id)%pts.length],b=pts[(k*5+o.id+2)%pts.length];line(center.x+(a.x-center.x)*0.12,center.y+(a.y-center.y)*0.12,center.x+(b.x-center.x)*0.62,center.y+(b.y-center.y)*0.62,1,rgba('#0a0c12',0.58));}
+    }
+    const poiColor=(kind:string)=>kind==='phenomenon'?rgba('#ffb06a',0.95):kind==='catalyst'?rgba('#d0a0ff',0.95):kind==='resonance'?rgba('#76e1ff',0.95):rgba('#75f0a9',0.95);
+    for(const q of s.world.pois){if(q.state==='cleared')continue;const p=this.worldToScreen(q.x,q.z,s),c=poiColor(q.kind),y=p.y-12,pulse=0.5+0.5*Math.sin(s.time*3.2+q.id);line(p.x,p.y-6,p.x,p.y-86,2,[c[0],c[1],c[2],0.26+pulse*0.24]);if(q.kind==='phenomenon'){tri({x:p.x,y:y-4},{x:p.x-27,y:y-18},{x:p.x-22,y:y+14},[c[0],c[1],c[2],0.2]);tri({x:p.x,y:y-4},{x:p.x+27,y:y-18},{x:p.x+22,y:y+14},[c[0],c[1],c[2],0.2]);line(p.x,y-6,p.x,y+17,2.4,c);line(p.x,y-5,p.x-27,y-18,2.2,c);line(p.x,y-5,p.x+27,y-18,2.2,c);}else if(q.kind==='catalyst'){line(p.x-33,y,p.x-22,y-11,2.3,c);line(p.x-22,y-11,p.x-11,y,2.3,c);line(p.x-11,y,p.x-22,y+11,2.3,c);line(p.x+11,y,p.x+22,y-11,2.3,c);line(p.x+22,y-11,p.x+33,y,2.3,c);line(p.x-11,y,p.x+11,y,4,c);}else if(q.kind==='resonance'){for(let i=0;i<6;i++){const a=i*Math.PI/3,b=a+Math.PI/3;line(p.x+Math.cos(a)*18,y+Math.sin(a)*11,p.x+Math.cos(b)*18,y+Math.sin(b)*11,2.2,c);}line(p.x-18,y,p.x+18,y,1.6,c);line(p.x,y-15,p.x,y+15,1.6,c);}else{rect(p.x-6,y-23,12,46,[c[0],c[1],c[2],0.68]);rect(p.x-23,y-6,46,12,[c[0],c[1],c[2],0.68]);}}
+    for(const r of s.relics){const p=this.worldToScreen(r.x,r.z,s),c=rgba(relicTint[r.category]??'#ffffff',0.95),y=p.y-22,d=10;tri({x:p.x,y:y-d-5},{x:p.x+d+5,y:y},{x:p.x-d-5,y:y},[c[0],c[1],c[2],0.32]);rect(p.x-d-5,y,d*2+10,17,[c[0],c[1],c[2],0.18]);line(p.x,y-d-5,p.x+d+5,y,2.3,c);line(p.x+d+5,y,p.x+d+5,y+17,2.3,c);line(p.x+d+5,y+17,p.x-d-5,y+17,2.3,c);if(r.contested){const rr=25,w=rgba('#ff4b4b',0.9);line(p.x-rr,y-12,p.x-rr+9,y-12,2.5,w);line(p.x+rr,y-12,p.x+rr-9,y-12,2.5,w);}}
     for (const q of s.pickups) {
       if (q.kind !== 'heal') continue;
       const p = this.worldToScreen(q.x, q.z, s),
@@ -2094,14 +2115,17 @@ export class WebGLRenderer {
 const GROUND_VS = `#version 300 es
 precision highp float;void main(){float x=gl_VertexID==1?3.0:-1.0;float y=gl_VertexID==2?3.0:-1.0;gl_Position=vec4(x,y,0.0,1.0);}`;
 const GROUND_FS = `#version 300 es
-precision highp float;uniform vec2 u_resolution,u_camera,u_iso,u_center;uniform float u_time;uniform sampler2D u_floor;out vec4 outColor;
-float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123);}float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(hash(i),hash(i+vec2(1.0,0.0)),f.x),mix(hash(i+vec2(0.0,1.0)),hash(i+vec2(1.0,1.0)),f.x),f.y);}
+precision highp float;uniform vec2 u_resolution,u_camera,u_iso,u_center;uniform float u_time,u_seed;uniform sampler2D u_floor;out vec4 outColor;
+float hash21(vec2 p){p+=u_seed*.013;return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123);}
+float noise2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(hash21(i),hash21(i+vec2(1,0)),f.x),mix(hash21(i+vec2(0,1)),hash21(i+vec2(1,1)),f.x),f.y);}
+float fbm(vec2 p){float v=0.,a=.52;mat2 r=mat2(.80,-.60,.60,.80);for(int i=0;i<5;i++){v+=a*noise2(p);p=r*p*2.03+vec2(13.1,7.7);a*=.49;}return v;}
+float ridged(vec2 p){float n=fbm(p);return 1.-abs(n*2.-1.);}
+float plateEdge(vec2 w){vec2 g=floor(w/6.5),f=fract(w/6.5)-.5;float ang=(hash21(g)-.5)*1.6;mat2 r=mat2(cos(ang),-sin(ang),sin(ang),cos(ang));f=r*f;float d=min(abs(abs(f.x)-.48),abs(abs(f.y)-.48));return 1.-smoothstep(.018,.065,d);}
+float fracture(vec2 w){float n=fbm(w*.18+vec2(31.7,-12.));float q=abs(fract((w.x*.23+w.y*.11)+n*2.2)-.5);float branch=abs(fract((w.x*.07-w.y*.31)+noise2(w*.12)*1.7)-.5);return (1.-smoothstep(.012,.045,q))*.65+(1.-smoothstep(.01,.035,branch))*.35;}
 void main(){vec2 scr=vec2(gl_FragCoord.x,u_resolution.y-gl_FragCoord.y);vec2 c=u_resolution*u_center;float aa=(scr.x-c.x)/u_iso.x,bb=(scr.y-c.y)/u_iso.y;vec2 w=u_camera+vec2((aa+bb)*.5,(bb-aa)*.5);
-  vec2 tuv=(w+vec2(120.0,-73.0))/31.0;vec3 tex=texture(u_floor,tuv).rgb;vec3 tex2=texture(u_floor,tuv*.53+vec2(.31,.17)).rgb;vec3 stone=mix(tex,tex2,.16);
-  float sector=hash(floor(w/13.0));float stain=smoothstep(.77,.96,noise(w*.12+vec2(7.3,-11.2)));stone=mix(stone,vec3(.055,.024,.065),stain*.26);
-  float moss=smoothstep(.80,.97,noise(w*.10+vec2(-15.0,9.0)));stone=mix(stone,vec3(.025,.070,.052),moss*.18);
-  vec2 guv=fract(w/13.0)-.5;float rune=step(.955,sector)*(1.0-smoothstep(.022,.060,abs(length(guv)-.18)));stone+=rune*vec3(.02,.12,.11);
-  vec2 uv=scr/u_resolution;float vig=1.0-smoothstep(.36,.98,length((uv-.5)*vec2(1.0,u_resolution.y/u_resolution.x)));stone*=.70+.30*vig;outColor=vec4(stone,1.0);} `;
+  float continent=fbm(w*.025+vec2(u_seed*.001,0.));float relief=ridged(w*.055+vec2(4.2,-8.7));float wet=fbm(w*.07+vec2(-14.,19.));
+  vec3 slate=vec3(.085,.096,.108),ash=vec3(.068,.062,.074),moss=vec3(.046,.085,.066),silt=vec3(.112,.086,.070);vec3 stone=mix(ash,slate,smoothstep(.34,.68,continent));stone=mix(stone,moss,smoothstep(.66,.89,wet)*(.35+.45*relief));stone=mix(stone,silt,smoothstep(.80,.96,continent+relief*.18)*.45);
+  vec2 tuv=(w+vec2(120.,-73.))/23.;vec3 tex=texture(u_floor,tuv).rgb;float grain=dot(tex,vec3(.333));stone*=.78+grain*.32;float pe=plateEdge(w+fbm(w*.12)*2.1);float crack=clamp(fracture(w),0.,1.);stone*=1.-pe*.12;stone=mix(stone,vec3(.015,.019,.025),crack*.68);float channel=abs(fbm(w*.032+vec2(50.,-20.))-.52);float wear=1.-smoothstep(.055,.16,channel);stone=mix(stone,stone*vec3(1.12,1.08,1.02),wear*.18);float seam=smoothstep(.90,.98,ridged(w*.18+vec2(-8.,4.)))*smoothstep(.62,.9,relief);stone+=seam*vec3(.025,.045,.052);vec2 cell=floor(w/11.);vec2 cf=fract(w/11.)-.5;float rare=step(.972,hash21(cell));float rune=rare*(1.-smoothstep(.018,.055,min(abs(cf.x),abs(cf.y))))*step(.18,length(cf));stone+=rune*vec3(.03,.10,.095);vec2 uv=scr/u_resolution;float vig=1.-smoothstep(.40,1.02,length((uv-.5)*vec2(1.,u_resolution.y/u_resolution.x)));stone*=.72+.28*vig;outColor=vec4(stone,1.0);} `
 const SPRITE_VS = `#version 300 es
 precision highp float;layout(location=0)in vec2 a_corner;layout(location=1)in vec2 a_uv;layout(location=2)in vec2 i_world;layout(location=3)in vec2 i_size;layout(location=4)in vec4 i_uvrect;layout(location=5)in vec4 i_tint;layout(location=6)in float i_flip;uniform vec2 u_resolution,u_camera,u_iso,u_center;out vec2 v_uv;out vec4 v_tint;void main(){vec2 d=i_world-u_camera;vec2 anchor=u_resolution*u_center+vec2((d.x-d.y)*u_iso.x,(d.x+d.y)*u_iso.y);vec2 p=anchor+a_corner*i_size;vec2 clip=vec2(p.x/u_resolution.x*2.0-1.0,1.0-p.y/u_resolution.y*2.0);gl_Position=vec4(clip,0,1);float ux=i_flip>.5?1.0-a_uv.x:a_uv.x;v_uv=mix(i_uvrect.xy,i_uvrect.zw,vec2(ux,a_uv.y));v_tint=i_tint;}`;
 const SPRITE_FS = `#version 300 es
