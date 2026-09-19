@@ -1564,7 +1564,10 @@ export class Simulation {
             if (st && c.cooldown <= 0) {
                 let interval = st.mutation === 'sentry_gatling' ? 0.3 : st.mutation === 'sentry_rail' ? 1.1 : 0.62;
                 c.cooldown = interval;
-                let targets = this.ents.filter((e) => e.hp > 0 && this.targetVisible(e) && Math.hypot(e.x - c.x, e.z - c.z) <= c.range);
+                const constructSrc = this.heroSource();
+                let targets = this.ents.filter((e) => e.hp > 0 &&
+                    this.targetVisible(constructSrc, e) &&
+                    Math.hypot(e.x - c.x, e.z - c.z) <= c.range);
                 if (st.mutation === 'sentry_rail')
                     targets.sort((a, b) => Number(b.kind === 'elite') - Number(a.kind === 'elite') ||
                         Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z));
@@ -1698,29 +1701,29 @@ export class Simulation {
         c += Math.min(3, mult);
         return Math.max(1, c);
     }
-    dispatchSkill(id, st, slot) {
+    dispatchSkill(id, st, slot, src) {
         if (id === 'ember_lance')
-            this.castEmber(st, slot);
+            this.castEmber(st, slot, src);
         else if (id === 'frost_ring')
-            this.castFrost(st, slot);
+            this.castFrost(st, slot, src);
         else if (id === 'rail_spear')
-            this.castRail(st, slot);
+            this.castRail(st, slot, src);
         else if (id === 'cleaver')
-            this.castCleaver(st, slot);
+            this.castCleaver(st, slot, src);
         else if (id === 'chain_arc')
-            this.castArc(st, slot);
+            this.castArc(st, slot, src);
         else if (id === 'orbit_blades')
-            this.castOrbit(st, slot);
+            this.castOrbit(st, slot, src);
         else if (id === 'mortar_bloom')
-            this.castMortar(st, slot);
+            this.castMortar(st, slot, src);
         else if (id === 'sentry')
-            this.castSentry(st, slot);
+            this.castSentry(st, slot, src);
         else if (id === 'toxic_mist')
-            this.castToxic(st, slot);
+            this.castToxic(st, slot, src);
         else if (id === 'repulse_halo')
-            this.castRepulse(st, slot);
+            this.castRepulse(st, slot, src);
         else if (id === 'mass_driver')
-            this.castMassDriver(st, slot);
+            this.castMassDriver(st, slot, src);
     }
     activateSlot(slot) {
         const lastSlot = this.activeSpan() - 1, id = this.slots[slot];
@@ -1791,7 +1794,7 @@ export class Simulation {
             aimX: this.aimX,
             aimZ: this.aimZ
         });
-        this.dispatchSkill(id, st, slot);
+        this.dispatchSkill(id, st, slot, this.heroSource());
         this.aimX = oldAimX;
         this.aimZ = oldAimZ;
         if (incoming === 'relay' && this.lastContext.kills > 0) {
@@ -1810,7 +1813,7 @@ export class Simulation {
                     aimX: this.aimX,
                     aimZ: this.aimZ
                 });
-                this.dispatchSkill(id, st, slot);
+                this.dispatchSkill(id, st, slot, this.heroSource());
                 this.activationDerived = false;
                 this.activationScale = prev;
                 this.metrics.reactions++;
@@ -1918,7 +1921,7 @@ export class Simulation {
                         aimX: this.aimX,
                         aimZ: this.aimZ
                     });
-                    this.dispatchSkill(prevId, prevSt, slot - 1);
+                    this.dispatchSkill(prevId, prevSt, slot - 1, this.heroSource());
                     this.activationDerived = saveDerived;
                     this.activationScale = saveScale;
                     this.currentSlot = saveSlot;
@@ -2014,12 +2017,38 @@ export class Simulation {
         if (!this.currentProducedState)
             this.currentProducedState = state;
     }
-    rayHits(ax, az, range, width, maxHits = 99) {
+    /** The player as a cast source. Default owner for everything the hero triggers. */
+    heroSource() {
+        return {
+            faction: 'hero',
+            owner: null,
+            x: this.px,
+            z: this.pz,
+            aimX: this.aimX,
+            aimZ: this.aimZ,
+            vx: this.playerVX,
+            vz: this.playerVZ
+        };
+    }
+    /** Moves whoever produced the effect, so recoil works the same for hero and rival. */
+    displaceSource(src, dx, dz) {
+        src.x += dx;
+        src.z += dz;
+        if (src.owner) {
+            src.owner.x += dx;
+            src.owner.z += dz;
+        }
+        else {
+            this.px += dx;
+            this.pz += dz;
+        }
+    }
+    rayHits(src, ax, az, range, width, maxHits = 99) {
         const hits = [];
         for (const e of this.ents) {
             if (e.hp <= 0)
                 continue;
-            const dx = e.x - this.px, dz = e.z - this.pz, t = dx * ax + dz * az;
+            const dx = e.x - src.x, dz = e.z - src.z, t = dx * ax + dz * az;
             if (t < 0 || t > range)
                 continue;
             const lat = Math.abs(dx * az - dz * ax);
@@ -2029,16 +2058,16 @@ export class Simulation {
         hits.sort((a, b) => a.t - b.t);
         return hits.slice(0, maxHits);
     }
-    rotatedAim(rad) {
+    rotatedAim(src, rad) {
         const c = Math.cos(rad), s = Math.sin(rad);
-        return { x: this.aimX * c - this.aimZ * s, z: this.aimX * s + this.aimZ * c };
+        return { x: src.aimX * c - src.aimZ * s, z: src.aimX * s + src.aimZ * c };
     }
-    targetVisible(e) {
+    targetVisible(src, e) {
         for (const f of this.fields) {
             if (f.kind !== 'veil')
                 continue;
-            const inside = Math.hypot(e.x - f.x, e.z - f.z) < f.radius, playerInside = Math.hypot(this.px - f.x, this.pz - f.z) < f.radius;
-            if (inside && !playerInside && Math.hypot(e.x - this.px, e.z - this.pz) > 3.6)
+            const inside = Math.hypot(e.x - f.x, e.z - f.z) < f.radius, observerInside = Math.hypot(src.x - f.x, src.z - f.z) < f.radius;
+            if (inside && !observerInside && Math.hypot(e.x - src.x, e.z - src.z) > 3.6)
                 return false;
         }
         return true;
@@ -2062,18 +2091,18 @@ export class Simulation {
             });
         }
     }
-    aimPoint(range) {
+    aimPoint(src, range) {
         let best, bestScore = 999;
         for (const e of this.ents) {
-            if (e.hp <= 0 || !this.targetVisible(e))
+            if (e.hp <= 0 || !this.targetVisible(src, e))
                 continue;
-            const dx = e.x - this.px, dz = e.z - this.pz, d = Math.hypot(dx, dz);
+            const dx = e.x - src.x, dz = e.z - src.z, d = Math.hypot(dx, dz);
             if (d > range || d < 2)
                 continue;
-            const dot = (dx / d) * this.aimX + (dz / d) * this.aimZ;
+            const dot = (dx / d) * src.aimX + (dz / d) * src.aimZ;
             if (dot < 0.45)
                 continue;
-            const lateral = Math.abs(dx * this.aimZ - dz * this.aimX), score = lateral * 0.9 + d * 0.04;
+            const lateral = Math.abs(dx * src.aimZ - dz * src.aimX), score = lateral * 0.9 + d * 0.04;
             if (score < bestScore) {
                 bestScore = score;
                 best = e;
@@ -2081,12 +2110,12 @@ export class Simulation {
         }
         return best
             ? { x: best.x, z: best.z }
-            : { x: this.px + this.aimX * range * 0.72, z: this.pz + this.aimZ * range * 0.72 };
+            : { x: src.x + src.aimX * range * 0.72, z: src.z + src.aimZ * range * 0.72 };
     }
     combatShape(source, shape, intent = 'damage') {
         this.events.push({ type: 'CombatShape', tick: this.tick, source, intent, shape });
     }
-    castEmber(st, slot) {
+    castEmber(st, slot, src) {
         const mut = st.mutation, count = this.projectileCount(st, slot);
         let rays = [];
         if (mut === 'ember_volley') {
@@ -2101,17 +2130,17 @@ export class Simulation {
         else
             rays = [0];
         for (const ang of rays) {
-            const a = this.rotatedAim(ang), range = this.skillRange(st, mut === 'ember_furnace' ? 8 : skills.ember_lance.baseRange), width = this.skillRadius(st, mut === 'ember_furnace' ? 1.05 : 0.4, slot), maxHits = mut === 'ember_impaler' ? 4 : 1;
+            const a = this.rotatedAim(src, ang), range = this.skillRange(st, mut === 'ember_furnace' ? 8 : skills.ember_lance.baseRange), width = this.skillRadius(st, mut === 'ember_furnace' ? 1.05 : 0.4, slot), maxHits = mut === 'ember_impaler' ? 4 : 1;
             this.combatShape('ember_lance', {
                 kind: 'ray',
-                x: this.px,
-                z: this.pz,
+                x: src.x,
+                z: src.z,
                 aimX: a.x,
                 aimZ: a.z,
                 range,
                 halfWidth: width
             });
-            for (const h of this.rayHits(a.x, a.z, range, width, maxHits)) {
+            for (const h of this.rayHits(src, a.x, a.z, range, width, maxHits)) {
                 let dmg = skills.ember_lance.baseDamage *
                     this.powerBucket(st) *
                     this.slotAmp(slot, h.e) *
@@ -2148,8 +2177,8 @@ export class Simulation {
         if (mut === 'ember_furnace') {
             this.fields.push({
                 id: this.nextId++,
-                x: this.px + this.aimX * 3.3,
-                z: this.pz + this.aimZ * 3.3,
+                x: src.x + src.aimX * 3.3,
+                z: src.z + src.aimZ * 3.3,
                 radius: this.skillRadius(st, 1.5, slot),
                 ttl: this.persistentDuration(st, 2.9, slot),
                 kind: 'fire',
@@ -2159,13 +2188,13 @@ export class Simulation {
             this.noteState('field');
         }
     }
-    castFrost(st, slot) {
+    castFrost(st, slot, src) {
         const mut = st.mutation, r = this.skillRadius(st, skills.frost_ring.baseRadius, slot), capacitive = this.skillsRuntime.get('chain_arc')?.mutation === 'arc_capacitive' && this.charge > 0
             ? 1 + Math.min(0.4, this.charge * 0.08)
             : 1;
-        this.combatShape('frost_ring', { kind: 'circle', x: this.px, z: this.pz, radius: r }, 'control');
+        this.combatShape('frost_ring', { kind: 'circle', x: src.x, z: src.z, radius: r }, 'control');
         for (const e of this.ents) {
-            const d = Math.hypot(e.x - this.px, e.z - this.pz);
+            const d = Math.hypot(e.x - src.x, e.z - src.z);
             if (d > r + e.radius)
                 continue;
             let dmg = skills.frost_ring.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e) * capacitive;
@@ -2205,8 +2234,8 @@ export class Simulation {
         if (mut === 'frost_front') {
             this.fields.push({
                 id: this.nextId++,
-                x: this.px,
-                z: this.pz,
+                x: src.x,
+                z: src.z,
                 radius: r * 1.12,
                 ttl: this.persistentDuration(st, 1.6, slot),
                 kind: 'frost',
@@ -2218,8 +2247,8 @@ export class Simulation {
         for (let i = 0; i < Math.min(2, this.supportsAxis(st.id, 'multiplicity') ? this.resonance.multiplicity : 0); i++)
             this.fields.push({
                 id: this.nextId++,
-                x: this.px,
-                z: this.pz,
+                x: src.x,
+                z: src.z,
                 radius: r * (0.78 + i * 0.22),
                 ttl: 0.55 + i * 0.18,
                 kind: 'frost',
@@ -2229,7 +2258,7 @@ export class Simulation {
         if (capacitive > 1)
             this.charge = 0;
     }
-    castRail(st, slot) {
+    castRail(st, slot, src) {
         const mut = st.mutation;
         if (mut === 'rail_gun' && this.cycle % 2 === 1)
             return;
@@ -2237,7 +2266,7 @@ export class Simulation {
         for (let i = 0; i < count; i++)
             rays.push((i - (count - 1) / 2) * (mut === 'rail_fan' ? 0.11 : 0.055));
         for (const ang of rays) {
-            const a = this.rotatedAim(ang);
+            const a = this.rotatedAim(src, ang);
             let base = skills.rail_spear.baseDamage *
                 this.powerBucket(st) *
                 (mut === 'rail_gun'
@@ -2252,14 +2281,14 @@ export class Simulation {
             const range = this.skillRange(st, mut === 'rail_gun' ? 25 : skills.rail_spear.baseRange), width = this.skillRadius(st, 0.34, slot);
             this.combatShape('rail_spear', {
                 kind: 'ray',
-                x: this.px,
-                z: this.pz,
+                x: src.x,
+                z: src.z,
                 aimX: a.x,
                 aimZ: a.z,
                 range,
                 halfWidth: width
             });
-            const hits = this.rayHits(a.x, a.z, range, width, mut === 'rail_gun' ? 14 : mut === 'rail_fan' ? 5 : 8);
+            const hits = this.rayHits(src, a.x, a.z, range, width, mut === 'rail_gun' ? 14 : mut === 'rail_fan' ? 5 : 8);
             let first = true;
             for (const h of hits) {
                 let dmg = base * this.slotAmp(slot, h.e);
@@ -2272,7 +2301,7 @@ export class Simulation {
                 if ((mut === 'rail_spot' || hadMark) && hadMark)
                     h.e.exposedUntil = this.time + 3;
                 if (mut === 'rail_harpoon' && first && h.e.kind === 'elite') {
-                    const dx = this.px - h.e.x, dz = this.pz - h.e.z, d = Math.hypot(dx, dz) || 1;
+                    const dx = src.x - h.e.x, dz = src.z - h.e.z, d = Math.hypot(dx, dz) || 1;
                     h.e.x += (dx / d) * 1.25;
                     h.e.z += (dz / d) * 1.25;
                 }
@@ -2280,26 +2309,26 @@ export class Simulation {
             }
         }
     }
-    castCleaver(st, slot, repeat = false) {
+    castCleaver(st, slot, src, repeat = false) {
         const mut = st.mutation, r = this.skillRadius(st, skills.cleaver.baseRadius, slot);
         let half = mut === 'cleaver_guillotine' ? 0.65 : 1.12;
         if (mut === 'cleaver_roundhouse')
             half = Math.PI;
         this.combatShape('cleaver', {
             kind: 'sector',
-            x: this.px,
-            z: this.pz,
+            x: src.x,
+            z: src.z,
             radius: r,
-            aimX: this.aimX,
-            aimZ: this.aimZ,
+            aimX: src.aimX,
+            aimZ: src.aimZ,
             halfAngle: half
         });
         let kills = 0;
         for (const e of this.ents) {
-            const dx = e.x - this.px, dz = e.z - this.pz, d = Math.hypot(dx, dz);
+            const dx = e.x - src.x, dz = e.z - src.z, d = Math.hypot(dx, dz);
             if (d > r + e.radius || d < 0.01)
                 continue;
-            const dot = (dx / d) * this.aimX + (dz / d) * this.aimZ;
+            const dot = (dx / d) * src.aimX + (dz / d) * src.aimZ;
             if (Math.acos(Math.max(-1, Math.min(1, dot))) > half)
                 continue;
             let dmg = skills.cleaver.baseDamage *
@@ -2321,7 +2350,7 @@ export class Simulation {
             e.woundDps = Math.max(e.woundDps, (mut === 'cleaver_deep' ? 11 : 4.5) * this.powerBucket(st));
             this.noteState('wound');
             if (mut === 'cleaver_hook') {
-                const tx = this.px - e.x, tz = this.pz - e.z, td = Math.hypot(tx, tz) || 1;
+                const tx = src.x - e.x, tz = src.z - e.z, td = Math.hypot(tx, tz) || 1;
                 e.x += (tx / td) * 0.65 * (1 + st.control);
                 e.z += (tz / td) * 0.65 * (1 + st.control);
             }
@@ -2333,41 +2362,41 @@ export class Simulation {
         if (mut === 'cleaver_rhythm' && kills > 0 && !repeat) {
             this.butcherStacks = Math.min(4, this.butcherStacks + kills);
             if (this.rng.float() < Math.min(0.65, this.butcherStacks * 0.16)) {
-                this.castCleaver(st, slot, true);
+                this.castCleaver(st, slot, src, true);
                 this.butcherStacks = 0;
             }
         }
         if (!repeat && this.supportsAxis(st.id, 'multiplicity') && this.resonance.multiplicity > 0) {
-            const ax = this.aimX, az = this.aimZ;
+            const ax = src.aimX, az = src.aimZ;
             for (let i = 0; i < Math.min(2, this.resonance.multiplicity); i++) {
                 const a = (i % 2 === 0 ? 1 : -1) * (0.22 + 0.08 * i), c = Math.cos(a), q = Math.sin(a);
-                this.aimX = ax * c - az * q;
-                this.aimZ = ax * q + az * c;
-                this.castCleaver(st, slot, true);
+                src.aimX = ax * c - az * q;
+                src.aimZ = ax * q + az * c;
+                this.castCleaver(st, slot, src, true);
             }
-            this.aimX = ax;
-            this.aimZ = az;
+            src.aimX = ax;
+            src.aimZ = az;
         }
     }
-    castArc(st, slot) {
+    castArc(st, slot, src) {
         const mut = st.mutation, maxJumps = (mut === 'arc_forked' ? 7 : 4) + Math.max(0, st.count - 1) + this.resonance.multiplicity, jumpRange = this.skillRange(st, mut === 'arc_relay' ? 5.8 : 4.2);
         let current;
         const available = this.ents.filter((e) => e.hp > 0 &&
-            this.targetVisible(e) &&
-            Math.hypot(e.x - this.px, e.z - this.pz) < this.skillRange(st, skills.chain_arc.baseRange));
+            this.targetVisible(src, e) &&
+            Math.hypot(e.x - src.x, e.z - src.z) < this.skillRange(st, skills.chain_arc.baseRange));
         const embedded = available.filter((e) => e.embedded > 0);
         if (embedded.length)
             current = embedded.sort((a, b) => b.embedded - a.embedded)[0];
         if (mut === 'arc_ground')
             current = available
                 .filter((e) => e.markUntil > this.time || e.embedded > 0)
-                .sort((a, b) => Math.hypot(a.x - this.px, a.z - this.pz) - Math.hypot(b.x - this.px, b.z - this.pz))[0];
+                .sort((a, b) => Math.hypot(a.x - src.x, a.z - src.z) - Math.hypot(b.x - src.x, b.z - src.z))[0];
         if (!current)
-            current = available.sort((a, b) => Math.hypot(a.x - this.px, a.z - this.pz) - Math.hypot(b.x - this.px, b.z - this.pz))[0];
+            current = available.sort((a, b) => Math.hypot(a.x - src.x, a.z - src.z) - Math.hypot(b.x - src.x, b.z - src.z))[0];
         if (!current)
             return;
         const hit = new Set();
-        let jumps = 0, prevX = this.px, prevZ = this.pz;
+        let jumps = 0, prevX = src.x, prevZ = src.z;
         while (current && jumps < maxJumps) {
             hit.add(current.id);
             let dmg = skills.chain_arc.baseDamage *
@@ -2413,18 +2442,18 @@ export class Simulation {
         if (mut === 'arc_capacitive' && jumps < maxJumps)
             this.charge = Math.min(5, this.charge + (maxJumps - jumps));
     }
-    castOrbit(st, slot) {
+    castOrbit(st, slot, src) {
         if (st.mutation === 'orbit_outbound') {
             const r = this.skillRadius(st, 4.6, slot);
-            this.combatShape('orbit_blades', { kind: 'circle', x: this.px, z: this.pz, radius: r });
+            this.combatShape('orbit_blades', { kind: 'circle', x: src.x, z: src.z, radius: r });
             for (const e of this.ents) {
-                if (Math.hypot(e.x - this.px, e.z - this.pz) < r)
+                if (Math.hypot(e.x - src.x, e.z - src.z) < r)
                     this.damage(e, skills.orbit_blades.baseDamage * 2.2 * this.powerBucket(st) * this.slotAmp(slot, e), 'orbit_blades', false);
             }
         }
     }
-    castMortar(st, slot) {
-        const mut = st.mutation, range = this.skillRange(st, skills.mortar_bloom.baseRange), p = this.aimPoint(range);
+    castMortar(st, slot, src) {
+        const mut = st.mutation, range = this.skillRange(st, skills.mortar_bloom.baseRange), p = this.aimPoint(src, range);
         let r = this.skillRadius(st, skills.mortar_bloom.baseRadius, slot), mult = 1;
         if (mut === 'mortar_fuse') {
             r *= 1.35;
@@ -2465,14 +2494,14 @@ export class Simulation {
         }
         this.noteState('field');
     }
-    castSentry(st, slot) {
+    castSentry(st, slot, src) {
         const count = Math.max(1, Math.min(5, st.count + Math.ceil(this.resonance.multiplicity / 2)));
         for (let i = 0; i < count; i++) {
             const a = (i * Math.PI * 2) / count + this.cycle * 0.7, r = 1.2;
             this.constructs.push({
                 id: this.nextId++,
-                x: this.px + Math.cos(a) * r,
-                z: this.pz + Math.sin(a) * r,
+                x: src.x + Math.cos(a) * r,
+                z: src.z + Math.sin(a) * r,
                 ttl: this.persistentDuration(st, 7.5, slot),
                 cooldown: 0.1 + i * 0.08,
                 range: this.skillRange(st, skills.sentry.baseRange),
@@ -2483,21 +2512,21 @@ export class Simulation {
                 type: 'ConstructSpawned',
                 tick: this.tick,
                 skill: 'sentry',
-                x: this.px + Math.cos(a) * r,
-                z: this.pz + Math.sin(a) * r
+                x: src.x + Math.cos(a) * r,
+                z: src.z + Math.sin(a) * r
             });
         }
         while (this.constructs.length > 5)
             this.constructs.shift();
         this.noteState('construct');
     }
-    castToxic(st, slot) {
+    castToxic(st, slot, src) {
         let r = this.skillRadius(st, skills.toxic_mist.baseRadius, slot), dps = skills.toxic_mist.baseDamage * this.powerBucket(st) * this.slotAmp(slot);
         if (st.mutation === 'toxic_distilled') {
             r *= 0.58;
             dps *= 1.85;
         }
-        const x = st.mutation === 'toxic_plume' ? this.px - this.playerVX * 0.55 : this.px, z = st.mutation === 'toxic_plume' ? this.pz - this.playerVZ * 0.55 : this.pz;
+        const x = st.mutation === 'toxic_plume' ? src.x - src.vx * 0.55 : src.x, z = st.mutation === 'toxic_plume' ? src.z - src.vz * 0.55 : src.z;
         this.combatShape('toxic_mist', { kind: 'circle', x, z, radius: r }, 'field');
         if (st.mutation === 'toxic_reactive') {
             for (const e of this.ents) {
@@ -2542,16 +2571,16 @@ export class Simulation {
         }
         this.noteState('toxin');
     }
-    castRepulse(st, slot) {
+    castRepulse(st, slot, src) {
         const mut = st.mutation, r0 = this.skillRadius(st, skills.repulse_halo.baseRadius, slot), passes = mut === 'repulse_rings' ? 2 : 1;
         let aegisGranted = 0;
         for (let pass = 0; pass < passes; pass++) {
             const r = r0 * (passes === 2 ? (pass === 0 ? 0.72 : 1.05) : 1), pull = mut === 'repulse_gravity';
-            this.combatShape('repulse_halo', { kind: 'circle', x: this.px, z: this.pz, radius: r }, 'control');
+            this.combatShape('repulse_halo', { kind: 'circle', x: src.x, z: src.z, radius: r }, 'control');
             for (const e of this.ents) {
                 if (e.hp <= 0)
                     continue;
-                const dx = e.x - this.px, dz = e.z - this.pz, d = Math.hypot(dx, dz) || 1;
+                const dx = e.x - src.x, dz = e.z - src.z, d = Math.hypot(dx, dz) || 1;
                 if (d > r + e.radius)
                     continue;
                 let dmg = skills.repulse_halo.baseDamage *
@@ -2577,27 +2606,27 @@ export class Simulation {
             }
         }
     }
-    castMassDriver(st, slot) {
+    castMassDriver(st, slot, src) {
         const mut = st.mutation, range = this.skillRange(st, mut === 'mass_rail' ? 26 : skills.mass_driver.baseRange), width = this.skillRadius(st, mut === 'mass_rail' ? 0.34 : 0.52, slot);
         this.combatShape('mass_driver', {
             kind: 'ray',
-            x: this.px,
-            z: this.pz,
-            aimX: this.aimX,
-            aimZ: this.aimZ,
+            x: src.x,
+            z: src.z,
+            aimX: src.aimX,
+            aimZ: src.aimZ,
             range,
             halfWidth: width
         }, 'control');
-        const hits = this.rayHits(this.aimX, this.aimZ, range, width, 18);
+        const hits = this.rayHits(src, src.aimX, src.aimZ, range, width, 18);
         let cargo = 0;
         if (mut === 'mass_cargo') {
             for (const c of this.constructs) {
-                const dx = c.x - this.px, dz = c.z - this.pz, t = dx * this.aimX + dz * this.aimZ, lat = Math.abs(dx * this.aimZ - dz * this.aimX);
+                const dx = c.x - src.x, dz = c.z - src.z, t = dx * src.aimX + dz * src.aimZ, lat = Math.abs(dx * src.aimZ - dz * src.aimX);
                 if (t > 0 && t < range && lat < 1.2)
                     cargo++;
             }
             for (const p of this.pickups) {
-                const dx = p.x - this.px, dz = p.z - this.pz, t = dx * this.aimX + dz * this.aimZ, lat = Math.abs(dx * this.aimZ - dz * this.aimX);
+                const dx = p.x - src.x, dz = p.z - src.z, t = dx * src.aimX + dz * src.aimZ, lat = Math.abs(dx * src.aimZ - dz * src.aimX);
                 if (t > 0 && t < range && lat < 0.9)
                     cargo++;
             }
@@ -2619,16 +2648,15 @@ export class Simulation {
                 dmg *= 1 + Math.min(0.9, n * 0.1);
             this.damage(h.e, dmg, 'mass_driver', true);
             const push = 0.7 * (1 + st.control);
-            h.e.x += this.aimX * push;
-            h.e.z += this.aimZ * push;
+            h.e.x += src.aimX * push;
+            h.e.z += src.aimZ * push;
             h.e.displacedUntil = this.time + 1.2;
             this.noteState('displaced');
             this.currentActivationControl += 0.8 + st.control;
             n++;
         }
         if (mut === 'mass_recoil') {
-            this.px -= this.aimX * 0.9;
-            this.pz -= this.aimZ * 0.9;
+            this.displaceSource(src, -src.aimX * 0.9, -src.aimZ * 0.9);
         }
     }
     damage(e, amount, source, directional, sourceX = this.px, sourceZ = this.pz) {
