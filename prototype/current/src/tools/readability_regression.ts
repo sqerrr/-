@@ -50,8 +50,11 @@ assert(html.includes('.mutation-branch.branch-0')&&html.includes('.mutation-bran
 
 // Renderer must expose the combat states the player is expected to react to.
 const renderer=readFileSync('src/renderer/webgl2.ts','utf8');
-for(const token of ['status.marked','status.chilled','status.frozen','status.wounded','status.toxined','status.exposed','shieldState === \'commit\'','shieldState === \'broken\'','squadTask === \'flank\'','behavior === \'returner\'','behavior === \'roller\''])
+for(const token of ['status.marked','status.chilled','status.frozen','status.wounded','status.toxined','status.exposed','shieldState === \'commit\'','shieldState === \'broken\'','behavior === \'returner\'','behavior === \'roller\''])
   assert(renderer.includes(token),`renderer does not visibly handle ${token}`);
+assert(!renderer.includes("e.orderActive && e.squadTask"),'routine squad routing returned as combat-line clutter');
+assert(renderer.includes('drawDangerOverlay')&&renderer.includes("eliteAction"),'elite authored actions are missing from the top danger layer');
+assert(renderer.includes("telegraph_boss")&&renderer.includes("shield_commit"),'hostile tells do not share the danger visual language');
 
 for(const signature of [
   "src.includes('frost')", "src.includes('rail')", "src.includes('cleaver')", "src.includes('orbit')",

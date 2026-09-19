@@ -1,12 +1,12 @@
 {
-  "name": "roguelike-web-prototype-v0-11-1-p0-world-ui",
-  "version": "0.11.1",
+  "name": "roguelike-web-prototype-v0-11-2-ux-readability",
+  "version": "0.11.2",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && npm run test:technical",
-    "test:technical": "node dist/tools/headless.js --ticks 3600 --seed 12345 --assert && node dist/tools/choice_regression.js && node dist/tools/chain_regression.js && node dist/tools/planning_regression.js && node dist/tools/content_regression.js && node dist/tools/v011_regression.js && node dist/tools/readability_regression.js && node dist/tools/v011_build_report.js --assert && node dist/tools/presentation_regression.js && node dist/tools/core_rebuild_regression.js && node dist/tools/rival_cast_regression.js && node dist/tools/refusal_regression.js && node dist/tools/dash_regression.js && node dist/tools/geometry_regression.js && node dist/tools/squad_regression.js && node dist/tools/projectile_regression.js && node dist/tools/relic_regression.js && node dist/tools/mutation_regression.js && node dist/tools/mutation_source_regression.js && node dist/tools/p0_world_ui_regression.js",
+    "test:technical": "node dist/tools/headless.js --ticks 3600 --seed 12345 --assert && node dist/tools/choice_regression.js && node dist/tools/chain_regression.js && node dist/tools/planning_regression.js && node dist/tools/content_regression.js && node dist/tools/v011_regression.js && node dist/tools/readability_regression.js && node dist/tools/v011_build_report.js --assert && node dist/tools/presentation_regression.js && node dist/tools/core_rebuild_regression.js && node dist/tools/rival_cast_regression.js && node dist/tools/refusal_regression.js && node dist/tools/dash_regression.js && node dist/tools/geometry_regression.js && node dist/tools/squad_regression.js && node dist/tools/projectile_regression.js && node dist/tools/relic_regression.js && node dist/tools/mutation_regression.js && node dist/tools/mutation_source_regression.js && node dist/tools/p0_world_ui_regression.js && node dist/tools/ux_readability_regression.js",
     "headless": "npm run build && node dist/tools/headless.js",
     "serve": "node server.mjs",
     "test:builds": "npm run build && node dist/tools/v011_build_report.js --assert"

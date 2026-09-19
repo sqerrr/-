@@ -150,6 +150,7 @@ export function fallbackDeadActor(e: Extract<GameEvent, { type: 'EntityDied' }>)
     facingX: 1,
     facingZ: 0,
     telegraph: 0,
+    eliteActionProgress: 0,
     linkedTo: 0,
     revived: false,
     buffed: false,

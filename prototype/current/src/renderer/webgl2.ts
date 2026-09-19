@@ -304,14 +304,17 @@ export class WebGLRenderer {
     for (const e of cues) {
       const time = e.time;
       if (e.type === 'combatShape') {
-        const longTell = /telegraph|tell|marker|beacon|lattice|echo_/.test(e.source);
-        const ttl = longTell
-          ? 0.92
-          : e.intent === 'field'
-            ? 0.36
-            : e.intent === 'control'
+        const hostileTell = /^(echo_|elite_)|telegraph_boss|telegraph_temporal/.test(e.source);
+        const longTell = hostileTell || /telegraph|tell|marker|beacon|lattice/.test(e.source);
+        const ttl = hostileTell
+          ? (e.source.includes('predator') ? 0.62 : 0.96)
+          : longTell
+            ? 0.78
+            : e.intent === 'field'
               ? 0.34
-              : 0.22;
+              : e.intent === 'control'
+                ? 0.3
+                : 0.2;
         this.combatFx.push({
           start: time,
           ttl,
@@ -322,14 +325,19 @@ export class WebGLRenderer {
         continue;
       }
       if (e.type === 'eliteEcho') {
-        const color = rgba(skills[e.skill]?.color ?? '#ff725f', e.phase === 'tell' ? 0.92 : e.phase === 'active' ? 0.98 : 0.5);
+        const color =
+          e.phase === 'tell'
+            ? rgba('#ff3f4f', 0.98)
+            : e.phase === 'active'
+              ? rgba('#ff172f', 1)
+              : rgba('#d58b72', 0.42);
         if (e.phase === 'tell') {
-          this.fx.push({ kind: 'ring', start: time, ttl: 0.76, x: e.x, z: e.z, r: 2.4, color });
-          this.fx.push({ kind: 'beam', start: time, ttl: 0.72, x1: e.x, z1: e.z, x2: e.x + e.aimX * 7.5, z2: e.z + e.aimZ * 7.5, width: 3, color: [color[0], color[1], color[2], 0.42] });
+          this.fx.push({ kind: 'ring', start: time, ttl: 0.82, x: e.x, z: e.z, r: 2.65, color });
+          this.fx.push({ kind: 'beam', start: time, ttl: 0.8, x1: e.x, z1: e.z, x2: e.x + e.aimX * 7.5, z2: e.z + e.aimZ * 7.5, width: 4.2, color: [1, 0.12, 0.18, 0.72] });
         } else if (e.phase === 'active') {
-          this.fx.push({ kind: 'pulse', start: time, ttl: 0.34, x: e.x, z: e.z, r: 2.0, color });
+          this.fx.push({ kind: 'pulse', start: time, ttl: 0.28, x: e.x, z: e.z, r: 2.35, color });
         } else {
-          this.fx.push({ kind: 'ring', start: time, ttl: 0.48, x: e.x, z: e.z, r: 1.45, color: [color[0], color[1], color[2], 0.38] });
+          this.fx.push({ kind: 'ring', start: time, ttl: 0.34, x: e.x, z: e.z, r: 1.5, color });
         }
         continue;
       }
@@ -824,35 +832,13 @@ export class WebGLRenderer {
           color: rgba('#ff5566', 0.55)
         });
       else if (e.type === 'eliteOrder') {
-        const order = e.order;
-        const c =
-          order === 'surge'
-            ? rgba('#ffc45b', 0.78)
-            : order === 'pack'
-              ? rgba('#ff4f7f', 0.82)
-              : order === 'screen'
-                ? rgba('#70c9ff', 0.78)
-                : order === 'wall'
-                  ? rgba('#78e7ff', 0.78)
-                  : order === 'harvest'
-                    ? rgba('#ff8c4d', 0.78)
-                    : order === 'regroup'
-                      ? rgba('#8fe874', 0.78)
-                      : order === 'brood'
-                        ? rgba('#d55ac7', 0.8)
-                        : rgba('#9eafff', 0.8);
-        const r =
-          order === 'surge' ? 7.8 : order === 'regroup' ? 6.8 : order === 'screen' ? 6.4 : 4.2;
-        this.fx.push({ kind: 'ring', start: time, ttl: 0.88, x: e.x, z: e.z, r, color: c });
-        this.fx.push({
-          kind: 'ring',
-          start: time + 0.12,
-          ttl: 0.7,
-          x: e.x,
-          z: e.z,
-          r: r * 0.62,
-          color: [c[0], c[1], c[2], c[3] * 0.62]
-        });
+        // Formation bookkeeping is useful to AI but was competing with lethal combat tells.
+        // Only authored elite actions get a short local cue; squad-routing itself stays invisible.
+        const critical = ['predator', 'veil', 'replicate', 'prism', 'null', 'metamorph'];
+        if (critical.includes(e.order)) {
+          const c = rgba('#ff4a57', 0.74);
+          this.fx.push({ kind: 'ring', start: time, ttl: 0.42, x: e.x, z: e.z, r: 2.7, color: c });
+        }
       }
     }
   }
@@ -883,6 +869,10 @@ export class WebGLRenderer {
     alpha = 1
   ): [number, number, number, number] {
     const q = source.toLowerCase();
+    // Hostile telegraphs own red regardless of the Phenomenon they imitate. Source-family colour
+    // remains useful for the player's attacks, but danger must be recognised before it is named.
+    if (/^(echo_|elite_)|telegraph_boss|telegraph_temporal|shield_commit/.test(q))
+      return rgba(q.includes('active') ? '#ff1f35' : '#ff4a4f', alpha);
     if (q.includes('rail')) return rgba('#ff65c8', alpha);
     if (q.includes('frost') || q.includes('glacier') || q.includes('whiteout') || q.includes('spire'))
       return rgba('#72dcff', alpha);
@@ -1019,8 +1009,9 @@ export class WebGLRenderer {
       const t = (s.time - f.start) / f.ttl;
       if (t < 0 || t > 1 || f.shape.kind !== 'circle') continue;
       const c = this.combatColor(f.source, f.intent, (1 - t) * 0.72),
-        q = f.shape;
-      shapes.push({ x: q.x, z: q.z, r: q.radius, mode: 0, color: [c[0], c[1], c[2], c[3] * 0.14] });
+        q = f.shape,
+        hostile = /^(echo_|elite_)|telegraph_boss|telegraph_temporal|shield_commit/.test(f.source);
+      shapes.push({ x: q.x, z: q.z, r: q.radius, mode: 0, color: [c[0], c[1], c[2], c[3] * (hostile ? 0.26 : 0.14)] });
       shapes.push({ x: q.x, z: q.z, r: q.radius, mode: 1, color: c });
     }
     for (const h of presentation.hits) {
@@ -1223,8 +1214,13 @@ export class WebGLRenderer {
     const verts: number[] = [],
       line = (x1:number,y1:number,x2:number,y2:number,w:number,c:[number,number,number,number]) => this.pushLine(verts,x1,y1,x2,y2,w,c);
     for (const e of s.entities) {
-      if (!e.elite || !e.echoPhase || e.echoPhase === 'none' || e.echoPhase === 'recovery') continue;
-      const p=this.worldToScreen(e.x,e.z,s), tell=e.echoPhase==='tell', c=tell?rgba('#ffeb9a',0.98):rgba('#ff4f59',0.98), r=e.boss?48:36;
+      if (!e.elite) continue;
+      const echoDanger = !!e.echoPhase && e.echoPhase !== 'none' && e.echoPhase !== 'recovery',
+        actionDanger = !!e.eliteAction;
+      if (!echoDanger && !actionDanger) continue;
+      const actionTell = !!e.eliteAction && e.eliteAction !== 'predator_dash',
+        tell = e.echoPhase === 'tell' || actionTell,
+        p=this.worldToScreen(e.x,e.z,s), c=tell?rgba('#ff3549',0.99):rgba('#ff172f',0.99), r=e.boss?50:38;
       // Four hard corners survive colour-blindness and visual clutter much better than another ring.
       const k=12;
       line(p.x-r,p.y-r*0.56,p.x-r+k,p.y-r*0.56,4,c); line(p.x-r,p.y-r*0.56,p.x-r,p.y-r*0.56+k,4,c);
@@ -1320,11 +1316,12 @@ export class WebGLRenderer {
       const t = (s.time - f.start) / f.ttl;
       if (t < 0 || t > 1 || f.shape.kind === 'circle') continue;
       const baseColor = this.combatColor(f.source, f.intent, (1 - t) * 0.72),
+        hostile = /^(echo_|elite_)|telegraph_boss|telegraph_temporal|shield_commit/.test(f.source),
         fill: [number, number, number, number] = [
           baseColor[0],
           baseColor[1],
           baseColor[2],
-          baseColor[3] * 0.13
+          baseColor[3] * (hostile ? 0.24 : 0.13)
         ];
       if (f.shape.kind === 'ray') {
         const q = f.shape,
@@ -1341,8 +1338,8 @@ export class WebGLRenderer {
           d = this.worldToScreen(ex - px, ez - pz, s);
         tri(a, b, c, fill);
         tri(c, b, d, fill);
-        line(a.x, a.y, c.x, c.y, 2.2, baseColor);
-        line(b.x, b.y, d.x, d.y, 2.2, baseColor);
+        line(a.x, a.y, c.x, c.y, hostile ? 3.4 : 2.2, baseColor);
+        line(b.x, b.y, d.x, d.y, hostile ? 3.4 : 2.2, baseColor);
         line(c.x, c.y, d.x, d.y, 1.8, baseColor);
       } else if (f.shape.kind === 'sector') {
         const q = f.shape,
@@ -1362,7 +1359,7 @@ export class WebGLRenderer {
           if (!first) first = p;
           if (prev) {
             tri(center, prev, p, fill);
-            line(prev.x, prev.y, p.x, p.y, 2.2, baseColor);
+            line(prev.x, prev.y, p.x, p.y, hostile ? 3.4 : 2.2, baseColor);
           }
           prev = p;
         }
@@ -1468,11 +1465,6 @@ export class WebGLRenderer {
           2.2,
           rgba('#7c6dff', 0.48)
         );
-      }
-      if (e.orderActive && e.squadTask !== 'none') {
-        const a = this.worldToScreen(e.x, e.z, s), b = this.worldToScreen(e.orderX, e.orderZ, s),
-          tc = e.squadTask === 'flank' ? '#c58cff' : e.squadTask === 'intercept' ? '#ffb45f' : e.squadTask === 'hold' ? '#78d4ff' : '#8ee28a';
-        line(a.x, a.y - 14, b.x, b.y - 8, 1.2, rgba(tc, 0.24));
       }
       if (e.elite && e.affix === 'shielded') {
         const a = this.worldToScreen(e.x, e.z, s),
@@ -2122,9 +2114,16 @@ float ridged(vec2 p){float n=fbm(p);return 1.-abs(n*2.-1.);}
 float plateEdge(vec2 w){vec2 g=floor(w/6.5),f=fract(w/6.5)-.5;float ang=(hash21(g)-.5)*1.6;mat2 r=mat2(cos(ang),-sin(ang),sin(ang),cos(ang));f=r*f;float d=min(abs(abs(f.x)-.48),abs(abs(f.y)-.48));return 1.-smoothstep(.018,.065,d);}
 float fracture(vec2 w){float n=fbm(w*.18+vec2(31.7,-12.));float q=abs(fract((w.x*.23+w.y*.11)+n*2.2)-.5);float branch=abs(fract((w.x*.07-w.y*.31)+noise2(w*.12)*1.7)-.5);return (1.-smoothstep(.012,.045,q))*.65+(1.-smoothstep(.01,.035,branch))*.35;}
 void main(){vec2 scr=vec2(gl_FragCoord.x,u_resolution.y-gl_FragCoord.y);vec2 c=u_resolution*u_center;float aa=(scr.x-c.x)/u_iso.x,bb=(scr.y-c.y)/u_iso.y;vec2 w=u_camera+vec2((aa+bb)*.5,(bb-aa)*.5);
-  float continent=fbm(w*.025+vec2(u_seed*.001,0.));float relief=ridged(w*.055+vec2(4.2,-8.7));float wet=fbm(w*.07+vec2(-14.,19.));
-  vec3 slate=vec3(.085,.096,.108),ash=vec3(.068,.062,.074),moss=vec3(.046,.085,.066),silt=vec3(.112,.086,.070);vec3 stone=mix(ash,slate,smoothstep(.34,.68,continent));stone=mix(stone,moss,smoothstep(.66,.89,wet)*(.35+.45*relief));stone=mix(stone,silt,smoothstep(.80,.96,continent+relief*.18)*.45);
-  vec2 tuv=(w+vec2(120.,-73.))/23.;vec3 tex=texture(u_floor,tuv).rgb;float grain=dot(tex,vec3(.333));stone*=.78+grain*.32;float pe=plateEdge(w+fbm(w*.12)*2.1);float crack=clamp(fracture(w),0.,1.);stone*=1.-pe*.12;stone=mix(stone,vec3(.015,.019,.025),crack*.68);float channel=abs(fbm(w*.032+vec2(50.,-20.))-.52);float wear=1.-smoothstep(.055,.16,channel);stone=mix(stone,stone*vec3(1.12,1.08,1.02),wear*.18);float seam=smoothstep(.90,.98,ridged(w*.18+vec2(-8.,4.)))*smoothstep(.62,.9,relief);stone+=seam*vec3(.025,.045,.052);vec2 cell=floor(w/11.);vec2 cf=fract(w/11.)-.5;float rare=step(.972,hash21(cell));float rune=rare*(1.-smoothstep(.018,.055,min(abs(cf.x),abs(cf.y))))*step(.18,length(cf));stone+=rune*vec3(.03,.10,.095);vec2 uv=scr/u_resolution;float vig=1.-smoothstep(.40,1.02,length((uv-.5)*vec2(1.,u_resolution.y/u_resolution.x)));stone*=.72+.28*vig;outColor=vec4(stone,1.0);} `
+  // Keep the archive/library floor as the visual identity. Procedural work now breaks
+  // repetition and adds age/wear instead of repainting the whole world into generic rock.
+  vec2 tuv=(w+vec2(120.,-73.))/31.;vec3 archive=texture(u_floor,tuv).rgb;vec3 archive2=texture(u_floor,tuv*.51+vec2(.37,.19)).rgb;archive=mix(archive,archive2,.10);
+  float continent=fbm(w*.026+vec2(u_seed*.001,0.)),relief=ridged(w*.06+vec2(4.2,-8.7)),wet=fbm(w*.075+vec2(-14.,19.));
+  vec3 age=mix(vec3(.082,.069,.077),vec3(.076,.093,.091),smoothstep(.32,.72,continent));age=mix(age,vec3(.055,.082,.066),smoothstep(.72,.94,wet)*.28);
+  vec3 stone=mix(archive,age,.16);float crack=clamp(fracture(w),0.,1.),pe=plateEdge(w+fbm(w*.12)*1.6);stone=mix(stone,stone*.62,crack*.24);stone*=1.-pe*.035;
+  float wear=1.-smoothstep(.05,.17,abs(fbm(w*.034+vec2(50.,-20.))-.52));stone=mix(stone,stone*vec3(1.08,1.055,1.02),wear*.10);
+  float seam=smoothstep(.92,.985,ridged(w*.19+vec2(-8.,4.)))*smoothstep(.66,.93,relief);stone+=seam*vec3(.012,.025,.022);
+  vec2 cell=floor(w/12.),cf=fract(w/12.)-.5;float rare=step(.982,hash21(cell)),rune=rare*(1.-smoothstep(.018,.052,min(abs(cf.x),abs(cf.y))))*step(.2,length(cf));stone+=rune*vec3(.016,.055,.048);
+  vec2 uv=scr/u_resolution;float vig=1.-smoothstep(.42,1.04,length((uv-.5)*vec2(1.,u_resolution.y/u_resolution.x)));stone*=.78+.22*vig;outColor=vec4(stone,1.0);} `
 const SPRITE_VS = `#version 300 es
 precision highp float;layout(location=0)in vec2 a_corner;layout(location=1)in vec2 a_uv;layout(location=2)in vec2 i_world;layout(location=3)in vec2 i_size;layout(location=4)in vec4 i_uvrect;layout(location=5)in vec4 i_tint;layout(location=6)in float i_flip;uniform vec2 u_resolution,u_camera,u_iso,u_center;out vec2 v_uv;out vec4 v_tint;void main(){vec2 d=i_world-u_camera;vec2 anchor=u_resolution*u_center+vec2((d.x-d.y)*u_iso.x,(d.x+d.y)*u_iso.y);vec2 p=anchor+a_corner*i_size;vec2 clip=vec2(p.x/u_resolution.x*2.0-1.0,1.0-p.y/u_resolution.y*2.0);gl_Position=vec4(clip,0,1);float ux=i_flip>.5?1.0-a_uv.x:a_uv.x;v_uv=mix(i_uvrect.xy,i_uvrect.zw,vec2(ux,a_uv.y));v_tint=i_tint;}`;
 const SPRITE_FS = `#version 300 es

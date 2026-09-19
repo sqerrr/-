@@ -384,6 +384,18 @@ const affixName: Record<string, string> = {
   brood: 'Роевой',
   crowned: 'Коронованный'
 };
+const affixRole: Record<string,string> = {
+  none:'',
+  swift:'движется быстрее',
+  dense:'тяжелее сдвигается',
+  volatile:'после смерти оставляет красную зону взрыва',
+  regenerating:'восстанавливается, если несколько секунд не получать урон',
+  shielded:'щит фиксирует направление перед рывком — обходи с фланга или ломай стойкость',
+  vanguard:'периодически ускоряет и направляет ближайшую стаю',
+  temporal:'заранее отмечает точку скачка и бьёт после перемещения',
+  brood:'периодически вызывает подкрепление',
+  crowned:'чаще использует собственные механики'
+};
 function eventText(e: GameEvent) {
   if (e.type === 'EntitySpawned' && e.kind === 'elite')
     return e.boss
@@ -484,13 +496,13 @@ function eliteAlert(e: GameEvent): [string, string] | null {
           : 'Сместись поперёк красной линии; после тарана атакуй.'
     ];
   if (e.type === 'PoiAwakened')
-    return [poiLabel(e.kind), `Страж активирован. Убей его, чтобы забрать награду узла.`];
+    return [poiLabel(e.kind), 'Источник найден — выбери награду этого типа.'];
   if (e.type === 'PoiCleared') return ['УЗЕЛ ОЧИЩЕН', `${poiLabel(e.kind)} теперь безопасен.`];
   if (e.type === 'EntitySpawned' && e.kind === 'elite' && !e.boss) {
     const c = e.chassis ?? 'marshal';
     return [
       `${chassisName[c].toUpperCase()} · ${affixName[e.affix ?? 'none'].toUpperCase()}`,
-      chassisRole[c]
+      `${chassisRole[c]}${e.affix && e.affix !== 'none' ? ` · ${affixRole[e.affix] ?? ''}` : ''}`
     ];
   }
   if (e.type === 'EliteReacquired')
@@ -499,12 +511,11 @@ function eliteAlert(e: GameEvent): [string, string] | null {
       'Дистанция не сбрасывает бой: элита возвращена рядом с игроком.'
     ];
   if (e.type === 'EliteEchoPhase' && e.phase === 'tell')
-    return [`ЭХО · ${skills[e.skill].shortName.toUpperCase()}`, 'ПОДГОТОВКА — смотри на телеграф. Направление фиксируется до удара.'];
+    return [`ОТРАЖЕНИЕ · ${skills[e.skill].shortName.toUpperCase()}`, 'ПОДГОТОВКА — красная геометрия показывает опасную область до удара.'];
   if (e.type === 'RareEvent') return [e.title, e.detail];
-  if (e.type === 'EliteOrder') {
-    const t = eventText(e);
-    return t ? ['МЕХАНИКА ЭЛИТЫ', t] : null;
-  }
+  // Chassis actions are frequent combat language now. Local red geometry + the threat
+  // panel carry them; a full-width banner for every action would recreate the same clutter.
+  if (e.type === 'EliteOrder') return null;
   return null;
 }
 function showEliteAlert(title: string, body: string, duration = 3400, rare = false) {
@@ -634,7 +645,7 @@ function updateChain(s: Snapshot) {
         const st = rt.get(id)!,
           md = st.mutation ? mutationDef(id, st.mutation) : null,
           md2 = st.mutationUpgrade ? mutationDef(id, st.mutationUpgrade) : null;
-        slot.innerHTML = `<img src="${skillVisualIcon(id, !!st.mutation)}" alt=""><div style="min-width:0"><div class="slotnum">ТАКТ ${i + 1}</div><div class="slotname">${esc(skills[id].name)}</div><div class="slotlvl">Core ${s.player.level}</div><div class="slotmut">${md ? '↳ ' + esc(md.name) + (md2 ? ' → ' + esc(md2.name) : '') : 'базовая форма'}</div></div>`;
+        slot.innerHTML = `<img src="${skillVisualIcon(id, !!st.mutation)}" alt=""><div style="min-width:0"><div class="slotnum">ТАКТ ${i + 1}</div><div class="slotname">${esc(skills[id].name)}</div><div class="slotlvl">Ядро ${s.player.level}</div><div class="slotmut">${md ? '↳ ' + esc(md.name) + (md2 ? ' → ' + esc(md2.name) : '') : 'базовая форма'}</div></div>`;
       } else
         slot.innerHTML = `<div class="noicon">—</div><div><div class="slotnum">ТАКТ ${i + 1}</div><div class="slotname">Пусто</div><div class="slotlvl">пустой хвост не тратит такт</div></div>`;
       root.append(slot);
@@ -798,10 +809,29 @@ function updatePlanner(s: Snapshot) {
   }).join('') : '<div class="sheet-empty">Предметов пока нет.</div>';
 
   const r=s.resonance;
+  let itemDamage=1, eliteDamage=1, critAdd=0;
+  for(const id of s.heldItems){
+    const effect=itemDefs[id].effect;
+    if(effect.kind==='damageMul') itemDamage*=effect.amount;
+    else if(effect.kind==='eliteDamageMul') eliteDamage*=effect.amount;
+    else if(effect.kind==='crit') critAdd+=effect.amount;
+  }
+  const corePower=1+Math.max(0,s.player.level-1)*0.075,
+    might=1+s.doctrines.might*0.11,
+    baseDamage=corePower*(1+s.player.power)*might*itemDamage,
+    size=1+s.doctrines.size*0.12,
+    duration=1+s.doctrines.duration*0.14,
+    quantity=Math.min(3,Math.floor(s.doctrines.quantity/2));
   $('plannerDerived').innerHTML = [
-    ['Темп ядра', r.tempo],['Количество',r.multiplicity],['Точность',r.precision],
-    ['Длительность',r.persistence],['Проводимость',r.conductivity],['Подвижность',r.mobility]
-  ].map(([k,v])=>`<div class="sheet-stat"><span>${esc(String(k))}</span><b>${Number(v).toFixed(2)}</b></div>`).join('');
+    ['Базовый урон', `×${baseDamage.toFixed(2)}`],
+    ['Против элит', `×${eliteDamage.toFixed(2)}`],
+    ['Крит от предметов', `+${Math.round(critAdd*100)}%`],
+    ['Масштаб', `×${size.toFixed(2)}`],
+    ['Длительность', `×${duration.toFixed(2)}`],
+    ['Доп. сущности', quantity ? `+${quantity}` : '—'],
+    ['Темп ядра', r.tempo.toFixed(2)],
+    ['Проводимость', r.conductivity.toFixed(2)]
+  ].map(([k,v])=>`<div class="sheet-stat"><span>${esc(String(k))}</span><b>${esc(String(v))}</b></div>`).join('');
 }
 
 const eliteRarityName: Record<string, string> = {
@@ -887,8 +917,15 @@ function drawHeldItems(ctx: CanvasRenderingContext2D, s: Snapshot) {
     ctx.strokeStyle = relicMinimapTint[def.category] ?? '#fff';
     ctx.lineWidth = 1;
     ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-    ctx.fillStyle = '#e8eef8';
-    ctx.fillText(n > 1 ? `${def.short}x${n}` : def.short, x + w / 2, y + h / 2 + 0.5);
+    const glyph = itemGlyph[id as keyof typeof itemGlyph] ?? '◇';
+    ctx.fillStyle = itemCategoryColor[def.category] ?? '#e8eef8';
+    ctx.font = '900 15px system-ui';
+    ctx.fillText(glyph, x + (n > 1 ? w * 0.4 : w / 2), y + h / 2 + 0.5);
+    if (n > 1) {
+      ctx.fillStyle = '#e8eef8';
+      ctx.font = '800 9px system-ui';
+      ctx.fillText(`×${n}`, x + w * 0.72, y + h / 2 + 0.5);
+    }
     x += w + gap;
     if (x > ctx.canvas.width / (window.devicePixelRatio || 1) - w) break;
   }
@@ -1001,6 +1038,33 @@ function drawCombatHud(s: Snapshot) {
   ctx.textBaseline = 'middle';
   drawDashGauge(ctx, s);
   drawHeldItems(ctx, s);
+  // Ground items carry their own pictogram at all times. Colour is only the category accent;
+  // the symbol is the identity, so two rewards of the same category no longer look identical.
+  for (const r of s.relics) {
+    const p = renderer.worldToScreen(r.x, r.z, s);
+    if (p.x < -26 || p.x > w + 26 || p.y < -26 || p.y > h + 26) continue;
+    const d = itemDefs[r.item],
+      glyph = itemGlyph[r.item as keyof typeof itemGlyph] ?? '◇',
+      tint = itemCategoryColor[d.category] ?? '#fff',
+      size = r.contested ? 31 : 27;
+    ctx.fillStyle = 'rgba(5,8,12,.9)';
+    ctx.fillRect(p.x - size / 2, p.y - 48 - size / 2, size, size);
+    ctx.strokeStyle = r.contested ? '#ff3e4f' : tint;
+    ctx.lineWidth = r.contested ? 2.5 : 1.5;
+    ctx.strokeRect(p.x - size / 2 + .5, p.y - 48 - size / 2 + .5, size - 1, size - 1);
+    ctx.fillStyle = tint;
+    ctx.font = '900 18px system-ui';
+    ctx.fillText(glyph, p.x, p.y - 48);
+    if (r.contested) {
+      ctx.fillStyle = '#ff3347';
+      ctx.beginPath();
+      ctx.moveTo(p.x + size / 2 - 7, p.y - 48 - size / 2);
+      ctx.lineTo(p.x + size / 2, p.y - 48 - size / 2);
+      ctx.lineTo(p.x + size / 2, p.y - 48 - size / 2 + 7);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
   const nearRelic = [...s.relics].sort((a,b)=>Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0];
   if (nearRelic && Math.hypot(nearRelic.x-s.player.x,nearRelic.z-s.player.z) < 5.5) {
     const d=itemDefs[nearRelic.item], p=renderer.worldToScreen(nearRelic.x,nearRelic.z,s), text=`${d.name} · ${d.description}`;
@@ -1028,7 +1092,7 @@ function drawCombatHud(s: Snapshot) {
         ctx.font = e.boss ? '900 11px system-ui' : '800 9px system-ui';
         ctx.fillStyle = '#fff';
         ctx.fillText(
-          e.boss ? 'BOSS' : chassisName[e.chassis ?? 'marshal'].toUpperCase(),
+          e.boss ? 'ХРАНИТЕЛЬ' : chassisName[e.chassis ?? 'marshal'].toUpperCase(),
           x,
           y + r + 10
         );
@@ -1091,29 +1155,36 @@ function drawCombatHud(s: Snapshot) {
   }
   ctx.globalAlpha = 1;
 }
+const elitePatternLabel: Record<string,string> = {
+  hunter:'ПЕРЕХВАТ', architect:'СМЕЩЕНИЕ И ЗАВЕСА', broodmaker:'ВЫБРОС КОПИИ',
+  bulwark:'ФРОНТАЛЬНЫЙ УДАР', harvester:'ЖАТВА', shepherd:'КОМАНДНЫЙ ИМПУЛЬС',
+  warden:'АТАКА ХРАНИТЕЛЯ'
+};
 function updateThreatPanel(s: Snapshot) {
   const box = $('threatPanel'),
     boss = s.entities.find((e) => e.boss),
     elites = s.entities.filter((e) => e.elite && !e.boss);
-  const e =
-    boss ??
-    elites.sort(
-      (a, b) =>
-        Math.hypot(a.x - s.player.x, a.z - s.player.z) -
-        Math.hypot(b.x - s.player.x, b.z - s.player.z)
-    )[0];
-  if (!e) {
-    box.classList.remove('visible');
-    return;
-  }
+  const e = boss ?? elites.sort((a,b)=>Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0];
+  if (!e) { box.classList.remove('visible','danger'); return; }
   box.classList.add('visible');
-  const title = e.boss ? `ХРАНИТЕЛЬ · ФАЗА ${e.bossPhase}` : eliteName(e),
-    body = e.boss
-      ? 'Красная геометрия = реальный паттерн атаки. После тарана/разрыва есть окно уязвимости.'
-      : chassisRole[e.chassis ?? 'marshal'];
-  $('threatTitle').textContent = title;
-  $('threatBody').textContent = body;
-  $('threatHp').style.width = `${Math.max(0, (e.hp / e.maxHp) * 100)}%`;
+  const chassisTell = !!e.eliteAction && e.eliteAction !== 'predator_dash',
+    chassisActive = e.eliteAction === 'predator_dash',
+    preparing = e.echoPhase === 'tell' || e.telegraph > 0 || chassisTell,
+    activeEcho = e.echoPhase === 'active',
+    dangerous = preparing || activeEcho || chassisActive || (e.boss && e.bossPattern && e.adaptationStage === 1);
+  box.classList.toggle('danger', !!dangerous);
+  const pattern = e.echoPhase === 'tell'
+    ? `ОТРАЖЕНИЕ · ${e.echoSkill ? skills[e.echoSkill].name.toUpperCase() : 'АТАКА'}`
+    : elitePatternLabel[e.chassis ?? ''] ?? 'ОПАСНЫЙ ПРИЁМ';
+  $('threatTitle').textContent = dangerous
+    ? `⚠ ${preparing ? 'ГОТОВИТ' : 'АТАКУЕТ'}: ${pattern}`
+    : e.boss ? `ХРАНИТЕЛЬ · ФАЗА ${e.bossPhase}` : eliteName(e);
+  $('threatBody').textContent = dangerous
+    ? 'Красная зона — опасность. Выйди из геометрии до завершения подготовки.'
+    : e.boss
+      ? 'Следи за красной геометрией; после тяжёлых атак появляется окно для ответа.'
+      : `${chassisRole[e.chassis ?? 'marshal']}${e.affix && e.affix !== 'none' ? ` · Аффикс: ${affixRole[e.affix] ?? affixName[e.affix]}` : ''}`;
+  $('threatHp').style.width = `${Math.max(0,(e.hp/e.maxHp)*100)}%`;
 }
 function updateUi(s: Snapshot) {
   const mm = Math.floor(s.time / 60),
@@ -1128,21 +1199,21 @@ function updateUi(s: Snapshot) {
   $('level').textContent = `УРОВЕНЬ ${s.player.level}`;
   $('hpbar').style.width = `${Math.max(0, (s.player.hp / s.player.maxHp) * 100)}%`;
   $('hptext').textContent =
-    `HP ${Math.ceil(s.player.hp)} / ${Math.round(s.player.maxHp)}${s.player.barrier > 0 ? ` + ${Math.ceil(s.player.barrier)} щит` : ''}`;
+    `ЗДОРОВЬЕ ${Math.ceil(s.player.hp)} / ${Math.round(s.player.maxHp)}${s.player.barrier > 0 ? ` + ${Math.ceil(s.player.barrier)} барьер` : ''}`;
   $('xpbar').style.width = `${Math.max(0, Math.min(100, (s.player.xp / s.player.xpNeed) * 100))}%`;
   $('xptext').textContent = `ОПЫТ ${Math.floor(s.player.xp)} / ${s.player.xpNeed}`;
   const cleared = s.world.pois.filter((p) => p.state === 'cleared').length,
     remaining = Math.max(0, s.runDuration * 0.875 - s.time),
-    bossSupport = s.entities.filter((e) => e.elite && !e.boss && e.guardianPoi !== 0).length;
+    bossSupport = s.entities.filter((e) => e.elite && !e.boss && e.guardianPoi !== 0).length,
+    progress = Math.min(1,s.time/s.runDuration),
+    phase = progress < .25 ? 'РАЗГОН' : progress < .55 ? 'НАРАСТАНИЕ' : progress < .85 ? 'ДАВЛЕНИЕ' : 'ФИНАЛ',
+    nearestPoi = s.world.pois.filter(p=>p.state!=='cleared').sort((a,b)=>Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0],
+    route = nearestPoi ? `${poiLabel(nearestPoi.kind)} ${Math.round(Math.hypot(nearestPoi.x-s.player.x,nearestPoi.z-s.player.z))}м` : 'узлы очищены';
   $('objective').textContent = s.world.bossSpawned
     ? s.world.bossDefeated
-      ? 'Хранитель уничтожен'
-      : `ЦЕЛЬ: ХРАНИТЕЛЬ${bossSupport ? ` · поддержка стражей ${bossSupport}` : ''}`
-    : `Исследование ${cleared}/${s.world.pois.length} · активируй 4+ узла, чтобы ослабить финальную поддержку · ${Math.floor(remaining / 60)}:${Math.floor(
-        remaining % 60
-      )
-        .toString()
-        .padStart(2, '0')}`;
+      ? 'ХРАНИТЕЛЬ УНИЧТОЖЕН'
+      : `ФИНАЛ · ХРАНИТЕЛЬ${bossSupport ? ` · стражей: ${bossSupport}` : ''}`
+    : `${phase} · узлы ${cleared}/${s.world.pois.length} · ближайшее: ${route} · финал через ${Math.floor(remaining/60)}:${Math.floor(remaining%60).toString().padStart(2,'0')}`;
   $('mode').textContent = s.mode === 'clean' ? 'Чистый забег' : 'Демонстрация';
   $('perf').textContent = `${Math.round(fps)} · WebGL2`;
   updateThreatPanel(s);
@@ -1445,7 +1516,7 @@ function frame(now: number) {
 async function start() {
   if (debugEnabled) $('debugPanel').classList.remove('debug-hidden');
   dbg('START', {
-    version: '0.11-core-redesign',
+    version: '0.11.2-ux-readability',
     mode: runMode,
     startingSkill,
     seed,

@@ -71,6 +71,9 @@ type Ent = {
   facingZ: number;
   state: EnemyState;
   stateTimer: number;
+  /** Authored elite chassis action, separate from generic mob/affix state. */
+  eliteAction?: string;
+  eliteActionUntil?: number;
   cooldown: number;
   lockedX: number;
   lockedZ: number;
@@ -1759,6 +1762,28 @@ export class Simulation {
     return 'common';
   }
   /**
+   * Active affixes were implemented but ordinary elites had been hard-wired to 'none'.
+   * Reintroduce them as a run-depth layer: early elites teach the chassis first, later
+   * tiers combine one chassis question with one affix question.
+   */
+  private rollEliteAffix(rarity: EliteRarity): EliteAffix {
+    const t = Math.min(1, this.time / this.runDuration);
+    // The first minute teaches chassis language before combinations appear.
+    if (t < 0.12) return 'none';
+    if (rarity === 'common') {
+      if (t < 0.12 || this.rng.float() < 0.58 - t * 0.18) return 'none';
+      const pool: EliteAffix[] = ['regenerating', 'volatile', 'shielded'];
+      return pool[this.rng.int(pool.length)];
+    }
+    if (rarity === 'uplifted') {
+      if (this.rng.float() < 0.12) return 'none';
+      const pool: EliteAffix[] = ['regenerating', 'shielded', 'vanguard', 'temporal', 'brood'];
+      return pool[this.rng.int(pool.length)];
+    }
+    const pool: EliteAffix[] = ['crowned', 'shielded', 'vanguard', 'temporal', 'brood'];
+    return pool[this.rng.int(pool.length)];
+  }
+  /**
    * D10: an elite fields as much of the hero's declined history as its tier allows. Cards
    * are claimed rather than copied, so no two elites wield the same refusal and D11 can
    * hand them back to the store when this one dies.
@@ -1981,7 +2006,8 @@ export class Simulation {
         this.events.push({type:'EliteEchoPhase',tick:this.tick,entity:e.id,skill:q.skill,phase:'recovery',x:e.x,z:e.z,aimX:q.aimX,aimZ:q.aimZ});
       } else {
         this.eliteEchoes.delete(id);
-        const gap=Math.max(1.7,(this.rng.range(3.5,5.5)-e.repertoire.length*0.22)*Math.pow(0.86,this.rivalAxisCount(e,'tempo'))*(e.relicGapMul??1));
+        const rawGap=Math.max(2.25,this.rng.range(3.4,5.0)-e.repertoire.length*0.22);
+        const gap=this.elitePatternCooldown(rawGap,e)*Math.pow(0.86,this.rivalAxisCount(e,'tempo'))*(e.relicGapMul??1);
         this.rivalCastAt.set(e.id,this.time+gap);
       }
     }
@@ -2057,9 +2083,9 @@ export class Simulation {
       'harvester',
       'shepherd'
     ];
-    const chassis = pool[this.rng.int(pool.length)],
-      affix: EliteAffix = 'none';
-    const rarity = this.rollEliteRarity();
+    const chassis = pool[this.rng.int(pool.length)];
+    const rarity = this.rollEliteRarity(),
+      affix = this.rollEliteAffix(rarity);
     const q = this.pointAroundPlayer(15, 18.5),
       scale = this.worldScale();
     let hp = eliteHp[chassis] * scale * ELITE_RARITY_HP[rarity],
@@ -2086,7 +2112,7 @@ export class Simulation {
       facingZ: 1,
       state: 'normal',
       stateTimer: 0,
-      cooldown: this.rng.range(2.2, 4.2),
+      cooldown: this.rng.range(1.7, 3.0),
       lockedX: 0,
       lockedZ: 0,
       linkedTo: 0,
@@ -2336,7 +2362,7 @@ export class Simulation {
             e.state = 'normal';
             e.affixPulse = 4.9;
           } else continue;
-        } else if (e.affixPulse <= 0) {
+        } else if (e.affixPulse <= 0 && !e.eliteAction && !this.eliteEchoes.has(e.id)) {
           e.lockedX = Math.max(
             this.world.minX + 1,
             Math.min(this.world.maxX - 1, this.px + this.playerVX * 0.46)
@@ -2380,7 +2406,7 @@ export class Simulation {
           const target = Math.atan2(this.pz - e.z, this.px - e.x);
           const diff = this.angleDiff(target, e.shieldAngle);
           e.shieldAngle += Math.max(-0.82 * dt, Math.min(0.82 * dt, diff));
-          if (e.affixPulse <= 0 && d < 8.5) {
+          if (e.affixPulse <= 0 && d < 8.5 && !e.eliteAction && !this.eliteEchoes.has(e.id)) {
             e.shieldState='commit'; e.shieldCommitUntil=this.time+0.82; e.affixPulse=4.6; e.shieldAngle=target;
             const ax=Math.cos(e.shieldAngle),az=Math.sin(e.shieldAngle);
             this.events.push({type:'CombatShape',tick:this.tick,source:'shield_commit',intent:'control',shape:{kind:'sector',x:e.x,z:e.z,radius:3.4,aimX:ax,aimZ:az,halfAngle:0.72}});
@@ -2530,144 +2556,208 @@ export class Simulation {
         this.hitPlayer(e.contactDps * (e.buffUntil > this.time ? 1.28 : 1) * dt, e);
     }
   }
+  private elitePatternCooldown(base: number, e: Ent) {
+    const t = Math.min(1, this.time / this.runDuration),
+      rarity = e.rarity === 'legendary' ? 0.72 : e.rarity === 'uplifted' ? 0.86 : 1;
+    return Math.max(1.65, base * (1 - 0.22 * t) * rarity);
+  }
+
+  private beginElitePattern(
+    e: Ent,
+    source: string,
+    shape: CombatShape,
+    duration: number,
+    order: 'predator' | 'veil' | 'replicate' | 'prism' | 'null' | 'metamorph'
+  ) {
+    e.eliteAction = order;
+    e.eliteActionUntil = this.time + duration;
+    e.cooldown = 99;
+    this.events.push({ type: 'CombatShape', tick: this.tick, source, intent: 'damage', shape });
+    this.events.push({ type: 'EliteOrder', tick: this.tick, entity: e.id, order, x: e.x, z: e.z });
+  }
+
   private updateEliteAI(e: Ent, speed: number, d: number, nx: number, nz: number) {
     this.noteEliteContact(e, d);
-    this.fieldRefusals(e, d);
-    const c = e.chassis!;
+    const c = e.chassis!,
+      echoBusy = this.eliteEchoes.has(e.id);
+    if (!e.eliteAction && e.state === 'normal' && !echoBusy && e.adaptStage === 0) this.fieldRefusals(e, d);
+
     if (c === 'hunter') {
-      // PREDATOR: predictive intercept, not a faster normal mob.
+      // PREDATOR: repeated predictive intercept with a fixed, readable red lane.
       if (e.adaptStage === 2) {
+        e.eliteAction = 'predator_dash';
         e.x += e.lockedX * 10.8 * this.dt;
         e.z += e.lockedZ * 10.8 * this.dt;
-        if (e.stateTimer <= 0) {
+        if (this.time >= (e.eliteActionUntil ?? 0)) {
           e.adaptStage = 0;
-          e.cooldown = 2.6;
+          e.eliteAction = undefined;
+          e.eliteActionUntil = 0;
+          e.cooldown = this.elitePatternCooldown(3.0, e);
           e.exposedUntil = this.time + 0.9;
         }
         return;
       }
-      if (e.adaptStage === 1 && e.stateTimer <= 0) {
-        e.adaptStage = 2;
-        e.stateTimer = 0.46;
+      if (e.adaptStage === 1) {
+        if (this.time >= (e.eliteActionUntil ?? 0)) {
+          e.adaptStage = 2;
+          e.eliteAction = 'predator_dash';
+          e.eliteActionUntil = this.time + 0.46;
+        }
         return;
       }
       const tx = this.px + this.playerVX * 0.58,
         tz = this.pz + this.playerVZ * 0.58;
       if (d > 0.9) this.steerTo(e, tx, tz, speed, 1.12);
-      if (e.cooldown <= 0) {
+      if (!echoBusy && !e.eliteAction && e.cooldown <= 0) {
         const dx = tx - e.x,
           dz = tz - e.z,
           m = Math.hypot(dx, dz) || 1;
         e.lockedX = dx / m;
         e.lockedZ = dz / m;
         e.adaptStage = 1;
-        e.stateTimer = 0.55;
+        e.eliteAction = 'predator';
+        e.eliteActionUntil = this.time + 0.58;
         e.cooldown = 99;
         this.events.push({
           type: 'CombatShape',
           tick: this.tick,
-          source: 'elite_predator',
+          source: 'elite_predator_tell',
           intent: 'damage',
-          shape: {
-            kind: 'ray',
-            x: e.x,
-            z: e.z,
-            aimX: e.lockedX,
-            aimZ: e.lockedZ,
-            range: 8.5,
-            halfWidth: 0.7
-          }
+          shape: { kind: 'ray', x: e.x, z: e.z, aimX: e.lockedX, aimZ: e.lockedZ, range: 8.5, halfWidth: 0.72 }
         });
-        this.events.push({
-          type: 'EliteOrder',
-          tick: this.tick,
-          entity: e.id,
-          order: 'predator',
-          x: e.x,
-          z: e.z
-        });
+        this.events.push({ type: 'EliteOrder', tick: this.tick, entity: e.id, order: 'predator', x: e.x, z: e.z });
       }
-    } else if (c === 'architect') {
-      // VEIL: denies distant auto-lock inside moving fog pockets and relocates through them.
-      if (d > 7.2) this.steerTo(e, this.px, this.pz, speed, 1.05);
-      else if (d < 3.8) {
-        e.x -= nx * speed * 0.5 * this.dt;
-        e.z -= nz * speed * 0.5 * this.dt;
-      }
-      if (e.cooldown <= 0) {
-        e.cooldown = 4.8;
-        const baseA = this.rng.range(0, Math.PI * 2),
-          pick = this.rng.int(3);
-        let tx = e.x,
-          tz = e.z;
+      return;
+    }
+
+    if (c === 'architect') {
+      // VEIL: destination is forecast first; then the Architect relocates and blooms denial pockets.
+      if (e.eliteAction === 'veil') {
+        if (this.time < (e.eliteActionUntil ?? 0)) return;
+        e.eliteAction = undefined; e.eliteActionUntil = 0;
+        e.x = Math.max(this.world.minX + 1, Math.min(this.world.maxX - 1, e.lockedX));
+        e.z = Math.max(this.world.minZ + 1, Math.min(this.world.maxZ - 1, e.lockedZ));
         for (let i = 0; i < 3; i++) {
-          const a = baseA + (i * Math.PI * 2) / 3,
-            r = i === 0 ? 0 : 3.4;
-          const x = e.x + Math.cos(a) * r,
-            z = e.z + Math.sin(a) * r;
-          this.fields.push({
-            id: this.nextId++,
-            x,
-            z,
-            radius: 3.25,
-            ttl: 5.6,
-            kind: 'veil',
-            dps: 0,
-            tickAcc: 0
-          });
-          if (i === pick) {
-            tx = x;
-            tz = z;
-          }
+          const a = i * Math.PI * 2 / 3 + e.id * 0.37,
+            r = i === 0 ? 0 : 3.1;
+          this.fields.push({ id: this.nextId++, x: e.x + Math.cos(a) * r, z: e.z + Math.sin(a) * r, radius: 3.05, ttl: 4.8, kind: 'veil', dps: 0, tickAcc: 0 });
         }
-        e.x = Math.max(this.world.minX + 1, Math.min(this.world.maxX - 1, tx));
-        e.z = Math.max(this.world.minZ + 1, Math.min(this.world.maxZ - 1, tz));
-        this.events.push({
-          type: 'EliteOrder',
-          tick: this.tick,
-          entity: e.id,
-          order: 'veil',
-          x: e.x,
-          z: e.z,
-          count: 3
-        });
+        e.cooldown = this.elitePatternCooldown(4.6, e);
+        e.exposedUntil = this.time + 0.45;
+        return;
       }
-    } else if (c === 'broodmaker') {
-      // REPLICATOR: copies are created by repeated incoming hit events, not on a timer.
+      if (d > 7.2) this.steerTo(e, this.px, this.pz, speed, 1.05);
+      else if (d < 3.8) { e.x -= nx * speed * 0.5 * this.dt; e.z -= nz * speed * 0.5 * this.dt; }
+      if (!echoBusy && !e.eliteAction && e.cooldown <= 0) {
+        const side = e.id % 2 ? 1 : -1,
+          target = this.freeOf(this.px - nz * side * 3.6, this.pz + nx * side * 3.6, e.radius);
+        e.lockedX = target.x;
+        e.lockedZ = target.z;
+        this.beginElitePattern(e, 'elite_architect_veil_tell', { kind: 'circle', x: target.x, z: target.z, radius: 3.05 }, 0.74, 'veil');
+      }
+      return;
+    }
+
+    if (c === 'broodmaker') {
+      // REPLICATOR: reactive cloning remains, but it also declares an active brood pulse.
+      if (e.eliteAction === 'replicate') {
+        if (this.time < (e.eliteActionUntil ?? 0)) return;
+        e.eliteAction = undefined; e.eliteActionUntil = 0;
+        this.combatShape('elite_brood_active', { kind: 'circle', x: e.x, z: e.z, radius: 4.2 });
+        if (Math.hypot(this.px - e.x, this.pz - e.z) <= 4.2 + HERO_HIT_RADIUS)
+          this.hitPlayer(14 * this.damageScale(), e, 'brood_pulse');
+        this.spawnReplicant(e);
+        e.cooldown = this.elitePatternCooldown(5.2, e);
+        return;
+      }
       if (d > 5.8) this.steerTo(e, this.px, this.pz, speed, 1.02);
-      else if (d < 3.2) {
-        e.x -= nx * speed * 0.45 * this.dt;
-        e.z -= nz * speed * 0.45 * this.dt;
+      else if (d < 3.2) { e.x -= nx * speed * 0.45 * this.dt; e.z -= nz * speed * 0.45 * this.dt; }
+      if (!echoBusy && !e.eliteAction && e.cooldown <= 0)
+        this.beginElitePattern(e, 'elite_brood_tell', { kind: 'circle', x: e.x, z: e.z, radius: 4.2 }, 0.78, 'replicate');
+      return;
+    }
+
+    if (c === 'bulwark') {
+      // PRISM still rewards alternating sources, but now also commits to a frontal bash.
+      if (e.eliteAction === 'prism') {
+        if (this.time < (e.eliteActionUntil ?? 0)) return;
+        e.eliteAction = undefined; e.eliteActionUntil = 0;
+        this.combatShape('elite_prism_active', { kind: 'sector', x: e.x, z: e.z, radius: 5.2, aimX: e.lockedX, aimZ: e.lockedZ, halfAngle: 0.74 });
+        if (this.playerInSector(e.x, e.z, e.lockedX, e.lockedZ, 5.2, 0.74)) {
+          this.hitPlayer(22 * this.damageScale(), e, 'prism_bash');
+          const dx=this.px-e.x,dz=this.pz-e.z,m=Math.hypot(dx,dz)||1;
+          this.px += dx/m*0.85; this.pz += dz/m*0.85; this.clampWorld();
+        }
+        e.cooldown = this.elitePatternCooldown(4.2, e);
+        e.exposedUntil = this.time + 0.55;
+        return;
       }
-    } else if (c === 'bulwark') {
-      // PRISM movement is plain on purpose: its rule lives in damage causality/source alternation.
       if (d > 4.2) this.steerTo(e, this.px, this.pz, speed * 0.96);
-      else if (d < 2.2) {
-        e.x -= nx * speed * 0.3 * this.dt;
-        e.z -= nz * speed * 0.3 * this.dt;
+      else if (d < 2.2) { e.x -= nx * speed * 0.3 * this.dt; e.z -= nz * speed * 0.3 * this.dt; }
+      if (!echoBusy && !e.eliteAction && e.cooldown <= 0) {
+        e.lockedX = nx; e.lockedZ = nz;
+        this.beginElitePattern(e, 'elite_prism_tell', { kind: 'sector', x: e.x, z: e.z, radius: 5.2, aimX: nx, aimZ: nz, halfAngle: 0.74 }, 0.72, 'prism');
       }
-    } else if (c === 'harvester') {
-      // NULL WEAVER: direct and catalyst-derived events interact with its visible charge state.
+      return;
+    }
+
+    if (c === 'harvester') {
+      // NULL WEAVER: a close sweep makes its direct-vs-derived rule an active positioning threat.
+      if (e.eliteAction === 'null') {
+        if (this.time < (e.eliteActionUntil ?? 0)) return;
+        e.eliteAction = undefined; e.eliteActionUntil = 0;
+        this.combatShape('elite_null_active', { kind: 'sector', x: e.x, z: e.z, radius: 4.8, aimX: e.lockedX, aimZ: e.lockedZ, halfAngle: 0.96 });
+        if (this.playerInSector(e.x, e.z, e.lockedX, e.lockedZ, 4.8, 0.96)) {
+          this.hitPlayer(25 * this.damageScale(), e, 'null_harvest');
+          e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.045);
+        }
+        e.cooldown = this.elitePatternCooldown(3.8, e);
+        return;
+      }
       const side = e.id % 2 ? 1 : -1,
         tx = this.px - nz * side * 3.2,
         tz = this.pz + nx * side * 3.2;
       this.steerTo(e, tx, tz, speed, 1.08);
-    } else if (c === 'shepherd') {
-      // METAMORPH: first major damage threshold chooses a behavior from the recent combat signature.
+      if (!echoBusy && e.cooldown <= 0 && d < 7.2) {
+        e.lockedX = nx; e.lockedZ = nz;
+        this.beginElitePattern(e, 'elite_null_tell', { kind: 'sector', x: e.x, z: e.z, radius: 4.8, aimX: nx, aimZ: nz, halfAngle: 0.96 }, 0.68, 'null');
+      }
+      return;
+    }
+
+    if (c === 'shepherd') {
+      // METAMORPH keeps its damage-signature adaptation and periodically rallies the local pack.
+      if (e.eliteAction === 'metamorph') {
+        if (this.time < (e.eliteActionUntil ?? 0)) return;
+        e.eliteAction = undefined; e.eliteActionUntil = 0;
+        this.combatShape('elite_shepherd_active', { kind: 'circle', x: e.x, z: e.z, radius: 5.2 }, 'control');
+        if (Math.hypot(this.px - e.x, this.pz - e.z) <= 5.2 + HERO_HIT_RADIUS)
+          this.hitPlayer(15 * this.damageScale(), e, 'shepherd_pulse');
+        let buffed = 0;
+        for (const o of this.ents) {
+          if (o === e || o.kind === 'elite' || o.hp <= 0 || Math.hypot(o.x - e.x, o.z - e.z) > 7.5) continue;
+          o.buffUntil = Math.max(o.buffUntil, this.time + 2.8);
+          o.orderX = this.px; o.orderZ = this.pz; o.orderUntil = this.time + 2.8;
+          if (++buffed >= 8) break;
+        }
+        e.cooldown = this.elitePatternCooldown(5.0, e);
+        return;
+      }
       if (e.bossPattern === 'condensed') {
-        const tx = this.px + this.playerVX * 0.35,
-          tz = this.pz + this.playerVZ * 0.35;
+        const tx = this.px + this.playerVX * 0.35, tz = this.pz + this.playerVZ * 0.35;
         this.steerTo(e, tx, tz, speed, 1.55);
       } else if (e.bossPattern === 'migratory') {
-        const side = e.id % 2 ? 1 : -1,
-          tx = this.px - nz * side * 4.8,
-          tz = this.pz + nx * side * 4.8;
+        const side = e.id % 2 ? 1 : -1, tx = this.px - nz * side * 4.8, tz = this.pz + nx * side * 4.8;
         this.steerTo(e, tx, tz, speed, 1.22);
       } else if (d > 4.8) this.steerTo(e, this.px, this.pz, speed, 1.05);
-    } else {
-      if (d > 3.6) this.steerTo(e, this.px, this.pz, speed);
+      if (!echoBusy && !e.eliteAction && e.cooldown <= 0)
+        this.beginElitePattern(e, 'elite_shepherd_tell', { kind: 'circle', x: e.x, z: e.z, radius: 5.2 }, 0.82, 'metamorph');
+      return;
     }
+
+    if (d > 3.6) this.steerTo(e, this.px, this.pz, speed);
   }
+
   private playerInSector(
     x: number,
     z: number,
@@ -2980,7 +3070,7 @@ export class Simulation {
         else if (p.kind === 'core') this.eliteCore += p.value;
         else if (p.kind === 'mutation') {
           this.mutationCores += p.value;
-          this.events.push({ type: 'RareEvent', tick: this.tick, title: 'MUTATION CORE', detail: `Ядро получено · запас ${this.mutationCores}`, x: p.x, z: p.z });
+          this.events.push({ type: 'RareEvent', tick: this.tick, title: 'ЯДРО МУТАЦИИ', detail: `Ядро получено · запас ${this.mutationCores}`, x: p.x, z: p.z });
         } else {
           this.healPlayer(p.value);
           this.metrics.healsPicked++;
@@ -4239,7 +4329,7 @@ export class Simulation {
       const freezeAt=e.kind==='elite'?3.5:2.0;
       if((e.frostMeter??0)>=freezeAt){e.frostMeter=0;e.frozenUntil=this.time+(e.kind==='elite'?0.7:1.35)*this.memoryFactor();e.exposedUntil=Math.max(e.exposedUntil,this.time+(e.kind==='elite'?0.85:0.45));}
       let shatter=wasFrozen||(mut==='frost_snap'&&wasChilled);
-      if(shatter){dmg+=22*this.powerBucket(st);e.frozenUntil=0;e.chillUntil=0;shattered++;firstShatter??=e;this.events.push({type:'RareEvent',tick:this.tick,title:'SHATTER',detail:e.kind==='elite'?'Хрупкость элиты разбита':'Лёд расколот',x:e.x,z:e.z});}
+      if(shatter){dmg+=22*this.powerBucket(st);e.frozenUntil=0;e.chillUntil=0;shattered++;firstShatter??=e;this.events.push({type:'RareEvent',tick:this.tick,title:'РАСКОЛ',detail:e.kind==='elite'?'Хрупкость элиты разбита':'Лёд расколот',x:e.x,z:e.z});}
       const killed=this.damage(e,dmg,'frost_ring',false,src.x,src.z,slot);
       e.chillUntil=Math.max(e.chillUntil,this.time+2.4*(1+st.statusPotency)*this.memoryFactor());this.noteState('chill');this.currentActivationControl+=1+st.control;
       if(this.mutationIs(st,'frost_brittle'))e.exposedUntil=Math.max(e.exposedUntil,this.time+2.8*this.memoryFactor());
@@ -4741,11 +4831,21 @@ export class Simulation {
           tickAcc: 0
         });
       if (elite && e.affix === 'volatile') {
-        if (Math.hypot(this.px - e.x, this.pz - e.z) < 2.6) this.hitPlayer(24 * this.damageScale());
-        for (const o of this.ents) {
-          if (o !== e && o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < 2.6)
-            this.damage(o, 42 * this.worldScale(), 'elite_volatile', false, e.x, e.z);
-        }
+        // Death explosions must be dodgeable. The old instant burst punished the kill before
+        // the player could read it; now the red zone is part of the same hostile telegraph language.
+        this.scheduleStrike({
+          at: this.time + 0.62,
+          x: e.x,
+          z: e.z,
+          radius: 2.6,
+          damage: 24 * this.damageScale(),
+          faction: 'rival',
+          ownerId: e.id,
+          source: 'elite_volatile',
+          sourceSlot: -1,
+          intent: 'damage',
+          telegraph: 'elite_volatile_tell'
+        });
       }
       const xpVal = elite
         ? 30
@@ -4960,7 +5060,7 @@ export class Simulation {
           range: 'Дальность',
           duration: 'Длительность',
           crit: 'Крит. шанс',
-          eliteDamage: 'Урон по Elite',
+          eliteDamage: 'Урон по элитам',
           count: 'Количество',
           control: 'Контроль',
           statusPotency: 'Сила статуса'
@@ -4977,7 +5077,7 @@ export class Simulation {
       id: `axis:${rid}:${this.rng.nextU32()}`,
       kind: 'resonance',
       title: d.name,
-      subtitle: `CORE AXIS ${before} → ${after}`,
+      subtitle: `УСИЛЕНИЕ ЯДРА ${before} → ${after}`,
       description: d.description,
       resonance: rid,
       stat: rid,
@@ -4996,8 +5096,8 @@ export class Simulation {
         id: `g:h:${this.rng.nextU32()}`,
         kind: 'global',
         title: 'Закалка',
-        subtitle: `+${Math.round(18 * m)} максимального HP`,
-        description: 'Универсальная выживаемость; не привязана к Phenomenon.',
+        subtitle: `+${Math.round(18 * m)} к максимуму здоровья`,
+        description: 'Универсальная выживаемость; не привязана к конкретному феномену.',
         stat,
         amount: 18 * m,
         rarity
@@ -5008,7 +5108,7 @@ export class Simulation {
         kind: 'global',
         title: 'Притяжение осколков',
         subtitle: `+${Math.round(15 * m)}% радиуса сбора`,
-        description: 'XP и pickups раньше летят к игроку.',
+        description: 'Опыт и подбираемые объекты раньше начинают лететь к игроку.',
         stat,
         amount: 0.15 * m,
         rarity
@@ -5018,7 +5118,7 @@ export class Simulation {
         id: `g:f:${this.rng.nextU32()}`,
         kind: 'global',
         title: 'Фортуна',
-        subtitle: `+${Math.round(8 * m)}% Fortune`,
+        subtitle: `+${Math.round(8 * m)}% к удаче`,
         description: 'Усиливает контроль над будущими случайными находками.',
         stat,
         amount: 0.08 * m,
@@ -5028,8 +5128,8 @@ export class Simulation {
       id: `g:a:${this.rng.nextU32()}`,
       kind: 'global',
       title: 'Архивная броня',
-      subtitle: `+${Math.round(10 * m)} Armor`,
-      description: 'Diminishing-returns mitigation.',
+      subtitle: `+${Math.round(10 * m)} брони`,
+      description: 'Снижает входящий урон; каждый следующий пункт брони даёт чуть меньший прирост защиты.',
       stat: 'armor',
       amount: 10 * m,
       rarity
@@ -5156,7 +5256,7 @@ export class Simulation {
           id: `mut-target:${id}:${this.rng.nextU32()}`,
           kind: 'mutation_target' as const,
           title: skills[id].name,
-          subtitle: tier === 3 ? `АПОФЕОЗ · CORE ${this.mutationCores}` : `${tier === 2 ? 'ПРОДОЛЖЕНИЕ' : 'МУТАЦИЯ'} · CORE ${this.mutationCores}`,
+          subtitle: tier === 3 ? `АПОФЕОЗ · ЯДРА: ${this.mutationCores}` : `${tier === 2 ? 'ПРОДОЛЖЕНИЕ' : 'МУТАЦИЯ'} · ЯДРА: ${this.mutationCores}`,
           description: tier === 3
             ? `Третий уровень ветви «${mutationDef(id, st.mutationUpgrade!).name}»: качественная трансформация, а не числовой бонус.`
             : tier === 2
@@ -5178,7 +5278,7 @@ export class Simulation {
         .map((id) => {
           const o = this.makeCatalystAdd(id);
           o.kind = 'elite';
-          o.subtitle = 'ELITE CACHE · новый закон связи';
+          o.subtitle = 'ТАЙНИК ЭЛИТЫ · новый закон связи';
           return o;
         });
     } else {
@@ -5188,7 +5288,7 @@ export class Simulation {
           const o = this.makeResonanceOffer(id);
           o.kind = 'elite';
           o.description =
-            'ELITE CACHE · усиление всей машины, а не конкретного оружия. ' + o.description;
+            'ТАЙНИК ЭЛИТЫ · усиление всей сборки, а не конкретного оружия. ' + o.description;
           return o;
         });
       if (this.skillOrderUnowned().length) {
@@ -5197,8 +5297,8 @@ export class Simulation {
           id: `elite-discover:${id}:${this.rng.nextU32()}`,
           kind: 'elite',
           title: skills[id].name,
-          subtitle: 'ELITE CACHE · альтернативный Phenomenon',
-          description: `Полноценная поздняя находка текущего Core Rank. ${skills[id].description}`,
+          subtitle: 'ТАЙНИК ЭЛИТЫ · альтернативный феномен',
+          description: `Поздняя находка сразу использует текущий уровень ядра. ${skills[id].description}`,
           skill: id
         });
       } else offers.push(this.makeGlobalOffer());
@@ -5591,6 +5691,10 @@ export class Simulation {
         facingX: e.facingX,
         facingZ: e.facingZ,
         telegraph: e.state === 'telegraph' ? Math.max(0, e.stateTimer / 0.72) : 0,
+        eliteAction: e.eliteAction,
+        eliteActionProgress: e.eliteActionUntil && e.eliteActionUntil > this.time
+          ? Math.max(0, Math.min(1, (e.eliteActionUntil - this.time) / 0.9))
+          : 0,
         linkedTo: e.linkedTo,
         revived: e.revived,
         buffed: e.buffUntil > this.time,
@@ -5716,7 +5820,7 @@ export class Simulation {
    * folded into the hash, so a stale baseline fails loudly instead of silently matching
    * a different layout. Never change the layout without bumping.
    */
-  static readonly CANONICAL_SCHEMA_VERSION = 3;
+  static readonly CANONICAL_SCHEMA_VERSION = 4;
 
   /**
    * Explicit, ordered schema of everything that defines a run.
@@ -5805,6 +5909,8 @@ export class Simulation {
         e.guardianPoi,
         e.adaptStage,
         e.adaptCooldown,
+        e.eliteAction ?? '-',
+        e.eliteActionUntil ?? 0,
         e.bossPhase,
         e.bossPattern,
         e.affixTimer,
