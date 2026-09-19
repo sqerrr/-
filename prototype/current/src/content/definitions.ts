@@ -710,14 +710,14 @@ export const skills: Record<SkillId, SkillDef> = {
         parent: 'mass_snowball',
         name: 'Груз',
         tag: 'комбо',
-        description: 'Corpses/Constructs на линии усиливают impact.'
+        description: 'Тела и созданные объекты на линии усиливают удар.'
       },
       {
         id: 'mass_terminal',
         parent: 'mass_rail',
         name: 'Предельная скорость',
         tag: 'связка',
-        description: 'Stored/Charge конвертируется в скорость и damage.'
+        description: 'Накопленный заряд превращается в скорость и урон.'
       },
       {
         id: 'mass_counterthrust',
@@ -1042,8 +1042,8 @@ export const skills: Record<SkillId, SkillDef> = {
     baseRadius: 0.45,
     baseCrit: 0.05,
     axes: ['conductivity', 'mobility'],
-    identity: 'Безопасно перестраивает толпу вокруг выбранной точки и готовит Rail/Frost/Chain.',
-    weakness: 'Сам по себе почти не убивает; ценность раскрывается через setup и Force.',
+    identity: 'Безопасно перестраивает толпу вокруг выбранной точки и готовит её под точный удар, заморозку или цепную молнию.',
+    weakness: 'Сам по себе почти не убивает; ценность раскрывается через подготовку целей и сильный импульс.',
     upgradePool: ['power', 'coverage', 'crit'],
     mutations: [
       {
@@ -1156,18 +1156,18 @@ export const skills: Record<SkillId, SkillDef> = {
  */
 const v011Apotheoses: Partial<Record<SkillId, MutationDef[]>> = {
   frost_ring: [
-    { id:'frost_glacier_heart', parent:'frost_skin', name:'Сердце ледника', tag:'АПОФЕОЗ · смерч', description:'Каждый Shatter выпускает движущийся ледяной смерч; он замораживает новую линию целей.', apotheosis:true },
-    { id:'frost_spirefall', parent:'frost_brittle', name:'Падение шпилей', tag:'АПОФЕОЗ · шипы', description:'Brittle/Shatter вызывает крест ледяных шпилей вокруг приоритетной цели.', apotheosis:true },
+    { id:'frost_glacier_heart', parent:'frost_skin', name:'Сердце ледника', tag:'АПОФЕОЗ · смерч', description:'Каждый раскол выпускает движущийся ледяной смерч; он замораживает новую линию целей.', apotheosis:true },
+    { id:'frost_spirefall', parent:'frost_brittle', name:'Падение шпилей', tag:'АПОФЕОЗ · шипы', description:'Раскол хрупкой цели вызывает крест ледяных шпилей вокруг неё.', apotheosis:true },
     { id:'frost_worldstorm', parent:'frost_whiteout', name:'Белый шторм', tag:'АПОФЕОЗ · фронт', description:'Фронт становится большим движущимся штормом, который проходит через значительную часть арены.', apotheosis:true }
   ],
   rail_spear: [
     { id:'rail_execution_line', parent:'rail_harpoon', name:'Казнящая тяга', tag:'АПОФЕОЗ · гарпун', description:'Гарпун фиксирует крупную цель и вызывает отложенный вертикальный удар в точку захвата.', apotheosis:true },
-    { id:'rail_sky_lance', parent:'rail_spot', name:'Небесное копьё', tag:'АПОФЕОЗ · приоритет', description:'Попадание по Mark создаёт заметный маяк; сверху падает отдельный мощный луч.', apotheosis:true },
+    { id:'rail_sky_lance', parent:'rail_spot', name:'Небесное копьё', tag:'АПОФЕОЗ · приоритет', description:'Попадание по цели с меткой создаёт заметный маяк; сверху падает отдельный мощный луч.', apotheosis:true },
     { id:'rail_lattice', parent:'rail_crossfire', name:'Лазерная решётка', tag:'АПОФЕОЗ · сеть', description:'После веера остаются две перекрёстные отложенные линии, повторно прорезающие пространство.', apotheosis:true }
   ],
   cleaver: [
-    { id:'cleaver_harvest_dance', parent:'cleaver_rhythm', name:'Танец жатвы', tag:'АПОФЕОЗ · цепь', description:'Убийство в ближнем бою запускает самостоятельный круговой добивающий взмах и Momentum.', apotheosis:true },
-    { id:'cleaver_rupture', parent:'cleaver_deep', name:'Разрыв плоти', tag:'АПОФЕОЗ · рана', description:'Глубокая Wound на элите накапливается и детонирует большим rupture вместо простого DoT.', apotheosis:true },
+    { id:'cleaver_harvest_dance', parent:'cleaver_rhythm', name:'Танец жатвы', tag:'АПОФЕОЗ · цепь', description:'Убийство в ближнем бою запускает самостоятельный круговой добивающий взмах и наращивает темп жатвы.', apotheosis:true },
+    { id:'cleaver_rupture', parent:'cleaver_deep', name:'Разрыв плоти', tag:'АПОФЕОЗ · рана', description:'Глубокая кровоточащая рана на элите накапливается и затем взрывается большим разрывом вместо обычного периодического урона.', apotheosis:true },
     { id:'cleaver_rift_hook', parent:'cleaver_chainhook', name:'Крюк разлома', tag:'АПОФЕОЗ · разлом', description:'Стянутые цели сходятся в точке удара, после чего наружу проходит большой режущий разлом.', apotheosis:true }
   ],
   chain_arc: [
@@ -1176,32 +1176,32 @@ const v011Apotheoses: Partial<Record<SkillId, MutationDef[]>> = {
     { id:'arc_closed_loop', parent:'arc_groundloop', name:'Замкнутый контур', tag:'АПОФЕОЗ · петля', description:'Последняя дуга возвращается к первой/приоритетной цели и замыкает мощный контур.', apotheosis:true }
   ],
   orbit_blades: [
-    { id:'orbit_aegis_crown', parent:'orbit_guard', name:'Корона эгиды', tag:'АПОФЕОЗ · защита', description:'Перехват projectile заряжает Barrier; полный заряд выпускает защитную shockwave.', apotheosis:true },
-    { id:'orbit_sanguine_crown', parent:'orbit_blood', name:'Кровавая корона', tag:'АПОФЕОЗ · кровь', description:'Wounded цели раздвигают орбиту и возвращают часть ближнего урона Barrier.', apotheosis:true },
-    { id:'orbit_phoenix', parent:'orbit_comet', name:'Фениксовый вылет', tag:'АПОФЕОЗ · возврат', description:'Часть лезвий физически вылетает к Mark/элите и возвращается, прорезая цели дважды.', apotheosis:true }
+    { id:'orbit_aegis_crown', parent:'orbit_guard', name:'Корона эгиды', tag:'АПОФЕОЗ · защита', description:'Перехват вражеского снаряда заряжает барьер; полный заряд выпускает защитную ударную волну.', apotheosis:true },
+    { id:'orbit_sanguine_crown', parent:'orbit_blood', name:'Кровавая корона', tag:'АПОФЕОЗ · кровь', description:'Раненые цели раздвигают орбиту и возвращают часть ближнего урона в виде барьера.', apotheosis:true },
+    { id:'orbit_phoenix', parent:'orbit_comet', name:'Фениксовый вылет', tag:'АПОФЕОЗ · возврат', description:'Часть лезвий физически вылетает к цели с меткой или элите и возвращается, прорезая цели дважды.', apotheosis:true }
   ],
   mortar_bloom: [
     { id:'mortar_gravity_field', parent:'mortar_crater', name:'Гравибомба', tag:'АПОФЕОЗ · поле', description:'После захода остаётся видимое поле, стягивающее толпу к эпицентру следующего сброса.', apotheosis:true },
     { id:'mortar_carpet', parent:'mortar_airburst', name:'Ковровый проход', tag:'АПОФЕОЗ · маршрут', description:'Бомбардир проходит над линией и сбрасывает серию разнесённых зарядов по траектории.', apotheosis:true },
-    { id:'mortar_hunter_pass', parent:'mortar_beacon', name:'Охотничий заход', tag:'АПОФЕОЗ · элита', description:'Marked elite получает три последовательных телеграфируемых захода с разных направлений.', apotheosis:true }
+    { id:'mortar_hunter_pass', parent:'mortar_beacon', name:'Охотничий заход', tag:'АПОФЕОЗ · элита', description:'Элита с меткой получает три последовательных, заранее показанных захода с разных направлений.', apotheosis:true }
   ],
   sentry: [
-    { id:'sentry_walker', parent:'sentry_crawler', name:'Ходячий бастион', tag:'АПОФЕОЗ · walker', description:'Турели собираются в подвижный кластер вокруг героя и создают короткие безопасные зоны.', apotheosis:true },
-    { id:'sentry_hunter_battery', parent:'sentry_salvager', name:'Охотничья батарея', tag:'АПОФЕОЗ · фокус', description:'Все турели синхронно Lock-on на Mark/элиту и периодически дают общий тяжёлый залп.', apotheosis:true },
+    { id:'sentry_walker', parent:'sentry_crawler', name:'Ходячий бастион', tag:'АПОФЕОЗ · бастион', description:'Турели собираются в подвижный кластер вокруг героя и создают короткие безопасные зоны.', apotheosis:true },
+    { id:'sentry_hunter_battery', parent:'sentry_salvager', name:'Охотничья батарея', tag:'АПОФЕОЗ · фокус', description:'Все турели одновременно захватывают цель с меткой или элиту и периодически дают общий тяжёлый залп.', apotheosis:true },
     { id:'sentry_gravity_grid', parent:'sentry_grid', name:'Грависеть', tag:'АПОФЕОЗ · сеть', description:'Соседние турели соединяются полями, которые тянут и повреждают противников между ними.', apotheosis:true }
   ],
   toxic_mist: [
     { id:'toxic_plague_road', parent:'toxic_plume', name:'Чумная дорога', tag:'АПОФЕОЗ · след', description:'Движение постоянно оставляет цепочку заражённых пятен; смерть переносит инфекцию дальше.', apotheosis:true },
-    { id:'toxic_septic_bloom', parent:'toxic_reactive', name:'Септический цветок', tag:'АПОФЕОЗ · детонация', description:'Съеденная Wound/Ignite детонирует Toxin вокруг цели и запускает цепную реакцию.', apotheosis:true },
+    { id:'toxic_septic_bloom', parent:'toxic_reactive', name:'Септический цветок', tag:'АПОФЕОЗ · детонация', description:'Поглощённое кровотечение или горение взрывает яд вокруг цели и запускает цепную реакцию.', apotheosis:true },
     { id:'toxic_pestilent_host', parent:'toxic_still', name:'Носитель мора', tag:'АПОФЕОЗ · сущность', description:'Плотное облако отделяется от героя и медленно преследует ближайшую элиту как самостоятельный объект.', apotheosis:true }
   ],
   mass_driver: [
-    { id:'mass_avalanche', parent:'mass_cargo', name:'Лавина', tag:'АПОФЕОЗ · масса', description:'Могильный вал физически растёт после каждого тела и куска разрушенного cover.', apotheosis:true },
-    { id:'mass_singularity', parent:'mass_terminal', name:'Терминальная масса', tag:'АПОФЕОЗ · коллапс', description:'В конце пути вал схлопывается в тяжёлый взрыв Force, особенно опасный для элиты.', apotheosis:true },
-    { id:'mass_comet_recoil', parent:'mass_counterthrust', name:'Кометная контртяга', tag:'АПОФЕОЗ · манёвр', description:'Запуск резко отбрасывает героя назад, даёт короткое defensive-window и выпускает сверхтяжёлый вал.', apotheosis:true }
+    { id:'mass_avalanche', parent:'mass_cargo', name:'Лавина', tag:'АПОФЕОЗ · масса', description:'Могильный вал физически растёт после каждого тела и куска разрушенного укрытия.', apotheosis:true },
+    { id:'mass_singularity', parent:'mass_terminal', name:'Терминальная масса', tag:'АПОФЕОЗ · коллапс', description:'В конце пути вал схлопывается в тяжёлый импульсный взрыв, особенно опасный для элиты.', apotheosis:true },
+    { id:'mass_comet_recoil', parent:'mass_counterthrust', name:'Кометная контртяга', tag:'АПОФЕОЗ · манёвр', description:'Запуск резко отбрасывает героя назад, даёт короткое защитное окно и выпускает сверхтяжёлый вал.', apotheosis:true }
   ],
   shard_fan: [
-    { id:'returner_execution', parent:'fan_needle', name:'Охотничий возврат', tag:'АПОФЕОЗ · элита', description:'Возвратный клинок цепляется за Mark/элиту и возвращается через неё после короткой задержки.', apotheosis:true },
+    { id:'returner_execution', parent:'fan_needle', name:'Охотничий возврат', tag:'АПОФЕОЗ · элита', description:'Возвратный клинок цепляется за цель с меткой или элиту и возвращается через неё после короткой задержки.', apotheosis:true },
     { id:'returner_carousel', parent:'fan_storm', name:'Карусель', tag:'АПОФЕОЗ · маршрут', description:'На пределе клинки делают полный оборот вокруг точки и только затем возвращаются.', apotheosis:true },
     { id:'returner_phoenix', parent:'fan_cinder', name:'Феникс возврата', tag:'АПОФЕОЗ · след', description:'Оба прохода оставляют огненный след; встреча исходящего и обратного пути вызывает burst.', apotheosis:true }
   ],
