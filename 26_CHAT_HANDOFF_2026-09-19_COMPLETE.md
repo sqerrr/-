@@ -1,3 +1,5 @@
+> **ARCHIVED / HISTORICAL:** historical completed handoff; current implementation is newer. Current entry point: `00_START_HERE.md`.
+
 # CHAT HANDOFF — 2026-09-19, после завершения технических долгов
 
 Читать вместе с `21_SLICE_DECISIONS_2026-09-18.md`, `23_DISPUTED_QUESTIONS_LOG.md` и последним разделом `24_BUILD_PROGRESS_2026-09-19.md`.
