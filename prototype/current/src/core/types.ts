@@ -230,6 +230,22 @@ export interface RewardOffer {
   before?: string;
   after?: string;
 }
+/** D7/D8: a card the hero declined that the elites may now field against them. */
+export type RefusalKind = 'skill' | 'catalyst' | 'axis' | 'global';
+export interface RefusedCard {
+  /** Order of concession within the run; 1 is the earliest. */
+  serial: number;
+  kind: RefusalKind;
+  title: string;
+  icon: string;
+  skill?: SkillId;
+  catalyst?: CatalystId;
+  resonance?: ResonanceId;
+  stat?: string;
+  amount?: number;
+  /** Entity id of the elite currently fielding the card, or 0 while it sits unclaimed. */
+  heldBy: number;
+}
 export interface MutationOffer {
   skill: SkillId;
   choices: MutationId[];
@@ -270,6 +286,7 @@ export interface Snapshot {
   eliteCore: number;
   mutationCores: number;
   rewardOffers: RewardOffer[] | null;
+  refusals: RefusedCard[];
   mutationOffer: MutationOffer | null;
   rerolls: number;
   choiceSerial: number;
@@ -371,6 +388,7 @@ export type GameEvent =
   | { type: 'LevelUp'; tick: number; level: number }
   | { type: 'MutationChosen'; tick: number; skill: SkillId; mutation: MutationId }
   | { type: 'RewardChosen'; tick: number; title: string }
+  | { type: 'RewardRefused'; tick: number; title: string; kind: RefusalKind; serial: number }
   | { type: 'PlayerHit'; tick: number; amount: number; x: number; z: number }
   | { type: 'EnemyRevived'; tick: number; entity: number; x: number; z: number }
   | {

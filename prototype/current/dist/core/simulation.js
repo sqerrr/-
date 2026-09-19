@@ -256,10 +256,22 @@ export class Simulation {
     topologyGuard = false;
     feedbackCountBonus = new Map();
     damageSamples = [];
+    /**
+     * Cards the hero declined, in concession order. Elites draw their repertoire from here,
+     * and D11 returns a dead elite's cards to the same store rather than destroying them.
+     */
+    refusalStore = [];
+    refusalSerial = 0;
+    /**
+     * Dedicated stream for deciding which declined card is conceded. Keeping it apart from
+     * the combat stream means recording a refusal can never perturb the fight.
+     */
+    refusalRng;
     constructor(cfg) {
         this.hz = cfg.hz;
         this.dt = 1 / cfg.hz;
         this.rng = new Rng(cfg.seed);
+        this.refusalRng = new Rng((cfg.seed ^ 0x5bf03635) >>> 0);
         this.runDuration = cfg.runDuration ?? 480;
         this.benchmark = !!cfg.benchmark;
         this.mode = cfg.mode ?? 'clean';
@@ -3401,8 +3413,9 @@ export class Simulation {
         return true;
     }
     chooseReward(index) {
-        const offer = this.rewardOffers?.[index];
-        if (!offer)
+        const offers = this.rewardOffers;
+        const offer = offers?.[index];
+        if (!offers || !offer)
             return false;
         this.rewardOffers = null;
         if (offer.kind === 'mutation_target' && offer.skill) {
@@ -3424,7 +3437,44 @@ export class Simulation {
         else
             this.applyGlobal(offer.stat, offer.amount ?? 0);
         this.events.push({ type: 'RewardChosen', tick: this.tick, title: offer.title });
+        this.concedeRefusal(offers.filter((o) => o !== offer));
         return true;
+    }
+    /**
+     * D7: of the cards the hero passed over, exactly one is conceded to the elites and the
+     * rest simply remain in the pool. D53 applies the same rule to a skipped reward.
+     */
+    concedeRefusal(passed) {
+        const cards = passed.map((o) => this.refusalFromOffer(o)).filter((c) => !!c);
+        if (!cards.length)
+            return;
+        const card = cards[this.refusalRng.int(cards.length)];
+        card.serial = ++this.refusalSerial;
+        this.refusalStore.push(card);
+        this.events.push({
+            type: 'RewardRefused',
+            tick: this.tick,
+            title: card.title,
+            kind: card.kind,
+            serial: card.serial
+        });
+    }
+    refusalFromOffer(o) {
+        const base = { serial: 0, title: o.title, heldBy: 0 };
+        if (o.skill)
+            return { ...base, kind: 'skill', icon: skills[o.skill].icon, skill: o.skill };
+        if (o.catalyst)
+            return {
+                ...base,
+                kind: 'catalyst',
+                icon: catalysts[o.catalyst].shortName,
+                catalyst: o.catalyst
+            };
+        if (o.resonance)
+            return { ...base, kind: 'axis', icon: 'A', resonance: o.resonance, amount: o.amount ?? 1 };
+        if (o.stat)
+            return { ...base, kind: 'global', icon: 'G', stat: o.stat, amount: o.amount ?? 0 };
+        return null;
     }
     applyCoreAxis(axis, amount = 1) {
         this.resonance[axis] += amount;
@@ -3510,9 +3560,11 @@ export class Simulation {
         if (!this.rewardOffers ||
             this.rewardOffers.some((o) => o.kind === 'elite' || o.kind === 'mutation_target' || o.kind === 'skill_add'))
             return false;
+        const passed = this.rewardOffers;
         this.rewardOffers = null;
         this.xp += this.xpNeed * 0.3;
         this.events.push({ type: 'RewardChosen', tick: this.tick, title: 'Пропуск награды' });
+        this.concedeRefusal(passed);
         return true;
     }
     isActiveSkill(id) {
@@ -3704,6 +3756,7 @@ export class Simulation {
             eliteCore: this.eliteCore,
             mutationCores: this.mutationCores,
             rewardOffers: this.rewardOffers ? this.rewardOffers.map((o) => ({ ...o })) : null,
+            refusals: this.refusalStore.map((c) => ({ ...c })),
             mutationOffer: this.mutationOffer
                 ? {
                     skill: this.mutationOffer.skill,
