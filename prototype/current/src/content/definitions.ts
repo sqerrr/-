@@ -1247,6 +1247,11 @@ export const activeSkillOrder: SkillId[] = [
   'sentry', 'toxic_mist', 'mass_driver', 'shard_fan', 'tether_drag'
 ];
 
+/** Compatibility-only definitions for old seeds/replays. Never offer these through Discovery or use them as live test fixtures. */
+export const legacySkillOrder: SkillId[] = [
+  'ember_lance', 'repulse_halo', 'breach_line', 'contact_saw', 'backhand', 'spreading_front', 'pin_burst'
+];
+
 export const skillOrder: SkillId[] = [
   'ember_lance',
   'frost_ring',
@@ -1267,7 +1272,7 @@ export const skillOrder: SkillId[] = [
   'tether_drag',
   'pin_burst'
 ];
-// v0.9 showcase is deliberately limited to eight visually distinct Phenomena. Clean Run overrides these arrays.
+// Showcase preload uses only active Phenomena; Clean Run starts from the selected active Phenomenon and world acquisition.
 export const initialSlots: (SkillId | null)[] = [
   'frost_ring',
   'rail_spear',
@@ -1453,7 +1458,7 @@ export const initialCatalystReserve: (CatalystId | null)[] = [
   'conduit',
   'aegis_relay'
 ];
-// v0.9 slice: operators with visible topology/causality. Scalar-only stones stay defined for compatibility but are outside discovery.
+// Discovery uses operators with visible topology/causality. Scalar-only compatibility stones remain defined but are not offered.
 export const catalystOrder: CatalystId[] = [
   'recoil',
   'focus',

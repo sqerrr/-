@@ -349,259 +349,18 @@ export class WebGLRenderer {
         continue;
       }
       if (e.type === 'skillCast') {
-        const evo = mutated(e.skill),
-          st = s?.skills.find((x) => x.id === e.skill),
-          multi = s?.resonance.multiplicity ?? 0,
-          scale = 1;
-        const geom = st ? (st.level >= 6 ? 1.28 : st.level >= 3 ? 1.12 : 1) : 1;
-        if (e.skill === 'ember_lance') {
-          const n = Math.max(
-              1,
-              Math.round(st?.count ?? 1) + (st && st.level >= 7 ? 1 : 0) + Math.min(3, multi)
-            ),
-            range =
-              skills.ember_lance.baseRange *
-              (1 + (st?.range ?? 0)) *
-              (st && st.level >= 6 ? 1.16 : st && st.level >= 3 ? 1.07 : 1);
-          for (let i = 0; i < n; i++) {
-            const a = (i - (n - 1) / 2) * 0.085,
-              c = Math.cos(a),
-              q = Math.sin(a),
-              ax = e.aimX * c - e.aimZ * q,
-              az = e.aimX * q + e.aimZ * c;
-            this.fx.push({
-              kind: 'bolt',
-              start: time + i * 0.018,
-              ttl: 0.24,
-              x1: e.x,
-              z1: e.z,
-              x2: e.x + ax * range,
-              z2: e.z + az * range,
-              r: 0.22 + (st?.coverage ?? 0) * 0.08,
-              color: rgba(evo ? '#ffd06f' : '#ff8a34', 0.95)
-            });
-            this.fx.push({
-              kind: 'beam',
-              start: time + i * 0.018,
-              ttl: 0.15,
-              x1: e.x,
-              z1: e.z,
-              x2: e.x + ax * range,
-              z2: e.z + az * range,
-              width: evo ? 4 : 2,
-              color: rgba('#ff9a45', 0.2)
-            });
-          }
-        }
-        if (e.skill === 'rail_spear') {
-          this.fx.push({
-            kind: 'beam',
-            start: time,
-            ttl: evo ? 0.38 : 0.26,
-            x1: e.x,
-            z1: e.z,
-            x2: e.x + e.aimX * (evo ? 21 : 17),
-            z2: e.z + e.aimZ * (evo ? 21 : 17),
-            width: evo ? 17 : 11,
-            color: rgba(evo ? '#ff77d5' : '#ff4fba', evo ? 0.78 : 0.62)
-          });
-          if (evo)
-            this.fx.push({
-              kind: 'ring',
-              start: time,
-              ttl: 0.34,
-              x: e.x,
-              z: e.z,
-              r: 1.25,
-              color: rgba('#ffc6ef', 0.8)
-            });
-        }
-        if (e.skill === 'frost_ring') {
-          const r =
-              skills.frost_ring.baseRadius * Math.sqrt(1 + (st?.coverage ?? 0)) * geom * scale,
-            waves = 1 + Math.min(2, multi);
-          for (let i = 0; i < waves; i++) {
-            const rr = r * (1 + i * 0.17);
-            this.fx.push({
-              kind: 'ring',
-              start: time + i * 0.1,
-              ttl: 0.62 + i * 0.06,
-              x: e.x,
-              z: e.z,
-              r: rr,
-              color: rgba(i ? '#c8f5ff' : '#78d7ff', i ? 0.65 : 0.96)
-            });
-          }
-          this.fx.push({
-            kind: 'pulse',
-            start: time + 0.04,
-            ttl: 0.42,
-            x: e.x,
-            z: e.z,
-            r: r * 0.72,
-            color: rgba('#d7f7ff', 0.3)
-          });
-        }
+        // Simulation is the only authority for attack geometry and multiplicity.
+        // CombatShape events, projectiles, fields and constructs below carry the real count,
+        // mutation continuation, Doctrine Quantity and Catalyst-derived bonuses. A cast cue is
+        // therefore deliberately only an origin/body accent; it must never re-simulate N rays.
+        const accent = skills[e.skill]?.color ?? '#dce8f2';
         if (e.skill === 'cleaver') {
-          const r = skills.cleaver.baseRadius * Math.sqrt(1 + (st?.coverage ?? 0)) * geom * scale,
-            sweeps = 1 + Math.min(2, multi);
-          for (let i = 0; i < sweeps; i++)
-            this.fx.push({
-              kind: 'slash',
-              start: time + i * 0.075,
-              ttl: 0.32,
-              x: e.x,
-              z: e.z,
-              aimX: e.aimX,
-              aimZ: e.aimZ,
-              r: r * (1 + i * 0.05),
-              color: rgba(i ? '#ffd3ab' : '#f4f0e8', i ? 0.5 : 0.96)
-            });
-        }
-        if (e.skill === 'orbit_blades') {
-          const r =
-            skills.orbit_blades.baseRadius * Math.sqrt(1 + (st?.coverage ?? 0)) * geom * scale;
-          this.fx.push({
-            kind: 'ring',
-            start: time,
-            ttl: 0.34,
-            x: e.x,
-            z: e.z,
-            r,
-            color: rgba(evo ? '#88fff1' : '#60e6bd', 0.7)
-          });
-        }
-        if (e.skill === 'mortar_bloom') {
-          const range = skills.mortar_bloom.baseRange * (1 + (st?.range ?? 0)),
-            d = Math.min(range * 0.72, 12.5),
-            tx = e.x + e.aimX * d,
-            tz = e.z + e.aimZ * d,
-            r = skills.mortar_bloom.baseRadius * Math.sqrt(1 + (st?.coverage ?? 0)) * geom * scale,
-            n = Math.max(1, Math.round(st?.count ?? 1) + Math.min(3, multi));
-          for (let i = 0; i < n; i++) {
-            const a = i ? i * 2.399 : 0,
-              rr = i ? Math.min(1.4, r * 0.38) : 0;
-            this.fx.push({
-              kind: 'ring',
-              start: time + i * 0.045,
-              ttl: 0.82,
-              x: tx + Math.cos(a) * rr,
-              z: tz + Math.sin(a) * rr,
-              r,
-              color: rgba('#ffb16a', i ? 0.62 : 0.92)
-            });
-          }
-          this.fx.push({
-            kind: 'beam',
-            start: time,
-            ttl: 0.48,
-            x1: e.x,
-            z1: e.z,
-            x2: tx,
-            z2: tz,
-            width: 2,
-            color: rgba('#ffcb91', 0.36)
-          });
-        }
-        if (e.skill === 'sentry') {
-          this.fx.push({
-            kind: 'pulse',
-            start: time,
-            ttl: 0.42,
-            x: e.x,
-            z: e.z,
-            r: 1.4 + Math.min(1.2, multi * 0.24),
-            color: rgba('#5be7c5', 0.72)
-          });
-        }
-        if (e.skill === 'toxic_mist') {
-          const r =
-            skills.toxic_mist.baseRadius * Math.sqrt(1 + (st?.coverage ?? 0)) * geom * scale;
-          this.fx.push({
-            kind: 'ring',
-            start: time,
-            ttl: 0.72,
-            x: e.x,
-            z: e.z,
-            r,
-            color: rgba('#78df6e', 0.62)
-          });
-          if (multi)
-            this.fx.push({
-              kind: 'ring',
-              start: time + 0.1,
-              ttl: 0.82,
-              x: e.x - e.aimX * 0.8,
-              z: e.z - e.aimZ * 0.8,
-              r: r * 0.82,
-              color: rgba('#b2ff77', 0.34)
-            });
-        }
-        if (e.skill === 'chain_arc') {
-          this.fx.push({ kind: 'pulse', start: time, ttl: 0.26, x: e.x, z: e.z, r: 1.25, color: rgba('#6edcff', 0.72) });
-          this.fx.push({ kind: 'ring', start: time, ttl: 0.44, x: e.x, z: e.z, r: 2.0, color: rgba('#b8f2ff', 0.72) });
-        }
-        if (e.skill === 'shard_fan') {
-          this.fx.push({ kind: 'ring', start: time, ttl: 0.36, x: e.x, z: e.z, r: 1.35, color: rgba('#ffcf82', 0.82) });
-          this.fx.push({ kind: 'beam', start: time, ttl: 0.25, x1: e.x, z1: e.z, x2: e.x + e.aimX * 5.0, z2: e.z + e.aimZ * 5.0, width: 3, color: rgba('#ffd9a6', 0.36) });
-        }
-        if (e.skill === 'tether_drag') {
-          const tx = e.x + e.aimX * 7.0, tz = e.z + e.aimZ * 7.0;
-          this.fx.push({ kind: 'beam', start: time, ttl: 0.34, x1: e.x, z1: e.z, x2: tx, z2: tz, width: 2, color: rgba('#c597ff', 0.55) });
-          this.fx.push({ kind: 'ring', start: time, ttl: 0.54, x: tx, z: tz, r: 1.8, color: rgba('#b079ff', 0.85) });
-        }
-        if (e.skill === 'repulse_halo') {
-          this.fx.push({
-            kind: 'ring',
-            start: time,
-            ttl: evo ? 0.62 : 0.44,
-            x: e.x,
-            z: e.z,
-            r: evo ? 3.8 : 3.0,
-            color: rgba(evo ? '#b9f5ff' : '#78dfff', 0.88)
-          });
-          this.fx.push({
-            kind: 'pulse',
-            start: time + 0.03,
-            ttl: evo ? 0.48 : 0.32,
-            x: e.x,
-            z: e.z,
-            r: evo ? 2.5 : 1.8,
-            color: rgba('#7fd6ff', 0.28)
-          });
-        }
-        if (e.skill === 'mass_driver') {
-          // Grave Roller is a physical body. The cast animation only shows the shove/launch;
-          // the moving projectile below owns the rest of the route, so we never fake a hitscan beam.
-          this.fx.push({
-            kind: 'beam',
-            start: time,
-            ttl: evo ? 0.3 : 0.22,
-            x1: e.x - e.aimX * 0.45,
-            z1: e.z - e.aimZ * 0.45,
-            x2: e.x + e.aimX * 2.6,
-            z2: e.z + e.aimZ * 2.6,
-            width: evo ? 11 : 7,
-            color: rgba(evo ? '#ffd26f' : '#b76cff', evo ? 0.68 : 0.48)
-          });
-          this.fx.push({
-            kind: 'pulse',
-            start: time,
-            ttl: evo ? 0.5 : 0.36,
-            x: e.x,
-            z: e.z,
-            r: evo ? 2.0 : 1.25,
-            color: rgba(evo ? '#ffe1a4' : '#d9b4ff', 0.84)
-          });
-          this.fx.push({
-            kind: 'ring',
-            start: time + 0.04,
-            ttl: 0.46,
-            x: e.x - e.aimX * 0.55,
-            z: e.z - e.aimZ * 0.55,
-            r: evo ? 1.55 : 1.05,
-            color: rgba('#f0c9ff', 0.58)
-          });
+          this.fx.push({ kind:'slash', start:time, ttl:0.24, x:e.x, z:e.z, aimX:e.aimX, aimZ:e.aimZ, r:1.15, color:rgba(accent,0.82) });
+        } else if (e.skill === 'rail_spear' || e.skill === 'mortar_bloom' || e.skill === 'mass_driver' || e.skill === 'shard_fan' || e.skill === 'tether_drag') {
+          this.fx.push({ kind:'pulse', start:time, ttl:0.22, x:e.x, z:e.z, r:0.9, color:rgba(accent,0.78) });
+          this.fx.push({ kind:'beam', start:time, ttl:0.12, x1:e.x, z1:e.z, x2:e.x+e.aimX*1.45, z2:e.z+e.aimZ*1.45, width:2.4, color:rgba(accent,0.42) });
+        } else {
+          this.fx.push({ kind:'pulse', start:time, ttl:0.24, x:e.x, z:e.z, r:1.0, color:rgba(accent,0.7) });
         }
       } else if (e.type === 'catalyst') {
         const color = rgba(catalysts[e.catalyst].color, 0.92);
@@ -976,11 +735,19 @@ export class WebGLRenderer {
         shapes.push({ x: p.x, z: p.z, r: Math.max(0.16, p.radius * 1.35), mode: 0, color });
         shapes.push({ x: p.x, z: p.z, r: Math.max(0.28, p.radius * 2.15), mode: 1, color: [color[0], color[1], color[2], p.guarded ? 0.24 : 0.48] });
       }
+      if (p.apotheosis === 'returner_phoenix' || p.apotheosis === 'orbit_phoenix') {
+        const fire = rgba('#ffb04d', p.faction === 'rival' ? 0.52 : 0.72);
+        shapes.push({ x:p.x, z:p.z, r:Math.max(0.55,p.radius*3.0), mode:1, color:fire });
+      }
+      if (p.carousel) {
+        const rr=Math.max(0.42,p.radius*2.5)*(1+0.12*Math.sin(s.time*9+p.id));
+        shapes.push({ x:p.x, z:p.z, r:rr, mode:1, color:rgba('#ffd68a',0.58) });
+      }
       if (p.faction === 'rival')
-        shapes.push({ x: p.x, z: p.z, r: Math.max(0.4, p.radius * 2.8), mode: 1, color: rgba('#ff5d63', 0.42) });
+        shapes.push({ x: p.x, z: p.z, r: Math.max(0.4, p.radius * 2.8), mode: 1, color: rgba('#ff5d63', 0.54) });
     }
     for (const f of s.fields) {
-      const c =
+      const friendly =
         f.kind === 'ink'
           ? rgba('#5a245f', 0.42)
           : f.kind === 'fire'
@@ -995,15 +762,21 @@ export class WebGLRenderer {
                     ? rgba('#aa5de8', 0.3)
                     : f.kind === 'veil'
                       ? rgba('#665a8f', 0.38)
-                      : rgba('#62aaff', 0.24);
-      shapes.push({ x: f.x, z: f.z, r: f.radius, mode: 0, color: c });
-      shapes.push({
-        x: f.x,
-        z: f.z,
-        r: f.radius,
-        mode: 1,
-        color: [c[0], c[1], c[2], Math.min(0.42, c[3] + 0.1)]
-      });
+                      : rgba('#62aaff', 0.24),
+        hostile=f.faction === 'rival',
+        fill=hostile ? [friendly[0]*0.72+0.28, friendly[1]*0.45, friendly[2]*0.45, Math.max(0.28,friendly[3])] as [number,number,number,number] : friendly;
+      shapes.push({ x: f.x, z: f.z, r: f.radius, mode: 0, color: fill });
+      shapes.push({ x: f.x, z: f.z, r: f.radius, mode: 1, color: hostile ? rgba('#ff4050',0.82) : [fill[0],fill[1],fill[2],Math.min(0.42,fill[3]+0.1)] });
+      if(hostile) shapes.push({x:f.x,z:f.z,r:f.radius*0.78,mode:1,color:rgba('#ff8a82',0.42)});
+      if(f.behavior==='host') {
+        const pulse=1+0.07*Math.sin(s.time*6.5+f.id);
+        shapes.push({x:f.x,z:f.z,r:f.radius*0.56*pulse,mode:1,color:rgba('#c8ff75',0.58)});
+        shapes.push({x:f.x,z:f.z,r:f.radius*0.24*(2-pulse),mode:0,color:rgba('#85df64',0.3)});
+      }
+      if(f.source==='mortar_bloom' && f.kind==='arc')
+        shapes.push({x:f.x,z:f.z,r:f.radius*0.68,mode:1,color:rgba('#c58cff',hostile?0.72:0.5)});
+      if(f.source==='shard_fan' && f.kind==='fire')
+        shapes.push({x:f.x,z:f.z,r:f.radius*0.72,mode:1,color:rgba('#ffc05d',0.5)});
     }
     for (const f of this.combatFx) {
       const t = (s.time - f.start) / f.ttl;
@@ -1102,6 +875,24 @@ export class WebGLRenderer {
           color: rgba('#ff525e', 0.92)
         });
         shapes.push({ x: e.x, z: e.z, r: 8.5, mode: 1, color: rgba('#ff525e', 0.15) });
+      }
+      if (e.elite && e.affix === 'volatile') {
+        // Volatile identity is amber while stable; the actual death burst uses the universal red tell.
+        const pulse=0.5+0.5*Math.sin(s.time*10+e.id);
+        for(let i=0;i<3;i++){const a=s.time*1.8+i*Math.PI*2/3;shapes.push({x:e.x+Math.cos(a)*(e.radius+0.55),z:e.z+Math.sin(a)*(e.radius+0.55),r:0.12+0.05*pulse,mode:0,color:rgba('#ff9b45',0.84)});}
+        shapes.push({x:e.x,z:e.z,r:e.radius+0.7+0.08*pulse,mode:1,color:rgba('#ffb05b',0.52)});
+      }
+      if (e.elite && e.affix === 'regenerating') {
+        const a=e.regenerating?0.82:0.32,pulse=1+0.08*Math.sin(s.time*5+e.id);
+        shapes.push({x:e.x,z:e.z,r:(e.radius+0.65)*pulse,mode:1,color:rgba('#77ef95',a)});
+        if(e.regenerating) shapes.push({x:e.x,z:e.z,r:e.radius+1.05,mode:1,color:rgba('#c2ffd0',0.46)});
+      }
+      // Compatibility-only affixes remain visually distinct for old seeded replays/saves.
+      if (e.elite && e.affix === 'swift')
+        shapes.push({x:e.x,z:e.z,r:e.radius+0.55+0.11*Math.sin(s.time*12),mode:1,color:rgba('#f2f2ff',0.52)});
+      if (e.elite && e.affix === 'dense') {
+        shapes.push({x:e.x,z:e.z,r:e.radius+0.42,mode:0,color:rgba('#756d7c',0.28)});
+        shapes.push({x:e.x,z:e.z,r:e.radius+0.78,mode:1,color:rgba('#b1a8b9',0.42)});
       }
       if (e.elite && e.affix === 'shielded') {
         const sx = e.x + Math.cos(e.shieldAngle) * 1.1,
@@ -1722,7 +1513,16 @@ export class WebGLRenderer {
       const cell = p.kind === 'mutation' ? cellFor.core : cellFor[p.kind];
       add(p.x, p.z, size, size, cell, [1, 1, 1, 0.98]);
     }
-    for (const c of s.constructs) add(c.x, c.z, 58, 68, cellFor.sentry, [1, 1, 1, 0.95]);
+    for (const c of s.constructs) {
+      const walker=c.mutationApotheosis==='sentry_walker',
+        battery=c.mutationApotheosis==='sentry_hunter_battery',
+        grid=c.mutationApotheosis==='sentry_gravity_grid',
+        crawler=c.mutation==='sentry_crawler'||c.mutationUpgrade==='sentry_crawler',
+        hostile=c.faction==='rival',
+        scale=walker?1.28:battery?1.16:grid?1.12:crawler?0.92:1,
+        tint:[number,number,number,number]=hostile?[1.35,0.42,0.4,0.98]:battery?[1.2,1.05,0.58,0.98]:grid?[0.72,0.76,1.35,0.98]:walker?[0.72,1.3,1.12,0.98]:[1,1,1,0.95];
+      add(c.x,c.z,58*scale,68*scale,cellFor.sentry,tint);
+    }
 
     const hitById = new Map(presentation.hits.map((h) => [h.entity, h]));
     for (const e of s.entities) {
@@ -1781,27 +1581,22 @@ export class WebGLRenderer {
       addVisual(x, z, w, h, v, [1.12, warm, warm, alpha], v.flip);
     }
 
-    const orbit = s.skills.find((x) => x.id === 'orbit_blades');
-    if (orbit) {
-      let n = 3 + Math.max(0, Math.round(orbit.count) - 1) + s.resonance.multiplicity;
-      if (orbit.level >= 4) n++;
-      if (orbit.level >= 7) n++;
-      if (orbit.mutation === 'orbit_many') n += 3;
-      if (orbit.mutation === 'orbit_saw')
-        n = Math.max(2, 2 + Math.max(0, Math.round(orbit.count) - 1) + s.resonance.multiplicity);
-      n = Math.min(12, n);
-      const geom = orbit.level >= 6 ? 1.28 : orbit.level >= 3 ? 1.12 : 1,
-        rad = skills.orbit_blades.baseRadius * Math.sqrt(1 + orbit.coverage) * geom;
+    if (s.orbit.active && s.orbit.count > 0) {
+      const n=s.orbit.count, rad=s.orbit.radius,
+        saw=s.orbit.mutation==='orbit_saw',
+        guard=s.orbit.mutation==='orbit_many'||s.orbit.apotheosis==='orbit_aegis_crown',
+        sanguine=s.orbit.apotheosis==='orbit_sanguine_crown';
       for (let i = 0; i < n; i++) {
-        const a = s.time * 3.4 + (i * Math.PI * 2) / n;
+        const a = s.time * (saw?2.55:3.4) + (i * Math.PI * 2) / n,
+          pulse=1+0.07*Math.sin(s.time*8+i);
         add(
           s.player.x + Math.cos(a) * rad,
           s.player.z + Math.sin(a) * rad,
-          13,
-          28,
+          (saw?19:13)*pulse,
+          (saw?38:28)*pulse,
           cellFor.white,
-          [0.45, 1, 0.82, 0.92],
-          0
+          sanguine?[1.0,0.5,0.55,0.96]:guard?[0.52,1.0,0.92,0.95]:[0.45,1,0.82,0.92],
+          a>Math.PI/2&&a<Math.PI*1.5?1:0
         );
       }
     }
@@ -1830,7 +1625,7 @@ export class WebGLRenderer {
         );
       }
     }
-    // Keep the v0.9 locomotion fix: auto-attacks do not restart the dirty 4-frame cast strip.
+    // Auto-attacks do not restart locomotion; canonical combat VFX carry attack readability.
     // Weapon VFX and canonical combat geometry carry the attack readability instead.
     const playerPulse = 1 + 0.008 * Math.sin(s.time * 4.0),
       moved = Math.hypot(s.player.x - this.lastPlayerX, s.player.z - this.lastPlayerZ) > 0.002,

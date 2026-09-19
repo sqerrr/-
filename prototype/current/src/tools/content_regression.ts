@@ -1,5 +1,6 @@
 import {
   activeSkillOrder,
+  legacySkillOrder,
   catalystOrder,
   catalysts,
   mutationChildren,
@@ -36,7 +37,12 @@ for (const id of activeSkillOrder) {
     if (!tier3[0].name || !tier3[0].description) fail(`${id}/${tier3[0].id}: Apotheosis needs name/description`);
   }
 }
-// Legacy definitions may remain for save/code compatibility, but discovery must only use the active roster.
+// Compatibility definitions are explicit, disjoint and must never leak into the active Discovery roster.
+if (legacySkillOrder.length !== 7) fail(`unexpected compatibility roster size: ${legacySkillOrder.length}`);
+for (const id of legacySkillOrder) {
+  if (activeSkillOrder.includes(id)) fail(`${id}: compatibility Phenomenon leaked into active roster`);
+  if (!skillOrder.includes(id)) fail(`${id}: compatibility definition missing from canonical order`);
+}
 for (const id of activeSkillOrder) if (!skillOrder.includes(id)) fail(`${id}: active skill missing from canonical definitions order`);
 for (const id of Object.keys(skills) as SkillId[]) {
   const mids = skills[id].mutations.map((m) => m.id);
@@ -57,7 +63,7 @@ for (const id of resonanceOrder) if (!resonance[id]) fail(`missing growth direct
 
 console.log('content-regression OK', {
   activeSkills: activeSkillOrder.length,
-  legacyDefinitions: skillOrder.length - activeSkillOrder.length,
+  legacyDefinitions: legacySkillOrder.length,
   activeMutations: activeSkillOrder.reduce((n,id)=>n+skills[id].mutations.length,0),
   apotheoses: activeSkillOrder.reduce((n,id)=>n+skills[id].mutations.filter(m=>m.apotheosis).length,0),
   catalysts: catalystOrder.length

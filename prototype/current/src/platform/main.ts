@@ -53,10 +53,6 @@ const keys = new Set<string>();
 let aim = { x: 1, z: -1 };
 let chainSignature = '',
   plannerSignature = '';
-const log: string[] = [];
-let fps = 60,
-  fpsFrames = 0,
-  fpsLast = performance.now();
 let eliteAlertToken = 0,
   rareAlertUntil = 0;
 const seenCatalystTriggers = new Set<string>();
@@ -125,7 +121,7 @@ function modalState() {
 }
 async function copyDebugLog() {
   const text = [
-    'Roguelike v0.9 POWER & ASSEMBLY DEBUG',
+    'Black Archive v0.11.3 · debug',
     navigator.userAgent,
     location.href,
     '',
@@ -197,9 +193,8 @@ function esc(s: string) {
   );
 }
 function pushLog(t: string) {
-  log.unshift(t);
-  if (log.length > 6) log.pop();
-  $('eventLog').innerHTML = log.map((x) => `<div class="event">${esc(x)}</div>`).join('');
+  // Former on-screen event log is retired; useful diagnostics remain available through F8.
+  dbg('GAME', { text: t });
 }
 // D17. The dash is edge triggered: holding the key does not keep dashing, and the
 // request survives until a simulation step consumes it, so a press between two
@@ -331,7 +326,6 @@ function restart() {
   aim = { x: 1, z: -1 };
   last = performance.now();
   acc = 0;
-  log.length = 0;
   seenCatalystTriggers.clear();
   combatFloats.length = 0;
   chainSignature = '';
@@ -1214,8 +1208,6 @@ function updateUi(s: Snapshot) {
       ? 'ХРАНИТЕЛЬ УНИЧТОЖЕН'
       : `ФИНАЛ · ХРАНИТЕЛЬ${bossSupport ? ` · стражей: ${bossSupport}` : ''}`
     : `${phase} · узлы ${cleared}/${s.world.pois.length} · ближайшее: ${route} · финал через ${Math.floor(remaining/60)}:${Math.floor(remaining%60).toString().padStart(2,'0')}`;
-  $('mode').textContent = s.mode === 'clean' ? 'Чистый забег' : 'Демонстрация';
-  $('perf').textContent = `${Math.round(fps)} · WebGL2`;
   updateThreatPanel(s);
   drawMinimap(s);
   drawCombatHud(s);
@@ -1485,12 +1477,6 @@ function syncChoiceUI(s: Snapshot, force = false) {
 }
 
 function frame(now: number) {
-  fpsFrames++;
-  if (now - fpsLast > 500) {
-    fps = fpsFrames / ((now - fpsLast) / 1000);
-    fpsFrames = 0;
-    fpsLast = now;
-  }
   const mv = screenMove();
   if (!paused && !planning && !sim.hasChoice && sim.php > 0 && !sim.finished) {
     acc = Math.min(0.25, acc + (now - last) / 1000);
@@ -1516,7 +1502,7 @@ function frame(now: number) {
 async function start() {
   if (debugEnabled) $('debugPanel').classList.remove('debug-hidden');
   dbg('START', {
-    version: '0.11.2-ux-readability',
+    version: '0.11.3-presentation-contract',
     mode: runMode,
     startingSkill,
     seed,
@@ -1528,17 +1514,15 @@ async function start() {
       let guard = 0;
       while (!sim.hasChoice && guard++ < 30000) sim.step({ moveX: 0, moveZ: 0, aimX: 1, aimZ: -1 });
       $('loading').classList.add('hidden');
-      $('perf').textContent = 'UI TEST';
       updateUi(sim.snapshot());
       document.body.dataset.ready = 'choice';
       return;
     }
     renderer = new WebGLRenderer(canvas);
     await renderer.load();
-    $('gpuName').textContent = renderer.rendererName;
     $('loading').classList.add('hidden');
     pushLog(
-      'v0.11: опыт развивает специализации; феномены, катализаторы, предметы и ядра мутаций приходят из отдельных источников.'
+      'Опыт развивает специализации; феномены, катализаторы, предметы и ядра мутаций приходят из отдельных источников.'
     );
     pushLog(
       runMode === 'clean'

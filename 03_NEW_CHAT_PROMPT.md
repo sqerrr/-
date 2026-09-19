@@ -1,3 +1,5 @@
+> **ARCHIVED / HISTORICAL:** historical continuation prompt from 2026-09-18; do not use its embedded source-of-truth order for a new chat. Current entry point: `00_START_HERE.md`.
+
 # Промпт продолжения проекта
 
 ```text
