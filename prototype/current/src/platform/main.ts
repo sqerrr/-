@@ -326,7 +326,6 @@ function restart() {
   aim = { x: 1, z: -1 };
   last = performance.now();
   acc = 0;
-  log.length = 0;
   seenCatalystTriggers.clear();
   combatFloats.length = 0;
   chainSignature = '';
