@@ -1458,7 +1458,7 @@ export const initialCatalystReserve: (CatalystId | null)[] = [
   'conduit',
   'aegis_relay'
 ];
-// v0.9 slice: operators with visible topology/causality. Scalar-only stones stay defined for compatibility but are outside discovery.
+// Discovery uses operators with visible topology/causality. Scalar-only compatibility stones remain defined but are not offered.
 export const catalystOrder: CatalystId[] = [
   'recoil',
   'focus',
