@@ -37,6 +37,8 @@ export function fallbackDeadActor(e) {
         adaptationStage: 0,
         eliteRarity: 'common',
         refusalIcons: [],
+        refusalTitles: [],
+        refusalKinds: [],
         bossPhase: 0,
         bossPattern: '',
         status: {

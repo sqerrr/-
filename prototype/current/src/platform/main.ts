@@ -954,35 +954,62 @@ function eliteTint(e: Snapshot['entities'][number]): string {
   return rarityTint[e.eliteRarity ?? 'common'] ?? rarityTint.common;
 }
 // D13: the cards an elite took from the hero read on the elite itself.
+// A card the hero turned down is only a cost if he can see it being used against him.
+// Glyphs alone proved unreadable: six different directions of growth all drew the same
+// letter, and an item drew a three-letter code nobody could decode mid-fight. Each held
+// card is now a chip with its own colour and its actual name.
+const refusalKindTint: Record<string, string> = {
+  skill: '#ff8a5c',
+  catalyst: '#7fe4ff',
+  axis: '#c7a6ff',
+  item: '#ffd75e',
+  global: '#9dff7a'
+};
 function drawRefusalRow(
   ctx: CanvasRenderingContext2D,
   icons: string[],
+  titles: string[],
+  kinds: string[],
   cx: number,
   cy: number,
   tint: string
 ) {
   const n = Math.min(icons.length, 6);
   if (!n) return;
-  const size = 16,
-    gap = 3,
-    total = n * size + (n - 1) * gap;
-  let x = cx - total / 2;
+  const size = 18,
+    rowH = 20,
+    pad = 5;
+  ctx.save();
+  ctx.textBaseline = 'middle';
+  ctx.font = '700 11px system-ui';
+  let widest = 0;
+  for (let i = 0; i < n; i++) widest = Math.max(widest, ctx.measureText(titles[i] ?? '').width);
+  const boxW = size + pad + widest + pad * 2;
+  // Stacked upwards so the newest row never covers the elite's own label.
   for (let i = 0; i < n; i++) {
-    const token = icons[i];
-    ctx.fillStyle = '#05080be6';
-    ctx.fillRect(x - 1, cy - size / 2 - 1, size + 2, size + 2);
-    ctx.strokeStyle = tint;
+    const y = cy - (n - 1 - i) * rowH,
+      x = cx - boxW / 2,
+      kindTint = refusalKindTint[kinds[i]] ?? tint;
+    ctx.fillStyle = '#05080bdd';
+    ctx.fillRect(x, y - rowH / 2, boxW, rowH - 2);
+    ctx.strokeStyle = kindTint;
     ctx.lineWidth = 1;
-    ctx.strokeRect(x - 0.5, cy - size / 2 - 0.5, size + 1, size + 1);
-    const img = token.indexOf('/') >= 0 ? hudImage(token) : null;
-    if (img) ctx.drawImage(img, x, cy - size / 2, size, size);
+    ctx.strokeRect(x + 0.5, y - rowH / 2 + 0.5, boxW - 1, rowH - 3);
+    const token = icons[i] ?? '',
+      img = token.indexOf('/') >= 0 ? hudImage(token) : null;
+    if (img) ctx.drawImage(img, x + pad, y - size / 2, size, size);
     else {
-      ctx.fillStyle = tint;
+      ctx.fillStyle = kindTint;
       ctx.font = '800 9px system-ui';
-      ctx.fillText(token.slice(0, 3), x + size / 2, cy + 0.5);
+      ctx.textAlign = 'center';
+      ctx.fillText(token.slice(0, 4), x + pad + size / 2, y);
     }
-    x += size + gap;
+    ctx.fillStyle = '#e8eef7';
+    ctx.font = '700 11px system-ui';
+    ctx.textAlign = 'left';
+    ctx.fillText(titles[i] ?? '', x + pad + size + pad, y);
   }
+  ctx.restore();
 }
 // D17 gives the dash one charge with a recovery, so the player has to know when it is back.
 // The gauge sits under the hero's feet rather than in a corner: this is a positioning decision
@@ -1066,7 +1093,15 @@ function drawCombatHud(s: Snapshot) {
       ctx.font = e.boss ? '800 14px system-ui' : '700 11px system-ui';
       ctx.fillStyle = e.boss ? '#fff' : tint;
       ctx.fillText(e.boss ? 'ХРАНИТЕЛЬ' : eliteName(e), p.x, y - 9);
-      drawRefusalRow(ctx, e.refusalIcons ?? [], p.x, y - 28, tint);
+      drawRefusalRow(
+        ctx,
+        e.refusalIcons ?? [],
+        e.refusalTitles ?? [],
+        e.refusalKinds ?? [],
+        p.x,
+        y - 30,
+        tint
+      );
     }
   }
   const now = s.time;
@@ -1352,7 +1387,11 @@ function syncChoiceUI(s: Snapshot, force = false) {
       card.setAttribute('role', 'button');
       card.tabIndex = 0;
       card.style.setProperty('--rarity', rar ? rarityColor[rar] : '#7c94a4');
-      card.innerHTML = `<div class="tag">${rar ? esc(rarityName[rar]) + ' · ' : ''}${offerKind(o)}</div><h3>${esc(o.title)}</h3><div class="sub">${esc(o.subtitle)}</div><p>${esc(o.description)}</p>${o.before && o.after ? `<div class="beforeafter">${esc(o.before)} → <b>${esc(o.after)}</b></div>` : ''}`;
+      // D7 concedes one passed card to the elites. Saying which one before the hero
+      // decides turns the refusal into a choice he can weigh instead of a surprise he
+      // meets two minutes later wearing an elite.
+      if (o.marked) card.classList.add('marked');
+      card.innerHTML = `${o.marked ? '<div class="claimtag">ЭТО ЗАБЕРУТ ЭЛИТЫ, ЕСЛИ ОСТАВИШЬ</div>' : ''}<div class="tag">${rar ? esc(rarityName[rar]) + ' · ' : ''}${offerKind(o)}</div><h3>${esc(o.title)}</h3><div class="sub">${esc(o.subtitle)}</div><p>${esc(o.description)}</p>${o.before && o.after ? `<div class="beforeafter">${esc(o.before)} → <b>${esc(o.after)}</b></div>` : ''}`;
       const choose = () => finishChoiceAction(`reward:${i}:${o.id}`, () => sim.chooseReward(i));
       card.addEventListener('click', choose);
       card.addEventListener('keydown', (e) => {

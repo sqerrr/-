@@ -206,6 +206,10 @@ export interface SnapshotEntity {
   eliteRarity: EliteRarity;
   /** D13: icons of the declined cards this elite is fielding, drawn above its name. */
   refusalIcons: string[];
+  /** Names of the held cards, so the hero can read what was taken from him. */
+  refusalTitles: string[];
+  /** Kinds of the held cards, for colouring: skill | catalyst | axis | global | item. */
+  refusalKinds: string[];
   bossPhase: number;
   bossPattern: string;
   status: StatusSnapshot;
@@ -313,6 +317,12 @@ export interface RewardOffer {
   item?: ItemId;
   /** For a swap: the slot whose phenomenon steps aside into the reserve (D27). */
   swapSlot?: number;
+  /**
+   * The card the elites are waiting for. Leave it and they get it; take it and they get
+   * one of the others instead. Without this the cost of a refusal is invisible until it
+   * comes back minutes later, which doc 16 lists as a failure of the concept.
+   */
+  marked?: boolean;
   stat?: string;
   amount?: number;
   rarity?: Rarity;

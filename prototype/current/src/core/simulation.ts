@@ -582,6 +582,25 @@ export class Simulation {
    */
   /** D28: a phenomenon forks three ways. */
   static readonly MUTATION_BRANCHES = 3;
+  /**
+   * Every direction of growth used to be drawn as the same letter on an elite, so six
+   * different things the hero turned down were indistinguishable once they were being
+   * used against him.
+   */
+  static readonly AXIS_GLYPH: Record<string, string> = {
+    tempo: 'ТЕМП',
+    multiplicity: 'ЧИСЛ',
+    precision: 'ТОЧН',
+    persistence: 'СРОК',
+    conductivity: 'ПРОВ',
+    mobility: 'ПОДВ'
+  };
+  static readonly STAT_GLYPH: Record<string, string> = {
+    hp: 'ЗДОР',
+    pickup: 'СБОР',
+    fortune: 'УДАЧ',
+    armor: 'БРОН'
+  };
   static readonly RIVAL_CONCENTRATION = 6;
   private static rivalReach(id: SkillId): number {
     const def = skills[id];
@@ -4798,6 +4817,8 @@ export class Simulation {
       } else offers.push(this.makeGlobalOffer());
     }
     this.rewardOffers = offers.slice(0, 3);
+    const wanted = this.refusalRng.int(this.rewardOffers.length);
+    this.rewardOffers[wanted].marked = true;
     this.choiceSerial++;
   }
   private placeCatalyst(id: CatalystId) {
@@ -4879,7 +4900,11 @@ export class Simulation {
   private concedeRefusal(passed: RewardOffer[]) {
     const cards = passed.map((o) => this.refusalFromOffer(o)).filter((c): c is RefusedCard => !!c);
     if (!cards.length) return;
-    const card = cards[this.refusalRng.int(cards.length)];
+    // The hero was shown which card the elites were waiting for; honour that if he left
+    // it, and fall back to chance only when he denied them by taking it himself.
+    const wanted = passed.findIndex((o) => o.marked);
+    const card =
+      wanted >= 0 && cards[wanted] ? cards[wanted] : cards[this.refusalRng.int(cards.length)];
     card.serial = ++this.refusalSerial;
     this.refusalStore.push(card);
     this.events.push({
@@ -4902,8 +4927,21 @@ export class Simulation {
       };
     if (o.item) return { ...base, kind: 'item', icon: items[o.item].short, item: o.item };
     if (o.resonance)
-      return { ...base, kind: 'axis', icon: 'A', resonance: o.resonance, amount: o.amount ?? 1 };
-    if (o.stat) return { ...base, kind: 'global', icon: 'G', stat: o.stat, amount: o.amount ?? 0 };
+      return {
+        ...base,
+        kind: 'axis',
+        icon: Simulation.AXIS_GLYPH[o.resonance] ?? o.resonance.slice(0, 3).toUpperCase(),
+        resonance: o.resonance,
+        amount: o.amount ?? 1
+      };
+    if (o.stat)
+      return {
+        ...base,
+        kind: 'global',
+        icon: Simulation.STAT_GLYPH[o.stat] ?? o.stat.slice(0, 3).toUpperCase(),
+        stat: o.stat,
+        amount: o.amount ?? 0
+      };
     return null;
   }
   private applyCoreAxis(axis: ResonanceId, amount = 1) {
@@ -5141,6 +5179,14 @@ export class Simulation {
         orderActive: e.orderUntil > this.time,
         adaptationStage: e.adaptStage,
         eliteRarity: e.rarity,
+        refusalTitles: e.repertoire
+          .map((s: number) => this.refusalStore.find((c) => c.serial === s))
+          .filter((c): c is RefusedCard => !!c)
+          .map((c) => c.title),
+        refusalKinds: e.repertoire
+          .map((s: number) => this.refusalStore.find((c) => c.serial === s))
+          .filter((c): c is RefusedCard => !!c)
+          .map((c) => c.kind as string),
         refusalIcons: e.repertoire
           .map((s) => this.refusalStore.find((c) => c.serial === s)?.icon ?? '')
           .filter((s) => !!s),
