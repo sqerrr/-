@@ -1213,8 +1213,13 @@ export class WebGLRenderer {
     const verts: number[] = [],
       line = (x1:number,y1:number,x2:number,y2:number,w:number,c:[number,number,number,number]) => this.pushLine(verts,x1,y1,x2,y2,w,c);
     for (const e of s.entities) {
-      if (!e.elite || !e.echoPhase || e.echoPhase === 'none' || e.echoPhase === 'recovery') continue;
-      const p=this.worldToScreen(e.x,e.z,s), tell=e.echoPhase==='tell', c=tell?rgba('#ff3549',0.99):rgba('#ff172f',0.99), r=e.boss?50:38;
+      if (!e.elite) continue;
+      const echoDanger = !!e.echoPhase && e.echoPhase !== 'none' && e.echoPhase !== 'recovery',
+        actionDanger = !!e.eliteAction;
+      if (!echoDanger && !actionDanger) continue;
+      const actionTell = !!e.eliteAction && e.eliteAction !== 'predator_dash',
+        tell = e.echoPhase === 'tell' || actionTell,
+        p=this.worldToScreen(e.x,e.z,s), c=tell?rgba('#ff3549',0.99):rgba('#ff172f',0.99), r=e.boss?50:38;
       // Four hard corners survive colour-blindness and visual clutter much better than another ring.
       const k=12;
       line(p.x-r,p.y-r*0.56,p.x-r+k,p.y-r*0.56,4,c); line(p.x-r,p.y-r*0.56,p.x-r,p.y-r*0.56+k,4,c);
