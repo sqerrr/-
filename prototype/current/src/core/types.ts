@@ -268,6 +268,12 @@ export interface EliteEncounter {
   spawnedAt: number;
   /** First moment this elite and the hero traded damage; -1 if they never met. */
   engagedAt: number;
+  /**
+   * Seconds spent close enough for the hero's phenomena to reach. This, not the wall clock
+   * from engagedAt to endedAt, is what D49 is about: an elite that drifts out of reach and
+   * comes back has not been in a long fight, it has been in two short ones.
+   */
+  contactTime: number;
   /** Seconds since the run began, or -1 while the elite is still standing. */
   endedAt: number;
   killed: boolean;

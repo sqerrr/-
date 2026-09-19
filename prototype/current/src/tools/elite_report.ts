@@ -93,13 +93,14 @@ console.log('=== runs ===');
 for (const line of runs) console.log('  ' + line);
 
 console.log('\n=== fight length against D49 ===');
-console.log('  measured from the first blow traded to the elite dying');
+console.log('  seconds spent within reach of the hero, not wall clock since the first blow:');
+console.log('  an elite that drifts away and returns fought twice, briefly, not once at length');
 const order: EliteRarity[] = ['common', 'uplifted', 'legendary'];
 let anyMiss = false;
 for (const rarity of order) {
   const rows = all.filter((e) => e.rarity === rarity);
   const fought = rows.filter((e) => e.killed && e.engagedAt >= 0);
-  const engaged = fought.map((e) => e.endedAt - e.engagedAt);
+  const engaged = fought.map((e) => e.contactTime);
   const lifetimes = fought.map((e) => e.endedAt - e.spawnedAt);
   const [lo, hi] = TARGET[rarity];
   const med = median(engaged);

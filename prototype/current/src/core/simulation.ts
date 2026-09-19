@@ -103,15 +103,20 @@ type Ent = {
 };
 
 const HERO_HIT_RADIUS = 0.45;
-// Provisional tier tables. D49 fixes the target fight lengths (8-12 / 15-25 / 30-45 s) but
-// the absolute calibration only becomes possible once telemetry exists at step 11; what is
-// settled here is the shape - each tier is a step up in durability, payout and repertoire.
+// Tier tables. D49 fixes the target fight lengths (8-12 / 15-25 / 30-45 s); each tier is a
+// step up in durability, payout and repertoire.
 const ELITE_RARITY_CAPACITY: Record<EliteRarity, number> = {
   common: 1,
   uplifted: 3,
   legendary: 6
 };
-const ELITE_RARITY_HP: Record<EliteRarity, number> = { common: 1, uplifted: 1.9, legendary: 3.4 };
+/**
+ * First calibration against measured contact time. elite_report put the medians at 1 / 2 / 3.3 s
+ * against D49 windows centred on 10 / 20 / 37.5 - every tier short by the same factor of ten,
+ * with the relative shape already right. So the tiers keep their ratio and the table is lifted
+ * bodily. Kept apart from eliteHp so per-chassis identity stays readable next to the tier step.
+ */
+const ELITE_RARITY_HP: Record<EliteRarity, number> = { common: 10, uplifted: 20, legendary: 38 };
 const ELITE_RARITY_CORE: Record<EliteRarity, number> = { common: 1, uplifted: 2, legendary: 3 };
 const ELITE_RARITY_SIZE: Record<EliteRarity, number> = {
   common: 1,
@@ -483,6 +488,12 @@ export class Simulation {
     'chain_arc',
     'mass_driver'
   ];
+  /**
+   * Distance inside which an elite counts as being in the fight for telemetry. Set just past
+   * the reach of the longest phenomenon, so the measure tracks time the hero could actually
+   * be hitting it. Diagnostic only - nothing in the simulation branches on this.
+   */
+  private static readonly ELITE_CONTACT_RANGE = 11;
   /** Per-elite runtimes for claimed phenomena, keyed "<entity>:<skill>". */
   private rivalSkills = new Map<string, SkillRuntime>();
   /** Next moment each elite may field a refusal, keyed by entity id. */
@@ -1242,6 +1253,16 @@ export class Simulation {
     const gap = Math.max(2.1, this.rng.range(3.4, 5.4) - e.repertoire.length * 0.25);
     this.rivalCastAt.set(e.id, this.time + gap);
   }
+  /**
+   * Accumulates the seconds an elite spends inside the hero's reach. Wall-clock from the first
+   * blow to the death overstates the fight badly: a tougher elite survives the first exchange,
+   * wanders off and comes back, and the clock keeps running through the gap.
+   */
+  private noteEliteContact(e: Ent, d: number) {
+    if (d > Simulation.ELITE_CONTACT_RANGE) return;
+    const record = this.eliteLogById.get(e.id);
+    if (record) record.contactTime += this.dt;
+  }
   private noteEliteSpawn(e: Ent) {
     const record: EliteEncounter = {
       id: e.id,
@@ -1250,6 +1271,7 @@ export class Simulation {
       rarity: e.rarity,
       spawnedAt: this.time,
       engagedAt: -1,
+      contactTime: 0,
       endedAt: -1,
       killed: false,
       repertoire: e.repertoire.length,
@@ -1625,6 +1647,7 @@ export class Simulation {
     }
   }
   private updateEliteAI(e: Ent, speed: number, d: number, nx: number, nz: number) {
+    this.noteEliteContact(e, d);
     this.fieldRefusals(e, d);
     const c = e.chassis!;
     if (c === 'hunter') {
