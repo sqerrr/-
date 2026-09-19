@@ -4829,11 +4829,21 @@ export class Simulation {
           tickAcc: 0
         });
       if (elite && e.affix === 'volatile') {
-        if (Math.hypot(this.px - e.x, this.pz - e.z) < 2.6) this.hitPlayer(24 * this.damageScale());
-        for (const o of this.ents) {
-          if (o !== e && o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < 2.6)
-            this.damage(o, 42 * this.worldScale(), 'elite_volatile', false, e.x, e.z);
-        }
+        // Death explosions must be dodgeable. The old instant burst punished the kill before
+        // the player could read it; now the red zone is part of the same hostile telegraph language.
+        this.scheduleStrike({
+          at: this.time + 0.62,
+          x: e.x,
+          z: e.z,
+          radius: 2.6,
+          damage: 24 * this.damageScale(),
+          faction: 'rival',
+          ownerId: e.id,
+          source: 'elite_volatile',
+          sourceSlot: -1,
+          intent: 'damage',
+          telegraph: 'elite_volatile_tell'
+        });
       }
       const xpVal = elite
         ? 30
