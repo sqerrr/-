@@ -1216,11 +1216,11 @@ export class WebGLRenderer {
                 e.chassis === 'broodmaker' ||
                 e.boss;
             const w = (e.boss
-                ? 222
+                ? 318
                 : e.elite
                     ? largeElite
-                        ? 154
-                        : 142
+                        ? 231
+                        : 213
                     : e.kind === 'binder' || e.kind === 'redactor' || e.kind === 'indexer'
                         ? 86
                         : e.kind === 'bookmark'
@@ -1229,11 +1229,11 @@ export class WebGLRenderer {
                                 ? 78
                                 : 70) * pulse;
             const h = (e.boss
-                ? 238
+                ? 341
                 : e.elite
                     ? largeElite
-                        ? 166
-                        : 154
+                        ? 249
+                        : 231
                     : e.kind === 'binder' || e.kind === 'redactor' || e.kind === 'indexer'
                         ? 94
                         : 86) * pulse;
@@ -1253,11 +1253,11 @@ export class WebGLRenderer {
             // Rarity has to read at a glance. D9 gives elites three tiers and D13 hangs the
             // refusal mark on them, yet until now all three tiers drew exactly the same.
             const rarity = e.elite && !e.boss ? (e.eliteRarity ?? 'common') : 'common';
-            const rarityScale = rarity === 'legendary' ? 1.24 : rarity === 'uplifted' ? 1.11 : 1;
+            const rarityScale = rarity === 'legendary' ? 1.3 : rarity === 'uplifted' ? 1.13 : 1;
             if (rarity === 'legendary')
-                tint = [tint[0] * 1.2, tint[1] * 0.88, tint[2] * 1.24, tint[3]];
+                tint = [tint[0] * 1.75, tint[1] * 1.45, tint[2] * 0.62, tint[3]];
             else if (rarity === 'uplifted')
-                tint = [tint[0] * 1.12, tint[1] * 1.04, tint[2] * 0.82, tint[3]];
+                tint = [tint[0] * 0.7, tint[1] * 1.0, tint[2] * 1.5, tint[3]];
             return {
                 cell,
                 actor,

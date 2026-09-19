@@ -869,10 +869,13 @@ function hudImage(src: string): HTMLImageElement | null {
   }
   return img.complete && img.naturalWidth > 0 ? img : null;
 }
+// Three tiers have to separate at a glance in a crowd, so they separate by brightness as well
+// as by hue: plain white for the common tier, blue for the uplifted one, and a gold that
+// outshines everything else on a floor this dark for the legendary.
 const rarityTint: Record<string, string> = {
-  common: '#e7b94c',
-  uplifted: '#7fd4ff',
-  legendary: '#c98cff'
+  common: '#eef3fa',
+  uplifted: '#4fa8ff',
+  legendary: '#ffc83d'
 };
 function eliteTint(e: Snapshot['entities'][number]): string {
   return rarityTint[e.eliteRarity ?? 'common'] ?? rarityTint.common;
