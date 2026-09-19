@@ -13,8 +13,17 @@ function steerOpening(s:Snapshot){
   const p=candidates.sort((a,b)=>Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0];
   let moveX=0,moveZ=0;if(p){const dx=p.x-s.player.x,dz=p.z-s.player.z,m=Math.hypot(dx,dz)||1;moveX=dx/m;moveZ=dz/m;}
   const e=[...s.entities].sort((a,b)=>Number(b.elite)-Number(a.elite)||Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0];
-  let aimX=1,aimZ=0;if(e){const dx=e.x-s.player.x,dz=e.z-s.player.z,m=Math.hypot(dx,dz)||1;aimX=dx/m;aimZ=dz/m;}
-  return {moveX,moveZ,aimX,aimZ};
+  let aimX=1,aimZ=0,danger=false;
+  if(e){
+    const dx=e.x-s.player.x,dz=e.z-s.player.z,m=Math.hypot(dx,dz)||1;aimX=dx/m;aimZ=dz/m;
+    danger=!!e.elite && (!!e.eliteAction || e.echoPhase==='tell' || e.echoPhase==='active' || e.telegraph>0);
+    if(danger){
+      const directional=['hunter','bulwark','harvester'].includes(e.chassis??'');
+      if(directional){const fx=e.facingX||aimX,fz=e.facingZ||aimZ;moveX=-fz;moveZ=fx;}
+      else {moveX=-dx/m;moveZ=-dz/m;}
+    }
+  }
+  return {moveX,moveZ,aimX,aimZ,dash:danger&&s.player.dashReady};
 }
 
 const rows:any[]=[];
