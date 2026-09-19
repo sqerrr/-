@@ -1,8 +1,8 @@
-# Black Archive web prototype v0.10 — CORE REBUILD SANDBOX
+# Black Archive web prototype — v0.11.3
 
-This is the first runnable branch of the progression / Chain / Elite redesign. It is a **qualitative systems sandbox**, not a balance release.
+`prototype/current/` is the current executable browser build.
 
-Read root `13_V010_CORE_REBUILD_SPEC.md` for the authoritative design and `14_V010_IMPLEMENTATION_NOTES_2026-09-17.md` for implementation status.
+For project-wide context read root `00_START_HERE.md` first. The current technical audit is `33_ANIMATION_PRESENTATION_LEGACY_AUDIT_2026-09-20.md`.
 
 ## Run
 
@@ -19,9 +19,10 @@ npm run build
 npm run serve
 ```
 
-URL examples:
+Useful URL examples:
 
-- `?mode=clean&start=ember_lance&seed=12345`
+- `?mode=clean&start=rail_spear&seed=12345`
+- `?mode=clean&start=orbit_blades&seed=12345`
 - `?mode=showcase&seed=12345`
 - `?smoke=1` — technical launch check only.
 
@@ -29,77 +30,70 @@ URL examples:
 
 - WASD / arrows — movement;
 - mouse — facing for directional Phenomena;
-- Tab — Planning (combat pauses completely);
+- Shift or right mouse — dash;
+- Tab — full Character/Build sheet; combat pauses, and Chain reordering lives inside this screen;
 - wheel — zoom;
 - Space / P — pause;
 - R — restart same seed/mode/start;
 - F8 — technical debug panel.
 
-## What changed in v0.10
+## Current progression
 
-### No personal Phenomenon levels
+- XP → Doctrines;
+- world Phenomenon structures → new Phenomena;
+- Catalyst structures/caches → Catalysts;
+- serious Elites → Mutation Cores;
+- world/elite contested drops → Items;
+- Mutations → three-tier branches ending in Apotheosis.
 
-Core Rank is the shared baseline progression of the run. A late Phenomenon starts at the current baseline instead of entering several personal levels behind.
+The active Chain contains up to four Phenomena with Catalysts between them. Reserve is deliberately small.
 
-Normal XP offers **Core Axis** growth rather than repeated upgrades to one active weapon. Current experimental axes:
+## Active Phenomena
 
-- Tempo;
-- Multiplicity;
-- Precision;
-- Persistence;
-- Conductivity;
-- Mobility.
+Discovery currently uses exactly these 11:
 
-### No Catalyst levels / potency
+- Ледяной фронт (`frost_ring`);
+- Рельсовое копьё (`rail_spear`);
+- Секач (`cleaver`);
+- Цепная дуга (`chain_arc`);
+- Орбитальные лезвия (`orbit_blades`);
+- Бомбардир (`mortar_bloom`);
+- Турель (`sentry`);
+- Токсичный туман (`toxic_mist`);
+- Гравитационный каток (`mass_driver`);
+- Возвратные осколки (`shard_fan`);
+- Гравиякорь (`tether_drag`).
 
-Catalysts are ready-made operators. Current slice includes routing, mass-to-count conversion, storage/memory, fusion, feedback, topology and defence conversion in addition to a simple trigger/relay baseline.
+Seven older definitions remain compatibility-only for old seeds/replays. They must not be used as examples of current gameplay or current regression fixtures.
 
-### Fixed full-cycle Chain cadence
+## Presentation contract
 
-Each active Phenomenon naturally fires once per full Chain cycle. Adding another Phenomenon inserts more actions into the same cycle and does **not** reduce the natural cadence of older Phenomena.
+Simulation is authoritative for gameplay geometry and multiplicity.
 
-### Archive does not age
+- `CombatShape` carries exact instantaneous ray/sector/circle geometry.
+- Snapshot projectiles/fields/constructs carry exact persistent/moving bodies and ownership.
+- Snapshot Orbit carries the real active blade count/radius.
+- `SkillActivated` is only an origin/body animation cue; renderer must not independently calculate attack count/range/radius.
 
-Inactive Phenomena/Catalysts are not missing personal XP. Planning can replace/reorder modules without a hidden level penalty.
+This is protected by `animation_contract_regression`.
 
-### Mutation Cores
+## Elites
 
-Mutation capacity is earned by the run. Mutations are intended as qualitative evolution + power. In this sandbox, swapping a mutated Phenomenon between active Chain and Archive returns its Mutation Core.
+Normal elite identity is compositional:
 
-### Elite anomalies
+`chassis + rarity + affix + authored chassis action + optional Elite Echo + statuses`
 
-Free Elites no longer use the old generic chassis+affix+late-adaptation loop. The current six prototypes are:
+The current primary chassis are Hunter, Architect, Broodmaker, Prism/Bulwark, Null Weaver/Harvester and Metamorph/Shepherd. Their own recurring actions are separate from refused-card Elite Echoes.
 
-- **Хищник** — predictive intercept movement;
-- **Завеса** — fog/veil that interferes with distant auto-targeting;
-- **Репликатор** — hit-event-driven copies whose deaths damage the parent;
-- **Призма** — source imprint rewards changing Phenomenon source;
-- **Нуль-ткач** — captures Catalyst-derived events into charges that direct Phenomenon hits discharge;
-- **Метаморф** — changes form at an HP threshold based on recent damage signature.
-
-These are prototypes of different *rule spaces*. They are not the final Elite roster.
-
-### Map / population
-
-- POIs no longer spawn guardian Elites just to deliver a reward;
-- free Elites return to a frequent heartbeat;
-- normal population is materially denser than v0.9B;
-- contact damage was reduced to avoid making density alone the entire difficulty increase.
-
-## Current topology
-
-The shell is still typed:
-
-`Phenomenon → Catalyst → Phenomenon → Catalyst → Phenomenon ...`
-
-with up to four active Phenomena and three active Catalyst edges. Universal physical cells remain a separate future experiment; do not mix that question into this core test yet.
+Immediate hostile danger uses the red telegraph language. Affix/chassis decoration deliberately uses other colours/shapes until the state becomes lethal.
 
 ## Tests
 
 ```powershell
 npm test
+npm run test:builds
 ```
 
-This validates compile/determinism/choice/Planning/content/presentation plus v0.10 cadence/progression invariants. It does **not** certify balance or fun.
+`npm test` validates compilation, determinism, Chain/progression/content contracts, presentation, projectiles, elites, mutations, world/UI and animation state transfer. It is not a substitute for manual visual/game-feel QA.
 
-A recent long headless pressure run reached roughly 118 simultaneous enemies and died around 5:19 with automated movement. Treat that only as proof that the new density/director is materially active.
+GitHub `Prototype CI` additionally runs full-run progression and every-start opening probes on pull requests.
