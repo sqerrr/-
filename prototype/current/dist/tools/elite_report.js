@@ -1,4 +1,5 @@
 import { Simulation } from '../core/simulation.js';
+import { pickOffer } from './driver.js';
 /**
  * D52 reporting for D49: measures how long elite fights actually last.
  *
@@ -47,7 +48,7 @@ function runSeed(seed) {
             if (s.mutationOffer)
                 sim.chooseMutation(0);
             else if (s.rewardOffers)
-                sim.chooseReward(0);
+                sim.chooseReward(pickOffer(s));
         }
         const now = sim.snapshot();
         if (now.player.hp <= 0 || now.finished)

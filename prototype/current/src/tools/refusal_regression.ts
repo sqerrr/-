@@ -183,7 +183,7 @@ for (const skill of Simulation.RIVAL_CASTABLE) {
   scene.refusalSerial++;
   scene.refusalStore.push({
     serial: scene.refusalSerial,
-    kind: "skill",
+    kind: 'skill',
     title: String(skill),
     icon: String(skill),
     skill,
@@ -192,9 +192,9 @@ for (const skill of Simulation.RIVAL_CASTABLE) {
   armed.push(String(skill));
 }
 scene.spawnElite();
-const rival = scene.ents.find((e: any) => e.kind === "elite");
-assert(!!rival, "scenario: no elite was spawned");
-assert(rival.repertoire.length > 0, "scenario: the elite claimed nothing from a full store");
+const rival = scene.ents.find((e: any) => e.kind === 'elite');
+assert(!!rival, 'scenario: no elite was spawned');
+assert(rival.repertoire.length > 0, 'scenario: the elite claimed nothing from a full store');
 // Park it at arm's length so even the shortest-reach card in its hand can land.
 rival.x = scene.px + 1.2;
 rival.z = scene.pz;
@@ -205,11 +205,15 @@ for (let i = 0; i < 900; i++) {
   rival.hp = rival.maxHp;
   scene.php = scene.maxHp;
   scene.step({ moveX: 0, moveZ: 0, aimX: 1, aimZ: 0 });
-  for (const ev of scene.events) if (ev.type === "RivalCast") sceneCasts++;
+  for (const ev of scene.events) if (ev.type === 'RivalCast') sceneCasts++;
 }
-assert(sceneCasts > 0, "scenario: an armed elite in reach never fielded a refusal");
+assert(sceneCasts > 0, 'scenario: an armed elite in reach never fielded a refusal');
 assert(
   scene.metrics.rivalCasts === sceneCasts,
-  "scenario: event count " + sceneCasts + " disagrees with metric " + scene.metrics.rivalCasts
+  'scenario: event count ' + sceneCasts + ' disagrees with metric ' + scene.metrics.rivalCasts
 );
-console.log("refusal-scenario OK", { armed: armed.length, held: rival.repertoire.length, casts: sceneCasts });
+console.log('refusal-scenario OK', {
+  armed: armed.length,
+  held: rival.repertoire.length,
+  casts: sceneCasts
+});

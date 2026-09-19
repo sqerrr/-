@@ -16,7 +16,7 @@ const ELITE_RARITY_CAPACITY = {
  * with the relative shape already right. So the tiers keep their ratio and the table is lifted
  * bodily. Kept apart from eliteHp so per-chassis identity stays readable next to the tier step.
  */
-const ELITE_RARITY_HP = { common: 10, uplifted: 20, legendary: 38 };
+const ELITE_RARITY_HP = { common: 4, uplifted: 8, legendary: 15 };
 const ELITE_RARITY_CORE = { common: 1, uplifted: 2, legendary: 3 };
 const ELITE_RARITY_SIZE = {
     common: 1,
@@ -4332,11 +4332,19 @@ export class Simulation {
         const item = this.rollItemId();
         if (item)
             out.push(this.makeItemOffer(item));
+        // D26 names growth as one of the three things a level may offer and D37 makes it the
+        // only way the hero lifts every node at once. Letting it fill whatever the finds left
+        // over meant it almost never appeared: measured over six seeds the hero stopped
+        // growing, a common elite went from twelve seconds to thirty, and twelve of thirteen
+        // elites outlived the run. One of the three places is reserved for it.
         this.shuffle(out);
+        const keep = out.slice(0, 2);
         const axes = this.shuffle([...resonanceOrder]);
-        while (out.length < 3 && axes.length)
-            out.push(this.makeResonanceOffer(axes.shift()));
-        this.rewardOffers = out.slice(0, 3);
+        while (keep.length < 2 && axes.length > 1)
+            keep.push(this.makeResonanceOffer(axes.shift()));
+        keep.push(this.makeResonanceOffer(axes.shift()));
+        this.shuffle(keep);
+        this.rewardOffers = keep;
         this.choiceSerial++;
     }
     catalystOrderUnowned() {

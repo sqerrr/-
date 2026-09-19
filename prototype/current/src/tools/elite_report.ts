@@ -1,5 +1,6 @@
 declare const process: { argv: string[]; exit(code?: number): never };
 import { Simulation } from '../core/simulation.js';
+import { pickOffer } from './driver.js';
 import type { EliteEncounter, EliteRarity } from '../core/types.js';
 
 /**
@@ -61,7 +62,7 @@ function runSeed(seed: number): { encounters: EliteEncounter[]; time: number; di
     while (sim.hasChoice && guard++ < 10) {
       const s = sim.snapshot();
       if (s.mutationOffer) sim.chooseMutation(0);
-      else if (s.rewardOffers) sim.chooseReward(0);
+      else if (s.rewardOffers) sim.chooseReward(pickOffer(s));
     }
     const now = sim.snapshot();
     if (now.player.hp <= 0 || now.finished) break;

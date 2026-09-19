@@ -119,7 +119,13 @@ for (const [cat, n] of byCategory) assert(n >= 2, `category ${cat} has only ${n}
     sim.metrics.relicsTakenByHero > 0,
     'the hero walked straight at every relic and still took none'
   );
-  assert(sim.heldItems.length === sim.metrics.relicsTakenByHero, 'the haul lost track of a relic');
+  // A relic can now also arrive as a level reward, which fills the haul without anyone
+  // walking to it, so the haul is at least the number picked up off the ground rather
+  // than exactly it.
+  assert(
+    (sim.heldItems as string[]).length >= sim.metrics.relicsTakenByHero,
+    'the haul lost track of a relic picked up off the ground'
+  );
   console.log('relic-regression OK', {
     catalogue: itemOrder.length,
     categories: byCategory.size,
