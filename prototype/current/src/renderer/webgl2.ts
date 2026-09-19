@@ -919,6 +919,9 @@ export class WebGLRenderer {
     this.drawWorldShapes(s, aim, presentation);
     this.drawLines(s, aim);
     this.drawSprites(s, presentation);
+    // Lethal elite preparation is the final world pass. It cannot disappear under the hero's
+    // own VFX, projectiles or sprites just because the scene is busy.
+    this.drawDangerOverlay(s);
     this.fx = this.fx.filter((f) => s.time - f.start < f.ttl + 0.05);
     this.combatFx = this.combatFx.filter((f) => s.time - f.start < f.ttl + 0.05);
   }
@@ -949,6 +952,11 @@ export class WebGLRenderer {
     gl.useProgram(p);
     this.commonUniforms(p, s);
     gl.uniform1f(gl.getUniformLocation(p, 'u_time'), s.time);
+    const terrainSeed = s.world.obstacles.reduce(
+      (acc, o) => acc + o.id * 0.137 + o.x * 0.019 + o.z * 0.031,
+      17.0
+    );
+    gl.uniform1f(gl.getUniformLocation(p, 'u_seed'), terrainSeed);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.floorTex);
     gl.uniform1i(gl.getUniformLocation(p, 'u_floor'), 1);
@@ -958,25 +966,9 @@ export class WebGLRenderer {
 
   private drawWorldShapes(s: Snapshot, aim: Vec2, presentation: PresentationFrame) {
     const shapes: ShapeInstance[] = [];
-    // Cover reads as solid ground mass: dark body with a lit rim. Drawn before the
-    // fields so a hazard laid across a rock still shows on top of it.
-    for (const o of s.world.obstacles) {
-      const hp = o.destructible ? Math.max(0, o.hp / Math.max(1, o.maxHp)) : 1;
-      shapes.push({
-        x: o.x,
-        z: o.z,
-        r: o.radius,
-        mode: 0,
-        color: rgba(o.destructible ? '#252333' : '#161a26', 0.94)
-      });
-      shapes.push({
-        x: o.x,
-        z: o.z,
-        r: o.radius,
-        mode: 1,
-        color: rgba(o.destructible ? '#d49b6a' : '#79859f', o.destructible ? 0.35 + hp * 0.55 : 0.9)
-      });
-    }
+    // Collision cover is still approximated by circles in the simulation for cheap robust
+    // sliding. Its *presentation* is deliberately not circular: drawLines() turns the same
+    // bodies into seeded broken stone/ruin silhouettes.
     for (const p of s.projectiles) {
       const base = skills[p.source]?.color ?? (p.faction === 'hero' ? '#e8f1ff' : '#ff665c');
       const color = rgba(base, p.faction === 'hero' ? 0.96 : 0.9);
@@ -1046,52 +1038,8 @@ export class WebGLRenderer {
       mode: 1,
       color: rgba('#8fffdc', 0.8)
     });
-    for (const p of s.world.pois) {
-      if (p.state === 'cleared') continue;
-      const c =
-          p.kind === 'phenomenon'
-            ? rgba('#ff9b4a', 0.72)
-            : p.kind === 'catalyst'
-              ? rgba('#c27aff', 0.72)
-              : p.kind === 'resonance'
-                ? rgba('#67d9ff', 0.72)
-                : rgba('#63f0a5', 0.8),
-        pulse = 1 + 0.08 * Math.sin(s.time * 3 + p.id);
-      shapes.push({ x: p.x, z: p.z, r: 2.0 * pulse, mode: 1, color: c });
-      shapes.push({ x: p.x, z: p.z, r: 0.62, mode: 0, color: [c[0], c[1], c[2], 0.22] });
-      if (s.world.bossSpawned) {
-        shapes.push({
-          x: p.x,
-          z: p.z,
-          r: 2.55 + 0.18 * Math.sin(s.time * 5 + p.id),
-          mode: 1,
-          color: rgba('#ff545f', 0.58)
-        });
-      }
-    }
-    // Healing is deliberately loud: rare sustain should be readable through swarm/VFX clutter.
-    for (const p of s.pickups) {
-      if (p.kind !== 'heal') continue;
-      const pulse = 1 + 0.12 * Math.sin(s.time * 5.2 + p.id);
-      shapes.push({ x: p.x, z: p.z, r: 1.15 * pulse, mode: 1, color: rgba('#6dff9d', 0.92) });
-      shapes.push({ x: p.x, z: p.z, r: 0.42, mode: 0, color: rgba('#c8ffdb', 0.34) });
-    }
-    // A relic has to be worth crossing the field for, and it has to be obvious when an elite
-    // is close enough to take it instead. The contested ring is the whole decision made visible.
-    for (const r of s.relics) {
-      const tint = relicTint[r.category] ?? '#ffffff';
-      const pulse = 1 + 0.16 * Math.sin(s.time * 3.4 + r.id);
-      shapes.push({ x: r.x, z: r.z, r: 1.35 * pulse, mode: 1, color: rgba(tint, 0.95) });
-      shapes.push({ x: r.x, z: r.z, r: 0.62, mode: 0, color: rgba(tint, 0.42) });
-      if (r.contested)
-        shapes.push({
-          x: r.x,
-          z: r.z,
-          r: 2.3 + 0.3 * Math.sin(s.time * 9),
-          mode: 1,
-          color: rgba('#ff4b4b', 0.8)
-        });
-    }
+    // Interactive sources use authored silhouettes in drawLines(); no gameplay source is
+    // represented by a generic glowing circle any more.
     for (const e of s.entities) {
       if (e.status.marked)
         shapes.push({ x: e.x, z: e.z, r: e.radius + 0.3, mode: 1, color: rgba('#ff9b44', 0.55) });
@@ -1269,6 +1217,38 @@ export class WebGLRenderer {
     );
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, shapes.length);
     gl.bindVertexArray(null);
+  }
+
+  private drawDangerOverlay(s: Snapshot) {
+    const verts: number[] = [],
+      line = (x1:number,y1:number,x2:number,y2:number,w:number,c:[number,number,number,number]) => this.pushLine(verts,x1,y1,x2,y2,w,c);
+    for (const e of s.entities) {
+      if (!e.elite || !e.echoPhase || e.echoPhase === 'none' || e.echoPhase === 'recovery') continue;
+      const p=this.worldToScreen(e.x,e.z,s), tell=e.echoPhase==='tell', c=tell?rgba('#ffeb9a',0.98):rgba('#ff4f59',0.98), r=e.boss?48:36;
+      // Four hard corners survive colour-blindness and visual clutter much better than another ring.
+      const k=12;
+      line(p.x-r,p.y-r*0.56,p.x-r+k,p.y-r*0.56,4,c); line(p.x-r,p.y-r*0.56,p.x-r,p.y-r*0.56+k,4,c);
+      line(p.x+r,p.y-r*0.56,p.x+r-k,p.y-r*0.56,4,c); line(p.x+r,p.y-r*0.56,p.x+r,p.y-r*0.56+k,4,c);
+      line(p.x-r,p.y+r*0.38,p.x-r+k,p.y+r*0.38,4,c); line(p.x-r,p.y+r*0.38,p.x-r,p.y+r*0.38-k,4,c);
+      line(p.x+r,p.y+r*0.38,p.x+r-k,p.y+r*0.38,4,c); line(p.x+r,p.y+r*0.38,p.x+r,p.y+r*0.38-k,4,c);
+      if (tell) {
+        const m=Math.hypot(e.facingX,e.facingZ)||1, end=this.worldToScreen(e.x+e.facingX/m*7.5,e.z+e.facingZ/m*7.5,s);
+        line(p.x,p.y-8,end.x,end.y,3.4,[c[0],c[1],c[2],0.9]);
+        // Arrow head says where to leave before the attack becomes active.
+        const dx=end.x-p.x,dy=end.y-(p.y-8),ll=Math.hypot(dx,dy)||1,nx=-dy/ll,ny=dx/ll;
+        line(end.x,end.y,end.x-dx/ll*13+nx*7,end.y-dy/ll*13+ny*7,3.4,c);
+        line(end.x,end.y,end.x-dx/ll*13-nx*7,end.y-dy/ll*13-ny*7,3.4,c);
+      } else {
+        line(p.x-r*0.6,p.y-r*0.18,p.x+r*0.6,p.y+r*0.08,4.5,c);
+        line(p.x+r*0.6,p.y-r*0.18,p.x-r*0.6,p.y+r*0.08,4.5,c);
+      }
+    }
+    if(!verts.length) return;
+    const gl=this.gl,p=this.lineProgram;
+    gl.useProgram(p);gl.uniform2f(gl.getUniformLocation(p,'u_resolution'),this.cssW,this.cssH);
+    gl.bindVertexArray(this.lineVao);gl.bindBuffer(gl.ARRAY_BUFFER,this.lineBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(verts),gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.TRIANGLES,0,verts.length/6);gl.bindVertexArray(null);
   }
 
   private drawLines(s: Snapshot, aim: Vec2) {
