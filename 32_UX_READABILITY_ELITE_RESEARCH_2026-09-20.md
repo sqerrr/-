@@ -215,6 +215,46 @@ This means the world curve is intentionally nonlinear while the player's curve i
 - build sheet retains derived power information;
 - all six chassis tell source IDs remain implemented.
 
+## Final automated probes
+
+The final CI run compiles the branch, runs the full regression suite, then runs two diagnostic probes. These probes are not treated as balance truth; they exist to expose obvious progression and opening failures.
+
+### Route-aware three-seed full runs
+
+The driver now follows the same information hierarchy exposed by the HUD: it seeks a second Phenomenon first, then a Catalyst, takes nearby relic detours and performs a simple dodge/dash when an elite is visibly preparing a red danger pattern.
+
+| Seed | Result | End time | Damage factor | Mutations | Items | Elites | Authored elite actions |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 12345 | survived / finished | 7:16 | ×15.39 | 10 | 15 | 28 / 28 | 209 |
+| 24680 | survived / finished | 7:03 | ×16.44 | 9 | 20 | 27 / 27 | 119 |
+| 97531 | died mid-run | 4:14 | ×7.62 | 5 | 5 | 13 / 14 | 67 |
+
+All three drivers acquired 4 Phenomena and 5 Catalysts before their final state. The failing seed therefore no longer looks like a hidden-acquisition failure. It is a useful warning about mid-run combat / loot variance, but one automated failure is **not** enough evidence for a blanket scalar nerf. Manual playtest should decide whether the run is unfair or whether the simple driver is merely bad at the resulting tactical state.
+
+The action counts also confirm that elites are now behaviourally active rather than mostly passive HP packages: surviving runs saw roughly 4–7 authored chassis actions per elite on top of affixes and Elite Echoes.
+
+### Every starting Phenomenon: first 100 seconds
+
+The opening probe follows the visible route to a second Phenomenon and first Catalyst, focuses elites and reacts to explicit red tells.
+
+All 11 starts survived 100 seconds and reached 4 Phenomena. Ten of eleven killed at least one elite.
+
+The exception is **Toxic Mist**: it survived comfortably (161 HP) but killed **0 / 2 elites** by 100 seconds despite reaching 4 Phenomena and 2 Catalysts. That is a stronger design signal than a generic damage complaint: the opening has crowd/control safety but weak elite conversion. Carry this directly into Phenomena 2.0 rather than hiding it with a global +damage patch.
+
+Orbit Blades and Sentry survived with low remaining HP (30 and 26) but each killed 3 elites, so they are currently “risky but functional” rather than equivalent to the Toxic Mist issue.
+
+### CI
+
+Final code state passed:
+
+- TypeScript build;
+- full existing `npm test` suite;
+- `ux_readability_regression`;
+- route-aware full-run probe;
+- all-start opening probe.
+
+60-second deterministic headless hash for this gameplay state: `f77ba17b`.
+
 ## Manual QA questions for the next playtest
 
 1. During dense combat, is **red** now reliably read as “enemy danger I must react to”?
