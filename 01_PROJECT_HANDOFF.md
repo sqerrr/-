@@ -1,3 +1,5 @@
+> **ARCHIVED / HISTORICAL:** v0.10 handoff retained for historical rationale; it is not the current implementation authority. Current entry point: `00_START_HERE.md`.
+
 # UPDATE 2026-09-17 — v0.10 CORE REBUILD PLAYABLE SANDBOX
 
 **Executable is now v0.10-core-rebuild.** The v0.9C investigation below is historical reasoning; current design authority is `13_V010_CORE_REBUILD_SPEC.md`.
