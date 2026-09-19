@@ -871,7 +871,7 @@ export class WebGLRenderer {
     const q = source.toLowerCase();
     // Hostile telegraphs own red regardless of the Phenomenon they imitate. Source-family colour
     // remains useful for the player's attacks, but danger must be recognised before it is named.
-    if (/^(echo_|elite_)|telegraph_boss|telegraph_temporal/.test(q))
+    if (/^(echo_|elite_)|telegraph_boss|telegraph_temporal|shield_commit/.test(q))
       return rgba(q.includes('active') ? '#ff1f35' : '#ff4a4f', alpha);
     if (q.includes('rail')) return rgba('#ff65c8', alpha);
     if (q.includes('frost') || q.includes('glacier') || q.includes('whiteout') || q.includes('spire'))
@@ -1009,8 +1009,9 @@ export class WebGLRenderer {
       const t = (s.time - f.start) / f.ttl;
       if (t < 0 || t > 1 || f.shape.kind !== 'circle') continue;
       const c = this.combatColor(f.source, f.intent, (1 - t) * 0.72),
-        q = f.shape;
-      shapes.push({ x: q.x, z: q.z, r: q.radius, mode: 0, color: [c[0], c[1], c[2], c[3] * 0.14] });
+        q = f.shape,
+        hostile = /^(echo_|elite_)|telegraph_boss|telegraph_temporal|shield_commit/.test(f.source);
+      shapes.push({ x: q.x, z: q.z, r: q.radius, mode: 0, color: [c[0], c[1], c[2], c[3] * (hostile ? 0.26 : 0.14)] });
       shapes.push({ x: q.x, z: q.z, r: q.radius, mode: 1, color: c });
     }
     for (const h of presentation.hits) {
@@ -1315,11 +1316,12 @@ export class WebGLRenderer {
       const t = (s.time - f.start) / f.ttl;
       if (t < 0 || t > 1 || f.shape.kind === 'circle') continue;
       const baseColor = this.combatColor(f.source, f.intent, (1 - t) * 0.72),
+        hostile = /^(echo_|elite_)|telegraph_boss|telegraph_temporal|shield_commit/.test(f.source),
         fill: [number, number, number, number] = [
           baseColor[0],
           baseColor[1],
           baseColor[2],
-          baseColor[3] * 0.13
+          baseColor[3] * (hostile ? 0.24 : 0.13)
         ];
       if (f.shape.kind === 'ray') {
         const q = f.shape,
@@ -1336,8 +1338,8 @@ export class WebGLRenderer {
           d = this.worldToScreen(ex - px, ez - pz, s);
         tri(a, b, c, fill);
         tri(c, b, d, fill);
-        line(a.x, a.y, c.x, c.y, 2.2, baseColor);
-        line(b.x, b.y, d.x, d.y, 2.2, baseColor);
+        line(a.x, a.y, c.x, c.y, hostile ? 3.4 : 2.2, baseColor);
+        line(b.x, b.y, d.x, d.y, hostile ? 3.4 : 2.2, baseColor);
         line(c.x, c.y, d.x, d.y, 1.8, baseColor);
       } else if (f.shape.kind === 'sector') {
         const q = f.shape,
@@ -1357,7 +1359,7 @@ export class WebGLRenderer {
           if (!first) first = p;
           if (prev) {
             tri(center, prev, p, fill);
-            line(prev.x, prev.y, p.x, p.y, 2.2, baseColor);
+            line(prev.x, prev.y, p.x, p.y, hostile ? 3.4 : 2.2, baseColor);
           }
           prev = p;
         }
