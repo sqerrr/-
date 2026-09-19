@@ -9,7 +9,7 @@ import {
   skills
 } from '../content/definitions.js';
 import { catalystGlyph, itemCategoryColor, itemGlyph, mutationBadge, skillChoiceArt } from '../content/visuals.js';
-import { items as itemDefs } from '../content/items.js';
+import { itemCategoryName, items as itemDefs } from '../content/items.js';
 import { Simulation } from '../core/simulation.js';
 import type {
   CatalystId,
@@ -188,7 +188,7 @@ modeSelect.addEventListener('change', () => {
 });
 startSelect.addEventListener('change', () => {
   startingSkill = startSelect.value as SkillId;
-  pushLog(`Стартовый Phenomenon: ${skills[startingSkill].name}. Применится после рестарта.`);
+  pushLog(`Стартовый феномен: ${skills[startingSkill].name}. Применится после рестарта.`);
 });
 function esc(s: string) {
   return String(s).replace(
@@ -314,7 +314,7 @@ function togglePlanning() {
     keys.clear();
     plannerSignature = '';
     updatePlanner(s);
-    pushLog('Режим планирования: бой полностью остановлен.');
+    pushLog('Экран персонажа и сборки открыт: бой полностью остановлен.');
   }
   last = performance.now();
   acc = 0;
@@ -346,7 +346,7 @@ function restart() {
   $('eliteAlert').classList.remove('visible');
   $('pauseBtn').textContent = 'Пауза';
   pushLog(
-    `${runMode === 'clean' ? 'Чистый ран' : 'Showcase'}: исследуйте отмеченные узлы карты; Хранитель приходит в финале.`
+    `${runMode === 'clean' ? 'Чистый забег' : 'Демонстрация'}: исследуйте отмеченные структуры карты; Хранитель приходит в финале.`
   );
 }
 
@@ -362,15 +362,15 @@ const chassisName: Record<string, string> = {
   warden: 'Хранитель'
 };
 const chassisRole: Record<string, string> = {
-  marshal: 'legacy',
+  marshal: 'давит строем и ускоряет союзников',
   hunter: 'предсказывает движение и делает перехватывающий рывок',
   bulwark: 'запоминает источник: повтор защищает её, смена источника вскрывает',
-  architect: 'создаёт туман, в котором дальний auto-lock теряет цель',
-  harvester: 'поглощает Catalyst-derived события; прямые такты разбивают заряд',
+  architect: 'создаёт туман, в котором дальний автоматический захват теряет цель',
+  harvester: 'поглощает срабатывания катализаторов; прямые такты разбивают заряд',
   shepherd: 'эволюционирует от реальной сигнатуры полученного урона',
   broodmaker: 'частые попадания порождают копии; убийство копии ранит оригинал',
-  archivist: 'экспериментальный legacy',
-  warden: 'финальный босс: читаемые sweep / rupture / charge паттерны'
+  archivist: 'копирует боевые роли и меняет рисунок боя',
+  warden: 'финальный босс: заранее показывает взмах, разлом и таран'
 };
 const affixName: Record<string, string> = {
   none: 'Без аффикса',
@@ -405,16 +405,16 @@ function eventText(e: GameEvent) {
   if (e.type === 'EntityDied' && e.elite) return 'Элитка уничтожена.';
   if (e.type === 'EliteOrder') {
     const m = {
-      surge: 'Маршал: SURGE.',
-      pack: 'Legacy pack.',
-      screen: 'Legacy screen.',
-      wall: 'Legacy wall.',
-      harvest: 'Legacy harvest.',
-      regroup: 'Legacy regroup.',
-      brood: 'Legacy brood.',
+      surge: 'Маршал: НАТИСК.',
+      pack: 'Стая перестраивается.',
+      screen: 'Элита ставит заслон.',
+      wall: 'Элита формирует стену.',
+      harvest: 'Элита начинает сбор.',
+      regroup: 'Элита перегруппировывается.',
+      brood: 'Элита вызывает выводок.',
       archive: 'Архивист: скопирована роль.',
       predator: 'Хищник зафиксировал траекторию: сейчас будет перехват.',
-      veil: `Завеса развернула ${e.count ?? 3} зоны тумана: дальний auto-lock внутри глохнет.`,
+      veil: `Завеса развернула ${e.count ?? 3} зоны тумана: дальний автоматический захват цели внутри глохнет.`,
       replicate: 'Репликатор породил копию от частых попаданий. Уничтожение копии бьёт оригинал.',
       prism:
         'Призма запомнила источник. Повторять его подряд невыгодно — смена источника вскрывает защиту.',
@@ -423,13 +423,13 @@ function eventText(e: GameEvent) {
     };
     return m[e.order];
   }
-  if (e.type === 'LevelUp') return `Core Rank ${e.level}: базовая мощность всей Chain выросла.`;
+  if (e.type === 'LevelUp') return `Уровень ядра ${e.level}: базовая мощность всей цепочки выросла.`;
   if (e.type === 'MutationChosen')
     return `${skills[e.skill].name}: мутация «${mutationDef(e.skill, e.mutation).name}».`;
   if (e.type === 'EnemyRevived') return 'Палимпсест переписал себя и вернулся в бой.';
   if (e.type === 'Reaction') {
     const n = {
-      thermal_shock: 'THERMAL SHOCK',
+      thermal_shock: 'ТЕРМОШОК',
       detonation: 'ДЕТОНАЦИЯ',
       conduit: 'ПРОВОДНИК',
       echo: 'ЭХО',
@@ -440,9 +440,9 @@ function eventText(e: GameEvent) {
   // D7: exactly one declined card is conceded, and the hero is told which one.
   if (e.type === 'RewardRefused')
     return `Отвергнуто: «${e.title}». Карта ушла элитам и вернётся против тебя.`;
-  if (e.type === 'RivalCast') return `Элита применила Echo отвергнутого: ${skills[e.skill].name}.`;
+  if (e.type === 'RivalCast') return `Элита применила отражение отвергнутого феномена: ${skills[e.skill].name}.`;
   if (e.type === 'EliteEchoPhase')
-    return `Elite Echo · ${skills[e.skill].name}: ${e.phase === 'tell' ? 'подготовка' : e.phase === 'active' ? 'удар' : 'окно восстановления'}.`;
+    return `Отражение элиты · ${skills[e.skill].name}: ${e.phase === 'tell' ? 'подготовка' : e.phase === 'active' ? 'удар' : 'окно восстановления'}.`;
   if (e.type === 'RareEvent') return `${e.title}: ${e.detail}`;
   // D14: a relic is a shared source, so losing one to an elite has to be stated as a loss.
   if (e.type === 'RelicAppeared') return `На поле появилась находка: ${e.name}.`;
@@ -660,7 +660,7 @@ function updateChain(s: Snapshot) {
     .querySelectorAll<HTMLElement>('#chain .edge')
     .forEach((x) => x.classList.toggle('active', Number(x.dataset.edge) === s.chain.beat - 1));
   $('chainInfo').textContent =
-    `цикл ${s.chain.cycle + 1} · Tempo +${Math.round(s.chain.tempo * 100)}% · Tab = планирование`;
+    `цикл ${s.chain.cycle + 1} · темп +${Math.round(s.chain.tempo * 100)}% · Tab = сборка`;
 }
 function attachPlannerDnD(el: HTMLElement) {
   el.addEventListener('dragstart', (e) => {
@@ -702,7 +702,7 @@ function attachPlannerDnD(el: HTMLElement) {
       const ns = sim.snapshot();
       updatePlanner(ns);
       updateChain(ns);
-      pushLog(a[0] === 'skill' ? 'План: Phenomenon переставлен.' : 'План: Catalyst переставлен.');
+      pushLog(a[0] === 'skill' ? 'План: феномен переставлен.' : 'План: катализатор переставлен.');
     }
   });
 }
@@ -723,7 +723,8 @@ function plannerSkillNode(
       md2 = st.mutationUpgrade ? mutationDef(id, st.mutationUpgrade) : null;
     const radius = d.baseRadius ? d.baseRadius.toFixed(1) : '—',
       range = d.baseRange ? d.baseRange.toFixed(1) : '—';
-    el.innerHTML = `<img src="${skillVisualIcon(id, !!st.mutation)}" alt=""><div class="nm">${esc(d.name)}</div><div class="sm">Core ${s.player.level} · дальн. ${range} · радиус ${radius}</div><div class="effect"><b>${esc(d.identity ?? '')}</b>${d.weakness ? `<br>Слабость: ${esc(d.weakness)}` : ''}${md ? `<br>Мутация: ${esc(md.name)}${md2 ? ` → ${esc(md2.name)}` : ''}` : ''}</div>`;
+    const md3 = st.mutationApotheosis ? mutationDef(id, st.mutationApotheosis) : null;
+    el.innerHTML = `<img src="${skillVisualIcon(id, !!st.mutation)}" alt=""><div class="nm">${esc(d.name)}</div><div class="sm">Уровень ядра ${s.player.level} · дальность ${range} · радиус ${radius}</div><div class="effect"><b>${esc(d.identity ?? '')}</b>${d.weakness ? `<br>Слабость: ${esc(d.weakness)}` : ''}${md ? `<br>Мутация: ${esc(md.name)}${md2 ? ` → ${esc(md2.name)}` : ''}${md3 ? ` → ${esc(md3.name)}` : ''}` : ''}</div>`;
   } else el.innerHTML = '<div>пустой<br>слот</div>';
   attachPlannerDnD(el);
   return el;
@@ -741,7 +742,7 @@ function plannerCatNode(
   if (id) {
     const d = catalysts[id];
     el.style.setProperty('--cat-color', d.color);
-    el.innerHTML = `<div class="catdot"></div><div class="nm">${esc(d.name)}</div><div class="sm">${esc(d.scope)} · готовый оператор</div><div class="effect">${esc(d.desc)}</div>`;
+    el.innerHTML = `<div class="catdot"></div><div class="nm">${esc(d.name)}</div><div class="sm">Катализатор · ${esc(d.scope)}</div><div class="effect">${esc(d.desc)}</div>`;
   } else el.innerHTML = '<div>пустой<br>slot</div>';
   attachPlannerDnD(el);
   return el;
@@ -749,38 +750,58 @@ function plannerCatNode(
 function updatePlanner(s: Snapshot) {
   if (!planning) return;
   const sig =
-    s.chain.slots.join('|') +
-    '#' +
-    s.chain.skillReserve.join('|') +
-    '#' +
-    s.chain.catalysts.join('|') +
-    '#' +
-    s.chain.catalystReserve.join('|') +
-    '#' +
-    s.skills.map((x) => `${x.id}:${x.mutation}:${x.mutationUpgrade}`).join('|') +
-    '#' +
-    s.chain.catalystRuntime.map((x) => x.id).join('|') +
-    '#' +
-    JSON.stringify(s.resonance) +
-    '#' +
-    s.mutationCores +
-    '#' +
-    s.player.level;
+    s.chain.slots.join('|') + '#' + s.chain.skillReserve.join('|') + '#' +
+    s.chain.catalysts.join('|') + '#' + s.chain.catalystReserve.join('|') + '#' +
+    s.skills.map((x) => `${x.id}:${x.mutation}:${x.mutationUpgrade}:${x.mutationApotheosis}`).join('|') + '#' +
+    JSON.stringify(s.resonance) + '#' + JSON.stringify(s.doctrines) + '#' +
+    s.heldItems.join('|') + '#' + s.mutationCores + '#' + s.player.level + '#' +
+    [s.player.hp,s.player.maxHp,s.player.barrier,s.player.armor,s.player.moveSpeed,s.player.pickupRadius,s.player.power,s.player.fortune,s.player.dashCharge].map(x=>Number(x).toFixed(2)).join(':');
   if (sig === plannerSignature) return;
   plannerSignature = sig;
   const chain = $('plannerChain');
   chain.innerHTML = '';
   for (let i = 0; i < s.chain.slots.length; i++) {
     chain.append(plannerSkillNode(s.chain.slots[i], 'active', i, s));
-    if (i < s.chain.catalysts.length)
-      chain.append(plannerCatNode(s.chain.catalysts[i], 'active', i, s));
+    if (i < s.chain.catalysts.length) chain.append(plannerCatNode(s.chain.catalysts[i], 'active', i, s));
   }
   const reserve = $('plannerReserve');
   reserve.innerHTML = '';
   s.chain.skillReserve.forEach((id, i) => reserve.append(plannerSkillNode(id, 'reserve', i, s)));
   s.chain.catalystReserve.forEach((id, i) => reserve.append(plannerCatNode(id, 'reserve', i, s)));
   $('plannerStats').innerHTML =
-    `<span>Core Rank <b>${s.player.level}</b></span><span>Темп <b>${s.resonance.tempo}</b></span><span>Количество <b>${s.resonance.multiplicity}</b></span><span>Точность <b>${s.resonance.precision}</b></span><span>Длительность <b>${s.resonance.persistence}</b></span><span>Проводимость <b>${s.resonance.conductivity}</b></span><span>Подвижность <b>${s.resonance.mobility}</b></span><span>Ядра мутации <b>${s.mutationCores}</b></span>`;
+    `<span>Уровень ядра <b>${s.player.level}</b></span><span>Темп <b>+${Math.round(s.chain.tempo * 100)}%</b></span>` +
+    `<span>Мощность <b>+${Math.round(s.player.power * 100)}%</b></span><span>Скорость <b>${s.player.moveSpeed.toFixed(2)}</b></span>` +
+    `<span>Радиус подбора <b>${s.player.pickupRadius.toFixed(1)}</b></span><span>Ядра мутации <b>${s.mutationCores}</b></span>`;
+
+  $('plannerCharacter').innerHTML = [
+    ['Здоровье', `${Math.ceil(s.player.hp)} / ${Math.round(s.player.maxHp)}`],
+    ['Барьер', `${Math.ceil(s.player.barrier)}`],
+    ['Броня', `${Math.round(s.player.armor)}`],
+    ['Скорость', s.player.moveSpeed.toFixed(2)],
+    ['Рывок', s.player.dashReady ? 'готов' : `${Math.round(s.player.dashCharge * 100)}%`],
+    ['Подбор', s.player.pickupRadius.toFixed(1)],
+    ['Удача', s.player.fortune.toFixed(2)],
+    ['Опыт', `${Math.floor(s.player.xp)} / ${s.player.xpNeed}`]
+  ].map(([k,v])=>`<div class="sheet-stat"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+
+  const doctrineEntries = Object.entries(s.doctrines).filter(([,n])=>n>0);
+  $('plannerDoctrines').innerHTML = doctrineEntries.length ? doctrineEntries.map(([id,n])=>{
+    const d=doctrines[id as keyof typeof doctrines];
+    return `<div class="sheet-doctrine"><i style="color:${d.color}">${esc(d.glyph)}</i><div><b>${esc(d.name)} · ${n}</b><span>${esc(d.description)}</span></div></div>`;
+  }).join('') : '<div class="sheet-empty">Специализации ещё не выбраны.</div>';
+
+  const counts=new Map<string,number>();
+  for(const id of s.heldItems) counts.set(id,(counts.get(id)??0)+1);
+  $('plannerItems').innerHTML = counts.size ? [...counts].map(([id,n])=>{
+    const d=itemDefs[id as keyof typeof itemDefs];
+    return `<div class="sheet-item"><i style="color:${itemCategoryColor[d.category]}">${esc(itemGlyph[id as keyof typeof itemGlyph])}</i><div><b>${esc(d.name)}${n>1?` ×${n}`:''}</b><span>${esc(itemCategoryName[d.category])} · ${esc(d.description)}</span></div></div>`;
+  }).join('') : '<div class="sheet-empty">Предметов пока нет.</div>';
+
+  const r=s.resonance;
+  $('plannerDerived').innerHTML = [
+    ['Темп ядра', r.tempo],['Количество',r.multiplicity],['Точность',r.precision],
+    ['Длительность',r.persistence],['Проводимость',r.conductivity],['Подвижность',r.mobility]
+  ].map(([k,v])=>`<div class="sheet-stat"><span>${esc(String(k))}</span><b>${Number(v).toFixed(2)}</b></div>`).join('');
 }
 
 const eliteRarityName: Record<string, string> = {
@@ -1540,3 +1561,23 @@ async function start() {
   }
 }
 start();
+
+
+function drawMapPoi(ctx: CanvasRenderingContext2D, kind: string, x: number, y: number, guarded: boolean, danger: boolean) {
+  const color = kind === 'phenomenon' ? '#ffb06a' : kind === 'catalyst' ? '#d0a0ff' : kind === 'resonance' ? '#76e1ff' : '#75f0a9';
+  ctx.save(); ctx.translate(x,y); ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=1.7;
+  if (kind === 'phenomenon') {
+    ctx.beginPath();ctx.moveTo(0,-4);ctx.lineTo(-6,-7);ctx.lineTo(-5,5);ctx.lineTo(0,7);ctx.lineTo(5,5);ctx.lineTo(6,-7);ctx.closePath();ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,-4);ctx.lineTo(0,7);ctx.stroke();
+  } else if (kind === 'catalyst') {
+    ctx.beginPath();ctx.moveTo(-8,0);ctx.lineTo(-4,-4);ctx.lineTo(0,0);ctx.lineTo(-4,4);ctx.closePath();ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(4,-4);ctx.lineTo(8,0);ctx.lineTo(4,4);ctx.closePath();ctx.stroke();
+  } else if (kind === 'resonance') {
+    ctx.beginPath();for(let i=0;i<6;i++){const a=-Math.PI/2+i*Math.PI/3,px=Math.cos(a)*6,py=Math.sin(a)*6;i?ctx.lineTo(px,py):ctx.moveTo(px,py);}ctx.closePath();ctx.stroke();
+    ctx.beginPath();ctx.moveTo(-5,0);ctx.lineTo(5,0);ctx.moveTo(0,-5);ctx.lineTo(0,5);ctx.stroke();
+  } else {
+    ctx.fillRect(-2,-7,4,14);ctx.fillRect(-7,-2,14,4);
+  }
+  if (guarded || danger) { ctx.strokeStyle=danger?'#ff5962':'#fff';ctx.lineWidth=danger?2:1;ctx.strokeRect(-10,-10,20,20); }
+  ctx.restore();
+}
