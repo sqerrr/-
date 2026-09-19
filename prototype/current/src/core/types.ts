@@ -202,6 +202,9 @@ export interface SnapshotEntity {
   facingX: number;
   facingZ: number;
   telegraph: number;
+  /** Authored chassis action, separate from generic mob/affix state. */
+  eliteAction?: string;
+  eliteActionProgress: number;
   linkedTo: number;
   revived: boolean;
   buffed: boolean;
