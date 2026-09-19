@@ -24,9 +24,17 @@ function routeAwareSteer(s:Snapshot, tick:number, hz:number){
     const a=tick/(hz*4.3),sx=Math.cos(a)*.65,sy=Math.sin(a*.73)*.58;moveX=(sx+sy)*.7071;moveZ=(-sx+sy)*.7071;
   }
   const threats=[...s.entities].sort((a,b)=>Number(b.elite)-Number(a.elite)||Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z));
-  const e=threats[0];let aimX=1,aimZ=0;
-  if(e){const dx=e.x-s.player.x,dz=e.z-s.player.z,m=Math.hypot(dx,dz)||1;aimX=dx/m;aimZ=dz/m;}
-  return {moveX,moveZ,aimX,aimZ};
+  const e=threats[0];let aimX=1,aimZ=0,danger=false;
+  if(e){
+    const dx=e.x-s.player.x,dz=e.z-s.player.z,m=Math.hypot(dx,dz)||1;aimX=dx/m;aimZ=dz/m;
+    danger=!!e.elite && (!!e.eliteAction || e.echoPhase==='tell' || e.echoPhase==='active' || e.telegraph>0);
+    if(danger){
+      const directional=['hunter','bulwark','harvester'].includes(e.chassis??'');
+      if(directional){const fx=e.facingX||aimX,fz=e.facingZ||aimZ;moveX=-fz;moveZ=fx;}
+      else {moveX=-dx/m;moveZ=-dz/m;}
+    }
+  }
+  return {moveX,moveZ,aimX,aimZ,dash:danger&&s.player.dashReady};
 }
 
 
