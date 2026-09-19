@@ -24,3 +24,5 @@ jobs:
         run: npm test
       - name: Probe full-run progression
         run: node dist/tools/progression_probe.js
+      - name: Probe every opening Phenomenon
+        run: node dist/tools/opening_safety_probe.js
