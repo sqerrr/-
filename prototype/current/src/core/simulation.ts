@@ -1558,7 +1558,7 @@ export class Simulation {
   }
   private spawnDirector() {
     const target = this.populationTarget();
-    // v0.9A: Clean Run gets a calmer opening so the first Phenomenon can be read before density ramps.
+    // Clean Run keeps a calmer opening so the first Phenomenon can be read before density ramps.
     const normals = this.ents.filter((e) => e.kind !== 'elite' && e.hp > 0).length;
     this.spawnCredits += this.dt * (8.0 * this.spawnPressure());
     if (normals > target) this.spawnCredits *= 0.92;
@@ -2980,8 +2980,8 @@ export class Simulation {
     for (const f of this.fields) {
       f.ttl -= this.dt;
       f.tickAcc += this.dt;
-      const legacyRival = f.kind === 'ink' || f.kind === 'architect';
-      const faction: CastFaction = f.faction ?? (legacyRival ? 'rival' : 'hero');
+      const compatibilityRival = f.kind === 'ink' || f.kind === 'architect';
+      const faction: CastFaction = f.faction ?? (compatibilityRival ? 'rival' : 'hero');
       const owner = f.ownerId ? this.ents.find((e) => e.id === f.ownerId) ?? null : null;
       if (f.behavior === 'host' && f.faction === 'hero') {
         const target=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number(b.kind==='elite')-Number(a.kind==='elite')||Math.hypot(a.x-f.x,a.z-f.z)-Math.hypot(b.x-f.x,b.z-f.z))[0];
