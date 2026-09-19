@@ -1,3 +1,5 @@
+> **ARCHIVED / HISTORICAL:** historical v0.10 sandbox specification; current implementation facts are documented in 33 → 32 → 31. Current entry point: `00_START_HERE.md`.
+
 # v0.10 CORE REBUILD — authoritative sandbox spec
 
 **Date:** 2026-09-17  
