@@ -1762,6 +1762,26 @@ export class Simulation {
     return 'common';
   }
   /**
+   * Active affixes were implemented but ordinary elites had been hard-wired to 'none'.
+   * Reintroduce them as a run-depth layer: early elites teach the chassis first, later
+   * tiers combine one chassis question with one affix question.
+   */
+  private rollEliteAffix(rarity: EliteRarity): EliteAffix {
+    const t = Math.min(1, this.time / this.runDuration);
+    if (rarity === 'common') {
+      if (t < 0.12 || this.rng.float() < 0.58 - t * 0.18) return 'none';
+      const pool: EliteAffix[] = ['regenerating', 'volatile', 'shielded'];
+      return pool[this.rng.int(pool.length)];
+    }
+    if (rarity === 'uplifted') {
+      if (this.rng.float() < 0.12) return 'none';
+      const pool: EliteAffix[] = ['regenerating', 'shielded', 'vanguard', 'temporal', 'brood'];
+      return pool[this.rng.int(pool.length)];
+    }
+    const pool: EliteAffix[] = ['crowned', 'shielded', 'vanguard', 'temporal', 'brood'];
+    return pool[this.rng.int(pool.length)];
+  }
+  /**
    * D10: an elite fields as much of the hero's declined history as its tier allows. Cards
    * are claimed rather than copied, so no two elites wield the same refusal and D11 can
    * hand them back to the store when this one dies.
@@ -2061,9 +2081,9 @@ export class Simulation {
       'harvester',
       'shepherd'
     ];
-    const chassis = pool[this.rng.int(pool.length)],
-      affix: EliteAffix = 'none';
-    const rarity = this.rollEliteRarity();
+    const chassis = pool[this.rng.int(pool.length)];
+    const rarity = this.rollEliteRarity(),
+      affix = this.rollEliteAffix(rarity);
     const q = this.pointAroundPlayer(15, 18.5),
       scale = this.worldScale();
     let hp = eliteHp[chassis] * scale * ELITE_RARITY_HP[rarity],
@@ -2340,7 +2360,7 @@ export class Simulation {
             e.state = 'normal';
             e.affixPulse = 4.9;
           } else continue;
-        } else if (e.affixPulse <= 0) {
+        } else if (e.affixPulse <= 0 && !e.eliteAction && !this.eliteEchoes.has(e.id)) {
           e.lockedX = Math.max(
             this.world.minX + 1,
             Math.min(this.world.maxX - 1, this.px + this.playerVX * 0.46)
@@ -2384,7 +2404,7 @@ export class Simulation {
           const target = Math.atan2(this.pz - e.z, this.px - e.x);
           const diff = this.angleDiff(target, e.shieldAngle);
           e.shieldAngle += Math.max(-0.82 * dt, Math.min(0.82 * dt, diff));
-          if (e.affixPulse <= 0 && d < 8.5) {
+          if (e.affixPulse <= 0 && d < 8.5 && !e.eliteAction && !this.eliteEchoes.has(e.id)) {
             e.shieldState='commit'; e.shieldCommitUntil=this.time+0.82; e.affixPulse=4.6; e.shieldAngle=target;
             const ax=Math.cos(e.shieldAngle),az=Math.sin(e.shieldAngle);
             this.events.push({type:'CombatShape',tick:this.tick,source:'shield_commit',intent:'control',shape:{kind:'sector',x:e.x,z:e.z,radius:3.4,aimX:ax,aimZ:az,halfAngle:0.72}});
@@ -3048,7 +3068,7 @@ export class Simulation {
         else if (p.kind === 'core') this.eliteCore += p.value;
         else if (p.kind === 'mutation') {
           this.mutationCores += p.value;
-          this.events.push({ type: 'RareEvent', tick: this.tick, title: 'MUTATION CORE', detail: `Ядро получено · запас ${this.mutationCores}`, x: p.x, z: p.z });
+          this.events.push({ type: 'RareEvent', tick: this.tick, title: 'ЯДРО МУТАЦИИ', detail: `Ядро получено · запас ${this.mutationCores}`, x: p.x, z: p.z });
         } else {
           this.healPlayer(p.value);
           this.metrics.healsPicked++;
@@ -4307,7 +4327,7 @@ export class Simulation {
       const freezeAt=e.kind==='elite'?3.5:2.0;
       if((e.frostMeter??0)>=freezeAt){e.frostMeter=0;e.frozenUntil=this.time+(e.kind==='elite'?0.7:1.35)*this.memoryFactor();e.exposedUntil=Math.max(e.exposedUntil,this.time+(e.kind==='elite'?0.85:0.45));}
       let shatter=wasFrozen||(mut==='frost_snap'&&wasChilled);
-      if(shatter){dmg+=22*this.powerBucket(st);e.frozenUntil=0;e.chillUntil=0;shattered++;firstShatter??=e;this.events.push({type:'RareEvent',tick:this.tick,title:'SHATTER',detail:e.kind==='elite'?'Хрупкость элиты разбита':'Лёд расколот',x:e.x,z:e.z});}
+      if(shatter){dmg+=22*this.powerBucket(st);e.frozenUntil=0;e.chillUntil=0;shattered++;firstShatter??=e;this.events.push({type:'RareEvent',tick:this.tick,title:'РАСКОЛ',detail:e.kind==='elite'?'Хрупкость элиты разбита':'Лёд расколот',x:e.x,z:e.z});}
       const killed=this.damage(e,dmg,'frost_ring',false,src.x,src.z,slot);
       e.chillUntil=Math.max(e.chillUntil,this.time+2.4*(1+st.statusPotency)*this.memoryFactor());this.noteState('chill');this.currentActivationControl+=1+st.control;
       if(this.mutationIs(st,'frost_brittle'))e.exposedUntil=Math.max(e.exposedUntil,this.time+2.8*this.memoryFactor());
@@ -5224,7 +5244,7 @@ export class Simulation {
           id: `mut-target:${id}:${this.rng.nextU32()}`,
           kind: 'mutation_target' as const,
           title: skills[id].name,
-          subtitle: tier === 3 ? `АПОФЕОЗ · CORE ${this.mutationCores}` : `${tier === 2 ? 'ПРОДОЛЖЕНИЕ' : 'МУТАЦИЯ'} · CORE ${this.mutationCores}`,
+          subtitle: tier === 3 ? `АПОФЕОЗ · ЯДРА: ${this.mutationCores}` : `${tier === 2 ? 'ПРОДОЛЖЕНИЕ' : 'МУТАЦИЯ'} · ЯДРА: ${this.mutationCores}`,
           description: tier === 3
             ? `Третий уровень ветви «${mutationDef(id, st.mutationUpgrade!).name}»: качественная трансформация, а не числовой бонус.`
             : tier === 2
@@ -5246,7 +5266,7 @@ export class Simulation {
         .map((id) => {
           const o = this.makeCatalystAdd(id);
           o.kind = 'elite';
-          o.subtitle = 'ELITE CACHE · новый закон связи';
+          o.subtitle = 'ТАЙНИК ЭЛИТЫ · новый закон связи';
           return o;
         });
     } else {
