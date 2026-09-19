@@ -1,12 +1,13 @@
 import { Simulation } from '../core/simulation.js';
 import { items } from '../content/items.js';
 import { pickOffer, steer } from './driver.js';
+import type { ItemId } from '../core/types.js';
 
 const hz=60, checkpoints=[120,240,360,470], seeds=[12345,24680,97531];
 
 function playerDamageFactor(s:any){
   let itemDamage=1;
-  for(const id of s.heldItems){
+  for(const id of s.heldItems as ItemId[]){
     const e=items[id].effect;
     if(e.kind==='damageMul') itemDamage*=e.amount;
   }
