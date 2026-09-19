@@ -125,7 +125,7 @@ function modalState() {
 }
 async function copyDebugLog() {
   const text = [
-    'Roguelike v0.9 POWER & ASSEMBLY DEBUG',
+    'Black Archive v0.11.3 · debug',
     navigator.userAgent,
     location.href,
     '',
