@@ -15,7 +15,8 @@ const fail = (m) => {
  * Anything else missing from the roster is an oversight, not a decision, so this list is
  * what makes check 6 meaningful.
  */
-const parkedSkills = ['rail_spear', 'toxic_mist', 'repulse_halo'];
+// Nothing is parked any more: every defined phenomenon is reachable in a run.
+const parkedSkills = [];
 /** Floors, not targets: they only catch a catalogue that has been gutted. */
 const MIN_SKILLS = 4;
 const MIN_CATALYSTS = 4;

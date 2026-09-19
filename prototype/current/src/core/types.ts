@@ -9,7 +9,14 @@ export type SkillId =
   | 'sentry'
   | 'toxic_mist'
   | 'mass_driver'
-  | 'repulse_halo';
+  | 'repulse_halo'
+  | 'breach_line'
+  | 'contact_saw'
+  | 'backhand'
+  | 'spreading_front'
+  | 'shard_fan'
+  | 'tether_drag'
+  | 'pin_burst';
 export type CatalystId =
   | 'capacitor'
   | 'anchor'

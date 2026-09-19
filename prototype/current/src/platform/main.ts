@@ -36,6 +36,13 @@ const visualIconMap: Record<SkillId, string> = {
   sentry: 'sentry',
   toxic_mist: 'toxic_mist',
   repulse_halo: 'repulse_halo',
+  breach_line: 'rail_spear',
+  contact_saw: 'cleaver',
+  backhand: 'cleaver',
+  spreading_front: 'repulse_halo',
+  shard_fan: 'ember_lance',
+  tether_drag: 'chain_arc',
+  pin_burst: 'mortar_bloom',
   mass_driver: 'mass_driver'
 };
 function skillVisualIcon(id: SkillId, mutated = false) {

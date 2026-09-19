@@ -109,6 +109,10 @@ export const skills = {
         baseRange: 18.5,
         baseRadius: 0.34,
         description: 'Очень дальняя пробивающая линия по курсору.',
+        baseCrit: 0.12,
+        axes: ['precision', 'multiplicity'],
+        identity: 'Прошивает выстроенную колонну на дальности, недоступной остальным.',
+        weakness: 'Требует, чтобы цели встали в линию; по рассыпанной толпе почти бесполезна.',
         upgradePool: ['power', 'range', 'crit', 'eliteDamage', 'count'],
         mutations: [
             {
@@ -399,6 +403,10 @@ export const skills = {
         baseRange: 0,
         baseRadius: 4.5,
         description: 'Большое persistent поле вокруг позиции героя.',
+        baseCrit: 0,
+        axes: ['persistence', 'conductivity'],
+        identity: 'Держит площадь вокруг героя и наказывает давку без единого нажатия.',
+        weakness: 'Против одиночной крупной цели почти ничего не решает.',
         upgradePool: ['power', 'duration', 'coverage', 'statusPotency', 'control'],
         mutations: [
             {
@@ -444,6 +452,10 @@ export const skills = {
         baseRange: 0,
         baseRadius: 3.0,
         description: 'Защитный pulse: отталкивает толпу, открывает пространство и может конвертировать контроль в Barrier.',
+        baseCrit: 0.02,
+        axes: ['conductivity', 'mobility'],
+        identity: 'Расчищает место вокруг и превращает контроль в защиту.',
+        weakness: 'Прямой урон ничтожен; сам по себе никого не убивает.',
         upgradePool: ['control', 'coverage', 'power', 'statusPotency', 'duration'],
         mutations: [
             {
@@ -526,6 +538,255 @@ export const skills = {
                 description: 'Stored/Charge конвертируется в скорость и damage.'
             }
         ]
+    },
+    breach_line: {
+        id: 'breach_line',
+        name: 'Линия пробоя',
+        shortName: 'ПРОБОЙ',
+        icon: A + 'skill_rail.png',
+        color: '#ff8f5a',
+        directional: true,
+        baseDamage: 34,
+        description: 'Широкая полоса пробоя, проходящая сквозь всех на пути.',
+        baseRange: 9,
+        baseRadius: 0.95,
+        baseCrit: 0.06,
+        axes: ['precision', 'multiplicity'],
+        identity: 'Бьёт всю глубину колонны разом, не теряя силы на первом теле.',
+        weakness: 'Требует, чтобы цели стояли по линии; против россыпи почти бесполезна.',
+        upgradePool: ['power', 'coverage', 'crit'],
+        mutations: [
+            {
+                id: 'breach_wide',
+                name: 'Расширенный пробой',
+                tag: 'зачистка',
+                description: 'Полоса шире, но урон по каждому ниже.'
+            },
+            {
+                id: 'breach_deep',
+                name: 'Глубокий пробой',
+                tag: 'элита',
+                description: 'Дальность и урон выше, полоса уже.'
+            },
+            {
+                id: 'breach_stagger',
+                name: 'Оглушающий пробой',
+                tag: 'контроль',
+                description: 'Задетые теряют ход на мгновение.'
+            }
+        ]
+    },
+    contact_saw: {
+        id: 'contact_saw',
+        name: 'Контактная пила',
+        shortName: 'ПИЛА',
+        icon: A + 'skill_cleaver.png',
+        color: '#ffd7a8',
+        directional: true,
+        baseDamage: 11,
+        description: 'Режущий орган прямо перед телом, работающий непрерывно.',
+        baseRange: 0,
+        baseRadius: 1.7,
+        baseCrit: 0.04,
+        axes: ['tempo', 'conductivity'],
+        identity: 'Постоянный урон в упор без единой паузы на прицеливание.',
+        weakness: 'Вынуждает стоять вплотную; на отходе не наносит ничего.',
+        upgradePool: ['power', 'coverage', 'crit'],
+        mutations: [
+            {
+                id: 'saw_teeth',
+                name: 'Крупный зуб',
+                tag: 'элита',
+                description: 'Реже, но каждый заход бьёт вдвое.'
+            },
+            {
+                id: 'saw_spin',
+                name: 'Раскрутка',
+                tag: 'зачистка',
+                description: 'Сектор до полного круга, урон ниже.'
+            },
+            {
+                id: 'saw_bleed',
+                name: 'Рваный край',
+                tag: 'поле',
+                description: 'Задетые долго теряют здоровье.'
+            }
+        ]
+    },
+    backhand: {
+        id: 'backhand',
+        name: 'Обратный размах',
+        shortName: 'РАЗМАХ',
+        icon: A + 'skill_cleaver.png',
+        color: '#ffe0c0',
+        directional: false,
+        baseDamage: 27,
+        description: 'Удар назад по ходу движения, накрывающий тех, кого герой миновал.',
+        baseRange: 0,
+        baseRadius: 2.7,
+        baseCrit: 0.05,
+        axes: ['mobility', 'conductivity'],
+        identity: 'Награждает за проход сквозь массу, а не за отход от неё.',
+        weakness: 'Неподвижному герою бьёт в пустоту.',
+        upgradePool: ['power', 'coverage', 'crit'],
+        mutations: [
+            {
+                id: 'backhand_wake',
+                name: 'След',
+                tag: 'зачистка',
+                description: 'Радиус растёт от пройденного пути.'
+            },
+            {
+                id: 'backhand_shove',
+                name: 'Отбрасывание',
+                tag: 'контроль',
+                description: 'Задетые отлетают назад.'
+            },
+            {
+                id: 'backhand_twin',
+                name: 'Двойной',
+                tag: 'связка',
+                description: 'Бьёт и вперёд, и назад, но слабее.'
+            }
+        ]
+    },
+    spreading_front: {
+        id: 'spreading_front',
+        name: 'Расходящийся фронт',
+        shortName: 'ФРОНТ',
+        icon: A + 'skill_repulse.png',
+        color: '#9ad8ff',
+        directional: false,
+        baseDamage: 31,
+        description: 'Кольцевая волна, расходящаяся от героя и обходящая тех, кто вплотную.',
+        baseRange: 0,
+        baseRadius: 6.2,
+        baseCrit: 0.03,
+        axes: ['persistence', 'multiplicity'],
+        identity: 'Накрывает средний круг целиком, не требуя прицела.',
+        weakness: 'Прижатых вплотную не задевает вовсе.',
+        upgradePool: ['power', 'coverage', 'crit'],
+        mutations: [
+            {
+                id: 'front_inner',
+                name: 'Ближний фронт',
+                tag: 'зачистка',
+                description: 'Волна начинается у самого тела.'
+            },
+            {
+                id: 'front_far',
+                name: 'Дальний фронт',
+                tag: 'поле',
+                description: 'Кольцо шире и дальше, урон ниже.'
+            },
+            {
+                id: 'front_slow',
+                name: 'Вязкий фронт',
+                tag: 'контроль',
+                description: 'Задетые замедляются.'
+            }
+        ]
+    },
+    shard_fan: {
+        id: 'shard_fan',
+        name: 'Веер осколков',
+        shortName: 'ВЕЕР',
+        icon: A + 'skill_ember.png',
+        color: '#ffb36b',
+        directional: true,
+        baseDamage: 15,
+        description: 'Пять коротких полос, расходящихся веером от прицела.',
+        baseRange: 7.2,
+        baseRadius: 0.34,
+        baseCrit: 0.07,
+        axes: ['multiplicity', 'precision'],
+        identity: 'Накрывает угол, а не точку: прощает промах по направлению.',
+        weakness: 'По одиночной цели попадает лишь одной полосой из пяти.',
+        upgradePool: ['power', 'coverage', 'crit'],
+        mutations: [
+            {
+                id: 'fan_tight',
+                name: 'Сжатый веер',
+                tag: 'элита',
+                description: 'Угол уже, все полосы могут лечь в одну цель.'
+            },
+            {
+                id: 'fan_wide',
+                name: 'Раскрытый веер',
+                tag: 'зачистка',
+                description: 'Угол шире, полос больше, урон ниже.'
+            },
+            { id: 'fan_burn', name: 'Жгучий веер', tag: 'поле', description: 'Задетые загораются.' }
+        ]
+    },
+    tether_drag: {
+        id: 'tether_drag',
+        name: 'Стяжной трос',
+        shortName: 'ТРОС',
+        icon: A + 'skill_chain_arc.png',
+        color: '#8fe0c8',
+        directional: true,
+        baseDamage: 19,
+        description: 'Трос, подтягивающий задетых к герою.',
+        baseRange: 11,
+        baseRadius: 0.45,
+        baseCrit: 0.05,
+        axes: ['conductivity', 'mobility'],
+        identity: 'Собирает рассыпавшихся в кучу, где их достанет всё остальное.',
+        weakness: 'Сам по себе почти не наносит урона.',
+        upgradePool: ['power', 'coverage', 'crit'],
+        mutations: [
+            {
+                id: 'tether_hook',
+                name: 'Крюк',
+                tag: 'элита',
+                description: 'Тянет сильнее, но только одну цель.'
+            },
+            {
+                id: 'tether_net',
+                name: 'Сеть',
+                tag: 'зачистка',
+                description: 'Тянет больше целей, но слабее.'
+            },
+            { id: 'tether_bind', name: 'Путы', tag: 'контроль', description: 'Подтянутые теряют ход.' }
+        ]
+    },
+    pin_burst: {
+        id: 'pin_burst',
+        name: 'Пригвождение',
+        shortName: 'ПРИГВОЗДЬ',
+        icon: A + 'skill_mortar.png',
+        color: '#d9a0ff',
+        directional: true,
+        baseDamage: 25,
+        description: 'Разрыв в выбранной точке, пригвождающий задетых к месту.',
+        baseRange: 8.5,
+        baseRadius: 2.7,
+        baseCrit: 0.05,
+        axes: ['precision', 'persistence'],
+        identity: 'Останавливает группу там, где она стоит, а не там, где герой.',
+        weakness: 'Бьёт по месту, а не по цели: подвижные успевают уйти.',
+        upgradePool: ['power', 'coverage', 'crit'],
+        mutations: [
+            {
+                id: 'pin_deep',
+                name: 'Глубокий разрыв',
+                tag: 'элита',
+                description: 'Урон выше, радиус меньше.'
+            },
+            {
+                id: 'pin_field',
+                name: 'Осевший прах',
+                tag: 'поле',
+                description: 'Задетые долго теряют здоровье.'
+            },
+            {
+                id: 'pin_twin',
+                name: 'Двойной разрыв',
+                tag: 'связка',
+                description: 'Второй разрыв через мгновение.'
+            }
+        ]
     }
 };
 export const skillOrder = [
@@ -536,7 +797,17 @@ export const skillOrder = [
     'orbit_blades',
     'mortar_bloom',
     'sentry',
-    'mass_driver'
+    'mass_driver',
+    'rail_spear',
+    'toxic_mist',
+    'repulse_halo',
+    'breach_line',
+    'contact_saw',
+    'backhand',
+    'spreading_front',
+    'shard_fan',
+    'tether_drag',
+    'pin_burst'
 ];
 // v0.9 showcase is deliberately limited to eight visually distinct Phenomena. Clean Run overrides these arrays.
 export const initialSlots = [

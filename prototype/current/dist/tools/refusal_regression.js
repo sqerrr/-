@@ -100,9 +100,7 @@ s.refusals.forEach((c, i) => assert(c.serial === i + 1, 'serial ' + c.serial + '
 const aliveElites = new Set(s.entities.filter((e) => e.elite).map((e) => e.id));
 assert(s.refusals.every((c) => c.heldBy === 0 || aliveElites.has(c.heldBy)), 'a card is still claimed by an elite that is no longer alive');
 // Every conceded card must carry enough identity to be fielded later.
-assert(s.refusals.every((c) => !!c.title &&
-    !!c.icon &&
-    (!!c.skill || !!c.catalyst || !!c.item || !!c.resonance || !!c.stat)), 'a conceded card carries no usable payload');
+assert(s.refusals.every((c) => !!c.title && !!c.icon && (!!c.skill || !!c.catalyst || !!c.item || !!c.resonance || !!c.stat)), 'a conceded card carries no usable payload');
 // No card may be claimed twice over: a held serial must map to exactly one elite.
 const claims = new Map();
 for (const c of s.refusals)
@@ -113,10 +111,10 @@ assert(claims.size === s.refusals.filter((c) => c.heldBy !== 0).length, 'a seria
 // them. A silent store would make the whole draft invisible to the player.
 assert(elitesSeen > 0, 'the run produced no elites to arm');
 assert(armedElites > 0, 'no elite ever claimed a refused card');
-assert(rivalCasts > 0, 'no elite ever turned a refusal back on the hero');
-assert(rivalCasts === s.metrics.rivalCasts, 'event count ' + rivalCasts + ' disagrees with metric ' + s.metrics.rivalCasts);
-// Only self-contained attacks may be fielded: fields and turrets still belong to the hero.
-const CASTABLE = new Set(['ember_lance', 'frost_ring', 'cleaver', 'chain_arc', 'mass_driver']);
+assert(rivalCasts === s.metrics.rivalCasts, 'live run: event count ' + rivalCasts + ' disagrees with metric ' + s.metrics.rivalCasts);
+// Only self-contained attacks may be fielded: fields and turrets still belong to the hero,
+// so the guard reads the engine's own list rather than a copy that can drift away from it.
+const CASTABLE = new Set(Simulation.RIVAL_CASTABLE);
 for (const id of castSkills)
     assert(CASTABLE.has(id), 'an elite fielded ' + id + ', which is not rival-safe yet');
 const byKind = {};
@@ -132,3 +130,41 @@ console.log('refusal-regression OK', {
     rivalCasts,
     castSkills: [...castSkills]
 });
+// --- scenario: an elite holding a declined phenomenon fires it at the hero ---
+// Stated conditions instead of a hopeful live run: a stocked refusal store, an elite
+// standing close enough for the card it holds, and enough time for one cadence.
+const scene = new Simulation({ seed: 4242, hz });
+const armed = [];
+for (const skill of Simulation.RIVAL_CASTABLE) {
+    scene.refusalSerial++;
+    scene.refusalStore.push({
+        serial: scene.refusalSerial,
+        kind: "skill",
+        title: String(skill),
+        icon: String(skill),
+        skill,
+        heldBy: 0
+    });
+    armed.push(String(skill));
+}
+scene.spawnElite();
+const rival = scene.ents.find((e) => e.kind === "elite");
+assert(!!rival, "scenario: no elite was spawned");
+assert(rival.repertoire.length > 0, "scenario: the elite claimed nothing from a full store");
+// Park it at arm's length so even the shortest-reach card in its hand can land.
+rival.x = scene.px + 1.2;
+rival.z = scene.pz;
+let sceneCasts = 0;
+for (let i = 0; i < 900; i++) {
+    rival.x = scene.px + 1.2;
+    rival.z = scene.pz;
+    rival.hp = rival.maxHp;
+    scene.php = scene.maxHp;
+    scene.step({ moveX: 0, moveZ: 0, aimX: 1, aimZ: 0 });
+    for (const ev of scene.events)
+        if (ev.type === "RivalCast")
+            sceneCasts++;
+}
+assert(sceneCasts > 0, "scenario: an armed elite in reach never fielded a refusal");
+assert(scene.metrics.rivalCasts === sceneCasts, "scenario: event count " + sceneCasts + " disagrees with metric " + scene.metrics.rivalCasts);
+console.log("refusal-scenario OK", { armed: armed.length, held: rival.repertoire.length, casts: sceneCasts });

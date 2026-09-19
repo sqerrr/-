@@ -346,12 +346,20 @@ export class Simulation {
      * still bound to the hero by construction, so a phenomenon that spawns one would fight
      * on the wrong side. Those stay out until step 3 gives such effects an owner.
      */
+    /** Public so a check can read the engine's own list instead of keeping a copy. */
     static RIVAL_CASTABLE = [
         'ember_lance',
         'frost_ring',
         'cleaver',
         'chain_arc',
-        'mass_driver'
+        'mass_driver',
+        'breach_line',
+        'contact_saw',
+        'backhand',
+        'spreading_front',
+        'shard_fan',
+        'tether_drag',
+        'pin_burst'
     ];
     /**
      * How far a phenomenon actually reaches from whoever owns it. Ranged work carries
@@ -2466,6 +2474,246 @@ export class Simulation {
         c += Math.min(3, mult);
         return Math.max(1, c);
     }
+    /** A wide lane that keeps its full weight through every body standing in it. */
+    castBreachLine(st, slot, src) {
+        const mut = st.mutation;
+        let range = skills.breach_line.baseRange * (1 + st.range);
+        let width = this.skillRadius(st, skills.breach_line.baseRadius, slot);
+        if (mut === 'breach_wide')
+            width *= 1.6;
+        if (mut === 'breach_deep') {
+            width *= 0.7;
+            range *= 1.25;
+        }
+        this.combatShape('breach_line', {
+            kind: 'sector',
+            x: src.x,
+            z: src.z,
+            radius: range,
+            aimX: src.aimX,
+            aimZ: src.aimZ,
+            halfAngle: Math.atan2(width, Math.max(0.6, range * 0.5))
+        });
+        for (const e of this.targetsFor(src)) {
+            const dx = e.x - src.x, dz = e.z - src.z, along = dx * src.aimX + dz * src.aimZ;
+            if (along < -e.radius || along > range)
+                continue;
+            if (Math.abs(dx * src.aimZ - dz * src.aimX) > width + e.radius)
+                continue;
+            let dmg = skills.breach_line.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
+            if (mut === 'breach_wide')
+                dmg *= 0.78;
+            if (mut === 'breach_deep')
+                dmg *= 1.3;
+            this.damage(e, dmg, 'breach_line', true);
+            if (mut === 'breach_stagger') {
+                e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.6 * this.memoryFactor());
+                this.noteState('displaced');
+            }
+        }
+    }
+    /** Constant work in contact: no aiming pause, no reach, nothing at all on the retreat. */
+    castContactSaw(st, slot, src) {
+        const mut = st.mutation, r = this.skillRadius(st, skills.contact_saw.baseRadius, slot);
+        const half = mut === 'saw_spin' ? Math.PI : 1.0;
+        this.combatShape('contact_saw', {
+            kind: 'sector',
+            x: src.x,
+            z: src.z,
+            radius: r,
+            aimX: src.aimX,
+            aimZ: src.aimZ,
+            halfAngle: half
+        });
+        for (const e of this.targetsFor(src)) {
+            const dx = e.x - src.x, dz = e.z - src.z, d = Math.hypot(dx, dz);
+            if (d > r + e.radius || d < 0.01)
+                continue;
+            const dot = (dx / d) * src.aimX + (dz / d) * src.aimZ;
+            if (Math.acos(Math.max(-1, Math.min(1, dot))) > half)
+                continue;
+            let dmg = skills.contact_saw.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
+            if (mut === 'saw_teeth')
+                dmg *= 2;
+            if (mut === 'saw_spin')
+                dmg *= 0.7;
+            this.damage(e, dmg, 'contact_saw', true);
+            this.closeDamage += dmg;
+            if (mut === 'saw_bleed') {
+                e.woundUntil = Math.max(e.woundUntil, this.time + 3.4 * this.memoryFactor());
+                e.woundDps = Math.max(e.woundDps, 5.5 * this.powerBucket(st));
+                this.noteState('wound');
+            }
+        }
+    }
+    /** Pays for walking through the mass rather than backing away from it. */
+    castBackhand(st, slot, src) {
+        const mut = st.mutation;
+        let r = this.skillRadius(st, skills.backhand.baseRadius, slot);
+        const moving = Math.hypot(src.vx, src.vz);
+        let bx = moving > 0.05 ? -src.vx / moving : -src.aimX, bz = moving > 0.05 ? -src.vz / moving : -src.aimZ;
+        if (mut === 'backhand_wake')
+            r *= 1 + Math.min(0.6, moving * 0.09);
+        const half = mut === 'backhand_twin' ? Math.PI : 1.75;
+        this.combatShape('backhand', {
+            kind: 'sector',
+            x: src.x,
+            z: src.z,
+            radius: r,
+            aimX: bx,
+            aimZ: bz,
+            halfAngle: half
+        });
+        for (const e of this.targetsFor(src)) {
+            const dx = e.x - src.x, dz = e.z - src.z, d = Math.hypot(dx, dz);
+            if (d > r + e.radius || d < 0.01)
+                continue;
+            const dot = (dx / d) * bx + (dz / d) * bz;
+            if (Math.acos(Math.max(-1, Math.min(1, dot))) > half)
+                continue;
+            let dmg = skills.backhand.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
+            if (mut === 'backhand_twin')
+                dmg *= 0.68;
+            this.damage(e, dmg, 'backhand', true);
+            this.closeDamage += dmg;
+            if (mut === 'backhand_shove') {
+                e.x += (dx / d) * 1.6;
+                e.z += (dz / d) * 1.6;
+                e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.35);
+                this.noteState('displaced');
+            }
+        }
+    }
+    /** A ring that leaves the ground at the feet alone and takes the middle distance. */
+    castSpreadingFront(st, slot, src) {
+        const mut = st.mutation;
+        let outer = this.skillRadius(st, skills.spreading_front.baseRadius, slot), inner = mut === 'front_inner' ? 0.2 : 2.3;
+        if (mut === 'front_far') {
+            outer *= 1.3;
+            inner *= 1.5;
+        }
+        this.combatShape('spreading_front', { kind: 'circle', x: src.x, z: src.z, radius: outer });
+        for (const e of this.targetsFor(src)) {
+            const d = Math.hypot(e.x - src.x, e.z - src.z);
+            if (d > outer + e.radius || d < inner - e.radius)
+                continue;
+            let dmg = skills.spreading_front.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
+            if (mut === 'front_far')
+                dmg *= 0.8;
+            this.damage(e, dmg, 'spreading_front', false);
+            if (mut === 'front_slow') {
+                e.chillUntil = Math.max(e.chillUntil, this.time + 2.2 * this.memoryFactor());
+                this.noteState('chill');
+            }
+        }
+    }
+    /** Covers an angle instead of a point, so a rough aim still lands something. */
+    castShardFan(st, slot, src) {
+        const mut = st.mutation, range = skills.shard_fan.baseRange * (1 + st.range), width = this.skillRadius(st, skills.shard_fan.baseRadius, slot);
+        let lines = mut === 'fan_wide' ? 7 : 5, spread = mut === 'fan_tight' ? 0.16 : mut === 'fan_wide' ? 0.62 : 0.4;
+        const hit = new Set();
+        for (let i = 0; i < lines; i++) {
+            const ang = lines === 1 ? 0 : (i / (lines - 1) - 0.5) * 2 * spread, c = Math.cos(ang), s = Math.sin(ang), ax = src.aimX * c - src.aimZ * s, az = src.aimX * s + src.aimZ * c;
+            this.combatShape('shard_fan', {
+                kind: 'sector',
+                x: src.x,
+                z: src.z,
+                radius: range,
+                aimX: ax,
+                aimZ: az,
+                halfAngle: 0.06
+            });
+            for (const e of this.targetsFor(src)) {
+                const dx = e.x - src.x, dz = e.z - src.z, along = dx * ax + dz * az;
+                if (along < 0 || along > range)
+                    continue;
+                if (Math.abs(dx * az - dz * ax) > width + e.radius)
+                    continue;
+                let dmg = skills.shard_fan.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
+                if (mut === 'fan_wide')
+                    dmg *= 0.76;
+                if (hit.has(e.id))
+                    dmg *= 0.55;
+                hit.add(e.id);
+                this.damage(e, dmg, 'shard_fan', true);
+                if (mut === 'fan_burn') {
+                    e.igniteUntil = Math.max(e.igniteUntil, this.time + 2.6 * this.memoryFactor());
+                    this.noteState('ignite');
+                }
+            }
+        }
+    }
+    /** Gathers a scattered crowd into one place where everything else can reach it. */
+    castTetherDrag(st, slot, src) {
+        const mut = st.mutation, range = skills.tether_drag.baseRange * (1 + st.range), width = this.skillRadius(st, skills.tether_drag.baseRadius, slot);
+        let pull = mut === 'tether_hook' ? 5.5 : mut === 'tether_net' ? 2.1 : 3.2;
+        const cap = mut === 'tether_hook' ? 1 : mut === 'tether_net' ? 8 : 4;
+        this.combatShape('tether_drag', {
+            kind: 'sector',
+            x: src.x,
+            z: src.z,
+            radius: range,
+            aimX: src.aimX,
+            aimZ: src.aimZ,
+            halfAngle: 0.1
+        });
+        let taken = 0;
+        for (const e of this.targetsFor(src)) {
+            if (taken >= cap)
+                break;
+            const dx = e.x - src.x, dz = e.z - src.z, along = dx * src.aimX + dz * src.aimZ;
+            if (along < 0 || along > range)
+                continue;
+            if (Math.abs(dx * src.aimZ - dz * src.aimX) > width + e.radius)
+                continue;
+            taken++;
+            const d = Math.hypot(dx, dz) || 1;
+            const dmg = skills.tether_drag.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
+            this.damage(e, dmg, 'tether_drag', true);
+            e.x -= (dx / d) * pull;
+            e.z -= (dz / d) * pull;
+            this.currentActivationControl++;
+            if (mut === 'tether_bind') {
+                e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.9 * this.memoryFactor());
+                this.noteState('displaced');
+            }
+        }
+    }
+    /** Stops a group where it stands rather than where the hero does. */
+    castPinBurst(st, slot, src) {
+        const mut = st.mutation, range = skills.pin_burst.baseRange * (1 + st.range);
+        let r = this.skillRadius(st, skills.pin_burst.baseRadius, slot);
+        if (mut === 'pin_deep')
+            r *= 0.75;
+        const tx = src.x + src.aimX * range, tz = src.z + src.aimZ * range;
+        this.combatShape('pin_burst', { kind: 'circle', x: tx, z: tz, radius: r });
+        for (const e of this.targetsFor(src)) {
+            const d = Math.hypot(e.x - tx, e.z - tz);
+            if (d > r + e.radius)
+                continue;
+            let dmg = skills.pin_burst.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
+            if (mut === 'pin_deep')
+                dmg *= 1.45;
+            if (mut === 'pin_twin')
+                dmg *= 0.62;
+            this.damage(e, dmg, 'pin_burst', false);
+            e.displacedUntil = Math.max(e.displacedUntil, this.time + 1.1 * this.memoryFactor());
+            this.noteState('displaced');
+            if (mut === 'pin_field') {
+                e.toxinUntil = Math.max(e.toxinUntil, this.time + 4.2 * this.memoryFactor());
+                e.toxinDps = Math.max(e.toxinDps, 6 * this.powerBucket(st));
+                this.noteState('toxin');
+            }
+        }
+        if (mut === 'pin_twin') {
+            for (const e of this.targetsFor(src)) {
+                const d = Math.hypot(e.x - tx, e.z - tz);
+                if (d > r * 1.3 + e.radius)
+                    continue;
+                this.damage(e, skills.pin_burst.baseDamage * 0.62 * this.powerBucket(st) * this.slotAmp(slot, e), 'pin_burst', false);
+            }
+        }
+    }
     dispatchSkill(id, st, slot, src) {
         if (id === 'ember_lance')
             this.castEmber(st, slot, src);
@@ -2489,6 +2737,20 @@ export class Simulation {
             this.castRepulse(st, slot, src);
         else if (id === 'mass_driver')
             this.castMassDriver(st, slot, src);
+        else if (id === 'breach_line')
+            this.castBreachLine(st, slot, src);
+        else if (id === 'contact_saw')
+            this.castContactSaw(st, slot, src);
+        else if (id === 'backhand')
+            this.castBackhand(st, slot, src);
+        else if (id === 'spreading_front')
+            this.castSpreadingFront(st, slot, src);
+        else if (id === 'shard_fan')
+            this.castShardFan(st, slot, src);
+        else if (id === 'tether_drag')
+            this.castTetherDrag(st, slot, src);
+        else if (id === 'pin_burst')
+            this.castPinBurst(st, slot, src);
     }
     activateSlot(slot) {
         const lastSlot = this.activeSpan() - 1, id = this.slots[slot];
