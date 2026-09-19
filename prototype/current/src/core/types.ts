@@ -79,7 +79,7 @@ export type ResonanceId =
   'tempo' | 'multiplicity' | 'precision' | 'persistence' | 'conductivity' | 'mobility';
 export type DoctrineId = 'might' | 'size' | 'quantity' | 'duration' | 'mobility' | 'guard' | 'force' | 'precision';
 export type DoctrineRuntime = Record<DoctrineId, number>;
-// Internal name kept for snapshot compatibility; in v0.10 this is the global Core Axis layer, not per-weapon Resonance.
+// Internal name retained for snapshot compatibility; this is the shared run-level axis state, not per-Phenomenon progression.
 export type ResonanceRuntime = Record<ResonanceId, number>;
 export type PoiKind = 'phenomenon' | 'catalyst' | 'resonance' | 'vital';
 export type PoiState = 'dormant' | 'guarded' | 'cleared';
