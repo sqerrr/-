@@ -5048,7 +5048,7 @@ export class Simulation {
           range: 'Дальность',
           duration: 'Длительность',
           crit: 'Крит. шанс',
-          eliteDamage: 'Урон по Elite',
+          eliteDamage: 'Урон по элитам',
           count: 'Количество',
           control: 'Контроль',
           statusPotency: 'Сила статуса'
@@ -5065,7 +5065,7 @@ export class Simulation {
       id: `axis:${rid}:${this.rng.nextU32()}`,
       kind: 'resonance',
       title: d.name,
-      subtitle: `CORE AXIS ${before} → ${after}`,
+      subtitle: `УСИЛЕНИЕ ЯДРА ${before} → ${after}`,
       description: d.description,
       resonance: rid,
       stat: rid,
@@ -5084,8 +5084,8 @@ export class Simulation {
         id: `g:h:${this.rng.nextU32()}`,
         kind: 'global',
         title: 'Закалка',
-        subtitle: `+${Math.round(18 * m)} максимального HP`,
-        description: 'Универсальная выживаемость; не привязана к Phenomenon.',
+        subtitle: `+${Math.round(18 * m)} к максимуму здоровья`,
+        description: 'Универсальная выживаемость; не привязана к конкретному феномену.',
         stat,
         amount: 18 * m,
         rarity
@@ -5096,7 +5096,7 @@ export class Simulation {
         kind: 'global',
         title: 'Притяжение осколков',
         subtitle: `+${Math.round(15 * m)}% радиуса сбора`,
-        description: 'XP и pickups раньше летят к игроку.',
+        description: 'Опыт и подбираемые объекты раньше начинают лететь к игроку.',
         stat,
         amount: 0.15 * m,
         rarity
@@ -5106,7 +5106,7 @@ export class Simulation {
         id: `g:f:${this.rng.nextU32()}`,
         kind: 'global',
         title: 'Фортуна',
-        subtitle: `+${Math.round(8 * m)}% Fortune`,
+        subtitle: `+${Math.round(8 * m)}% к удаче`,
         description: 'Усиливает контроль над будущими случайными находками.',
         stat,
         amount: 0.08 * m,
@@ -5116,8 +5116,8 @@ export class Simulation {
       id: `g:a:${this.rng.nextU32()}`,
       kind: 'global',
       title: 'Архивная броня',
-      subtitle: `+${Math.round(10 * m)} Armor`,
-      description: 'Diminishing-returns mitigation.',
+      subtitle: `+${Math.round(10 * m)} брони`,
+      description: 'Снижает входящий урон; каждый следующий пункт брони даёт чуть меньший прирост защиты.',
       stat: 'armor',
       amount: 10 * m,
       rarity
@@ -5276,7 +5276,7 @@ export class Simulation {
           const o = this.makeResonanceOffer(id);
           o.kind = 'elite';
           o.description =
-            'ELITE CACHE · усиление всей машины, а не конкретного оружия. ' + o.description;
+            'ТАЙНИК ЭЛИТЫ · усиление всей сборки, а не конкретного оружия. ' + o.description;
           return o;
         });
       if (this.skillOrderUnowned().length) {
@@ -5285,8 +5285,8 @@ export class Simulation {
           id: `elite-discover:${id}:${this.rng.nextU32()}`,
           kind: 'elite',
           title: skills[id].name,
-          subtitle: 'ELITE CACHE · альтернативный Phenomenon',
-          description: `Полноценная поздняя находка текущего Core Rank. ${skills[id].description}`,
+          subtitle: 'ТАЙНИК ЭЛИТЫ · альтернативный феномен',
+          description: `Поздняя находка сразу использует текущий уровень ядра. ${skills[id].description}`,
           skill: id
         });
       } else offers.push(this.makeGlobalOffer());
@@ -5808,7 +5808,7 @@ export class Simulation {
    * folded into the hash, so a stale baseline fails loudly instead of silently matching
    * a different layout. Never change the layout without bumping.
    */
-  static readonly CANONICAL_SCHEMA_VERSION = 3;
+  static readonly CANONICAL_SCHEMA_VERSION = 4;
 
   /**
    * Explicit, ordered schema of everything that defines a run.
