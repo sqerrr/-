@@ -12,9 +12,16 @@ const assert = (ok: boolean, msg: string) => {
 const hz = 60;
 const sim = new Simulation({ seed: 12345, hz });
 
+// D10: an elite may never field more of the hero's history than its tier allows.
+const CAPACITY: Record<string, number> = { common: 1, uplifted: 3, legendary: 6 };
+
 let resolved = 0;
 let refusedEvents = 0;
 let maxRefusalsAfterResolve = 0;
+let elitesSeen = 0;
+let armedElites = 0;
+const tiers: Record<string, number> = { common: 0, uplifted: 0, legendary: 0 };
+const knownElites = new Set<number>();
 
 for (let i = 0; i < 3600; i++) {
   const snap: Snapshot = sim.snapshot();
@@ -72,6 +79,18 @@ for (let i = 0; i < 3600; i++) {
   // the combat events of this tick and anything the choice pushed.
   for (const ev of sim.events) if (ev.type === 'RewardRefused') refusedEvents++;
 
+  for (const e of sim.snapshot().entities) {
+    if (!e.elite || e.boss || knownElites.has(e.id)) continue;
+    knownElites.add(e.id);
+    elitesSeen++;
+    tiers[e.eliteRarity] = (tiers[e.eliteRarity] ?? 0) + 1;
+    if (e.refusalIcons.length) armedElites++;
+    assert(
+      e.refusalIcons.length <= CAPACITY[e.eliteRarity],
+      'a ' + e.eliteRarity + ' elite fields ' + e.refusalIcons.length + ' cards'
+    );
+  }
+
   const now = sim.snapshot();
   if (now.player.hp <= 0 || now.finished) break;
 }
@@ -88,10 +107,12 @@ assert(
 s.refusals.forEach((c, i) =>
   assert(c.serial === i + 1, 'serial ' + c.serial + ' out of order at index ' + i)
 );
-// Nothing claims a card until an elite does (that arrives with the rarity draw).
+// D11: a card may only be held by an elite that is still standing. Anything else means a
+// repertoire leaked when its owner died and the card is lost to the store for good.
+const aliveElites = new Set(s.entities.filter((e) => e.elite).map((e) => e.id));
 assert(
-  s.refusals.every((c) => c.heldBy === 0),
-  'a card is held although no elite has drawn one yet'
+  s.refusals.every((c) => c.heldBy === 0 || aliveElites.has(c.heldBy)),
+  'a card is still claimed by an elite that is no longer alive'
 );
 // Every conceded card must carry enough identity to be fielded later.
 assert(
@@ -101,7 +122,26 @@ assert(
   'a conceded card carries no usable payload'
 );
 
+// No card may be claimed twice over: a held serial must map to exactly one elite.
+const claims = new Map<number, number>();
+for (const c of s.refusals) if (c.heldBy) claims.set(c.serial, c.heldBy);
+assert(
+  claims.size === s.refusals.filter((c) => c.heldBy !== 0).length,
+  'a serial was claimed twice'
+);
+
+// The whole point of the slice: elites must actually end up carrying refusals.
+assert(elitesSeen > 0, 'the run produced no elites to arm');
+assert(armedElites > 0, 'no elite ever fielded a refused card');
+
 const byKind: Record<string, number> = {};
 for (const c of s.refusals) byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
 
-console.log('refusal-regression OK', { resolved, stored: s.refusals.length, byKind });
+console.log('refusal-regression OK', {
+  resolved,
+  stored: s.refusals.length,
+  byKind,
+  elites: elitesSeen,
+  armed: armedElites,
+  tiers
+});

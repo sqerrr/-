@@ -22,6 +22,7 @@ import type {
   Command,
   EliteAffix,
   EliteChassis,
+  EliteRarity,
   EnemyKind,
   FieldSnapshot,
   GameEvent,
@@ -95,9 +96,27 @@ type Ent = {
   embedded: number;
   lastArcAt: number;
   sentryTouchedUntil: number;
+  rarity: EliteRarity;
+  /** Serials of the refused cards this entity has claimed from the store. */
+  repertoire: number[];
 };
 
 const HERO_HIT_RADIUS = 0.45;
+// Provisional tier tables. D49 fixes the target fight lengths (8-12 / 15-25 / 30-45 s) but
+// the absolute calibration only becomes possible once telemetry exists at step 11; what is
+// settled here is the shape - each tier is a step up in durability, payout and repertoire.
+const ELITE_RARITY_CAPACITY: Record<EliteRarity, number> = {
+  common: 1,
+  uplifted: 3,
+  legendary: 6
+};
+const ELITE_RARITY_HP: Record<EliteRarity, number> = { common: 1, uplifted: 1.9, legendary: 3.4 };
+const ELITE_RARITY_CORE: Record<EliteRarity, number> = { common: 1, uplifted: 2, legendary: 3 };
+const ELITE_RARITY_SIZE: Record<EliteRarity, number> = {
+  common: 1,
+  uplifted: 1.1,
+  legendary: 1.25
+};
 
 function makeHeroEnt(): Ent {
   return {
@@ -150,7 +169,9 @@ function makeHeroEnt(): Ent {
     displacedUntil: 0,
     embedded: 0,
     lastArcAt: 0,
-    sentryTouchedUntil: 0
+    sentryTouchedUntil: 0,
+    rarity: 'common',
+    repertoire: []
   };
 }
 type Pickup = { id: number; x: number; z: number; value: number; kind: 'xp' | 'core' | 'heal' };
@@ -671,7 +692,9 @@ export class Simulation {
         displacedUntil: 0,
         embedded: 0,
         lastArcAt: -99,
-        sentryTouchedUntil: -99
+        sentryTouchedUntil: -99,
+        rarity: 'common',
+        repertoire: []
       };
     this.ents.push(e);
     this.metrics.spawned++;
@@ -743,7 +766,9 @@ export class Simulation {
       displacedUntil: 0,
       embedded: 0,
       lastArcAt: -99,
-      sentryTouchedUntil: -99
+      sentryTouchedUntil: -99,
+      rarity: 'common',
+      repertoire: []
     };
     this.ents.push(e);
     this.metrics.spawned++;
@@ -1052,7 +1077,9 @@ export class Simulation {
       displacedUntil: 0,
       embedded: 0,
       lastArcAt: -99,
-      sentryTouchedUntil: -99
+      sentryTouchedUntil: -99,
+      rarity: 'common',
+      repertoire: []
     };
     this.ents.push(e);
     this.metrics.spawned++;
@@ -1084,6 +1111,38 @@ export class Simulation {
       this.spawnElite();
     }
   }
+  /** D9: higher tiers become steadily more common as the run wears on. */
+  private rollEliteRarity(): EliteRarity {
+    const t = Math.min(1, this.time / this.runDuration);
+    const r = this.rng.float();
+    if (r < 0.02 + 0.18 * t) return 'legendary';
+    if (r < 0.2 + 0.45 * t) return 'uplifted';
+    return 'common';
+  }
+  /**
+   * D10: an elite fields as much of the hero's declined history as its tier allows. Cards
+   * are claimed rather than copied, so no two elites wield the same refusal and D11 can
+   * hand them back to the store when this one dies.
+   */
+  private claimRepertoire(e: Ent) {
+    const free = this.refusalStore.filter((c) => c.heldBy === 0);
+    for (let i = free.length - 1; i > 0; i--) {
+      const j = this.rng.int(i + 1);
+      const tmp = free[i];
+      free[i] = free[j];
+      free[j] = tmp;
+    }
+    for (const c of free.slice(0, ELITE_RARITY_CAPACITY[e.rarity])) {
+      c.heldBy = e.id;
+      e.repertoire.push(c.serial);
+    }
+  }
+  /** D11: the cards of a fallen elite go back to the store for the next one to pick up. */
+  private releaseRepertoire(e: Ent) {
+    if (!e.repertoire.length) return;
+    for (const c of this.refusalStore) if (c.heldBy === e.id) c.heldBy = 0;
+    e.repertoire.length = 0;
+  }
   private spawnElite() {
     const pool: EliteChassis[] = [
       'hunter',
@@ -1095,9 +1154,10 @@ export class Simulation {
     ];
     const chassis = pool[this.rng.int(pool.length)],
       affix: EliteAffix = 'none';
+    const rarity = this.rollEliteRarity();
     const q = this.pointAroundPlayer(15, 18.5),
       scale = this.worldScale();
-    let hp = eliteHp[chassis] * scale,
+    let hp = eliteHp[chassis] * scale * ELITE_RARITY_HP[rarity],
       speed = eliteSpeed[chassis];
     if (
       this.mode === 'clean' &&
@@ -1112,7 +1172,9 @@ export class Simulation {
       z: q.z,
       hp,
       maxHp: hp,
-      radius: chassis === 'bulwark' ? 1.02 : chassis === 'broodmaker' ? 0.94 : 0.86,
+      radius:
+        (chassis === 'bulwark' ? 1.02 : chassis === 'broodmaker' ? 0.94 : 0.86) *
+        ELITE_RARITY_SIZE[rarity],
       speed,
       contactDps: eliteDps[chassis] * this.damageScale() * 0.62,
       facingX: 0,
@@ -1156,8 +1218,11 @@ export class Simulation {
       displacedUntil: 0,
       embedded: 0,
       lastArcAt: -99,
-      sentryTouchedUntil: -99
+      sentryTouchedUntil: -99,
+      rarity,
+      repertoire: []
     };
+    this.claimRepertoire(e);
     this.ents.push(e);
     this.metrics.spawned++;
     this.metrics.eliteSpawned++;
@@ -3270,7 +3335,10 @@ export class Simulation {
       }
       this.metrics.killed++;
       const elite = e.kind === 'elite';
-      if (elite) this.metrics.eliteKilled++;
+      if (elite) {
+        this.metrics.eliteKilled++;
+        this.releaseRepertoire(e);
+      }
       this.events.push({
         type: 'EntityDied',
         tick: this.tick,
@@ -3357,7 +3425,7 @@ export class Simulation {
           id: this.nextId++,
           x: e.x + 0.35,
           z: e.z - 0.2,
-          value: core,
+          value: Math.round(core * ELITE_RARITY_CORE[e.rarity]),
           kind: 'core'
         });
         if (this.rng.float() < 0.18)
@@ -3997,6 +4065,10 @@ export class Simulation {
         orderZ: e.orderZ,
         orderActive: e.orderUntil > this.time,
         adaptationStage: e.adaptStage,
+        eliteRarity: e.rarity,
+        refusalIcons: e.repertoire
+          .map((s) => this.refusalStore.find((c) => c.serial === s)?.icon ?? '')
+          .filter((s) => !!s),
         bossPhase: e.bossPhase,
         bossPattern: e.bossPattern,
         status: {

@@ -117,6 +117,11 @@ export interface StatusSnapshot {
   embedded: number;
   toxined: boolean;
 }
+/**
+ * D9: how much of the hero's refusal history an elite is allowed to field. The share of
+ * the higher tiers grows towards the end of a run.
+ */
+export type EliteRarity = 'common' | 'uplifted' | 'legendary';
 export interface SnapshotEntity {
   id: number;
   kind: EnemyKind;
@@ -142,6 +147,9 @@ export interface SnapshotEntity {
   orderZ: number;
   orderActive: boolean;
   adaptationStage: number;
+  eliteRarity: EliteRarity;
+  /** D13: icons of the declined cards this elite is fielding, drawn above its name. */
+  refusalIcons: string[];
   bossPhase: number;
   bossPattern: string;
   status: StatusSnapshot;
