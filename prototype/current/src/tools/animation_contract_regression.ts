@@ -72,6 +72,9 @@ assert(renderer.includes("f.faction === 'rival'"),'hostile persistent fields are
 assert(renderer.includes("c.mutationApotheosis==='sentry_walker'"),'construct mutations are flattened in renderer');
 for(const affix of ['volatile','regenerating','shielded','vanguard','temporal','brood','crowned','swift','dense'])
   assert(renderer.includes(`e.affix === '${affix}'`),`renderer has no visual branch for elite affix ${affix}`);
+const html=readFileSync('public/index.html','utf8'), platform=readFileSync('src/platform/main.ts','utf8');
+assert(!html.includes('legacy-hidden')&&!html.includes('id="eventLog"'),'retired legacy HUD DOM returned');
+assert(!platform.includes("\$('eventLog')")&&!platform.includes("\$('perf')")&&!platform.includes("\$('gpuName')"),'platform still updates retired hidden HUD nodes');
 
 console.log('animation-contract-regression OK',{
   orbit:{base:baseProfile.count,grown:grown.count,many:orbit.snapshot().orbit.count},
