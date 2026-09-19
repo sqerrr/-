@@ -26,7 +26,18 @@ export type CatalystId =
   | 'conduit'
   | 'overflow'
   | 'aegis_relay'
-  | 'backflow';
+  | 'backflow'
+  | 'recoil'
+  | 'focus'
+  | 'surge'
+  | 'glut'
+  | 'stagger'
+  | 'splinter'
+  | 'brand'
+  | 'rime'
+  | 'harvest'
+  | 'vault'
+  | 'handoff';
 export type EnemyKind =
   | 'footnote'
   | 'bookmark'

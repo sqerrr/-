@@ -889,6 +889,94 @@ export const catalysts = {
         desc: 'Успешный правый такт меняет следующий естественный такт слева: добавляет один instance вместо простого усиления урона.',
         color: '#b7a0ff',
         scope: 'feedback'
+    },
+    recoil: {
+        id: 'recoil',
+        name: 'Отдача',
+        shortName: 'ОТД',
+        desc: 'Удар бьёт заметно сильнее, но отбрасывает самого носителя назад по линии прицела.',
+        color: '#ff8a5c',
+        scope: 'позиция'
+    },
+    focus: {
+        id: 'focus',
+        name: 'Сосредоточение',
+        shortName: 'СОС',
+        desc: 'Одно проявление снимается, оставшееся бьёт в полтора раза тяжелее.',
+        color: '#ffd36b',
+        scope: 'концентрация'
+    },
+    surge: {
+        id: 'surge',
+        name: 'Разгон',
+        shortName: 'РЗГ',
+        desc: 'Если предыдущий такт не задел никого, этот бьёт почти вдвое сильнее.',
+        color: '#7fe4ff',
+        scope: 'момент'
+    },
+    glut: {
+        id: 'glut',
+        name: 'Пресыщение',
+        shortName: 'ПРС',
+        desc: 'Чем больше целей задел предыдущий такт, тем тяжелее этот. Потолок роста жёсткий.',
+        color: '#ff6b9d',
+        scope: 'последствие'
+    },
+    stagger: {
+        id: 'stagger',
+        name: 'Расстановка',
+        shortName: 'РСТ',
+        desc: 'Такт наводится в самую дальнюю из целей предыдущего, а не по курсору.',
+        color: '#9d7aff',
+        scope: 'адресат'
+    },
+    splinter: {
+        id: 'splinter',
+        name: 'Расщеп',
+        shortName: 'РЩП',
+        desc: 'Два дополнительных проявления ценой ослабления каждого.',
+        color: '#a0ff7a',
+        scope: 'число'
+    },
+    brand: {
+        id: 'brand',
+        name: 'Клеймо',
+        shortName: 'КЛМ',
+        desc: 'Задетые этим тактом получают метку: следующий удар по ним тяжелее.',
+        color: '#ffb347',
+        scope: 'метка'
+    },
+    rime: {
+        id: 'rime',
+        name: 'Изморозь',
+        shortName: 'ИЗМ',
+        desc: 'Задетые этим тактом остывают и двигаются медленнее.',
+        color: '#8fd6ff',
+        scope: 'контроль'
+    },
+    harvest: {
+        id: 'harvest',
+        name: 'Жатва',
+        shortName: 'ЖТВ',
+        desc: 'Каждое убийство на такте возвращает носителю немного здоровья.',
+        color: '#7affc0',
+        scope: 'возврат'
+    },
+    vault: {
+        id: 'vault',
+        name: 'Свод',
+        shortName: 'СВД',
+        desc: 'Копит нанесённый урон и на пороге выдаёт барьер.',
+        color: '#c8b6ff',
+        scope: 'накопление'
+    },
+    handoff: {
+        id: 'handoff',
+        name: 'Передача',
+        shortName: 'ПРД',
+        desc: 'Следующий узел цепочки получает два дополнительных проявления.',
+        color: '#ff9de2',
+        scope: 'связь'
     }
 };
 export const initialCatalysts = ['anchor', 'capacitor', 'backflow'];
@@ -900,6 +988,17 @@ export const initialCatalystReserve = [
 ];
 // v0.9 slice: operators with visible topology/causality. Scalar-only stones stay defined for compatibility but are outside discovery.
 export const catalystOrder = [
+    'recoil',
+    'focus',
+    'surge',
+    'glut',
+    'stagger',
+    'splinter',
+    'brand',
+    'rime',
+    'harvest',
+    'vault',
+    'handoff',
     'relay',
     'anchor',
     'capacitor',

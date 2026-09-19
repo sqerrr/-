@@ -327,6 +327,7 @@ export class Simulation {
     activationCountBonus = 0;
     activationDerived = false;
     reservoirCharge = 0;
+    vaultCharge = 0;
     topologyGuard = false;
     feedbackCountBonus = new Map();
     damageSamples = [];
@@ -2792,6 +2793,47 @@ export class Simulation {
                 this.metrics.reactions++;
             }
         }
+        if (incoming === 'recoil') {
+            // Hits harder and shoves the owner back along the aim line: a price paid in position
+            // rather than in a number, so it reads on screen instead of in a tooltip.
+            this.activationScale *= 1.55;
+            this.px -= this.aimX * 1.2;
+            this.pz -= this.aimZ * 1.2;
+            this.clampWorld();
+        }
+        if (incoming === 'focus') {
+            this.activationScale *= 1.5;
+            this.activationCountBonus -= 1;
+        }
+        if (incoming === 'surge' && !this.lastContext.hitIds.length) {
+            // Rewards the beat that found nothing, so a whiff sets up the swing after it.
+            this.activationScale *= 1.9;
+        }
+        if (incoming === 'glut' && this.lastContext.hitIds.length) {
+            this.activationScale *= Math.min(1.6, 1 + this.lastContext.hitIds.length * 0.06);
+        }
+        if (incoming === 'stagger' && this.lastContext.hitIds.length) {
+            let far = null, best = -1;
+            for (const eid of this.lastContext.hitIds) {
+                const e = this.ents.find((q) => q.id === eid && q.hp > 0);
+                if (!e)
+                    continue;
+                const d = Math.hypot(e.x - this.px, e.z - this.pz);
+                if (d > best) {
+                    best = d;
+                    far = e;
+                }
+            }
+            if (far) {
+                const m = Math.hypot(far.x - this.px, far.z - this.pz) || 1;
+                this.aimX = (far.x - this.px) / m;
+                this.aimZ = (far.z - this.pz) / m;
+            }
+        }
+        if (incoming === 'splinter') {
+            this.activationCountBonus += 2;
+            this.activationScale *= 0.72;
+        }
         const feedback = this.feedbackCountBonus.get(slot) ?? 0;
         if (feedback) {
             this.activationCountBonus += feedback;
@@ -2887,6 +2929,31 @@ export class Simulation {
         }
         if (incoming === 'backflow' && slot > 0 && this.currentHits.size >= 3) {
             this.feedbackCountBonus.set(slot - 1, 1);
+            this.metrics.reactions++;
+        }
+        if ((incoming === 'brand' || incoming === 'rime') && this.currentHits.size) {
+            const state = incoming === 'brand' ? 'mark' : 'chill';
+            for (const eid of this.currentHits) {
+                const e = this.ents.find((q) => q.id === eid && q.hp > 0);
+                if (e)
+                    this.applyState(e, state, 0.9 * conduct);
+            }
+            this.metrics.reactions++;
+        }
+        if (incoming === 'harvest' && this.currentActivationKills > 0) {
+            this.healPlayer(Math.min(20, this.currentActivationKills * 4 * conduct));
+            this.metrics.reactions++;
+        }
+        if (incoming === 'vault') {
+            this.vaultCharge += this.currentActivationDamage;
+            if (this.vaultCharge >= 900) {
+                this.vaultCharge -= 900;
+                this.grantBarrier(30 * conduct);
+                this.metrics.reactions++;
+            }
+        }
+        if (incoming === 'handoff' && slot + 1 < this.slots.length && this.slots[slot + 1]) {
+            this.feedbackCountBonus.set(slot + 1, 2);
             this.metrics.reactions++;
         }
         this.previousHits = new Set(this.currentHits);
