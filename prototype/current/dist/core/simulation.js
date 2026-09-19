@@ -1,4 +1,4 @@
-import { catalystOrder, catalysts, effectGrammar, initialCatalystReserve, initialCatalysts, initialSkillReserve, initialSlots, rarityMultiplier, rarityOrder, mutationDef, mutationRoots, mutationChildren, resonance, resonanceOrder, skillOrder, skills } from '../content/definitions.js';
+import { activeSkillOrder, catalystOrder, catalysts, doctrineOrder, doctrines, effectGrammar, initialCatalystReserve, initialCatalysts, initialSkillReserve, initialSlots, rarityMultiplier, rarityOrder, mutationDef, mutationRoots, mutationChildren, resonance, resonanceOrder, skillOrder, skills } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
 import { Rng } from './rng.js';
 import { items, itemOrder, itemCategoryName } from '../content/items.js';
@@ -210,6 +210,16 @@ export class Simulation {
         conductivity: 0,
         mobility: 0
     };
+    doctrines = {
+        might: 0,
+        size: 0,
+        quantity: 0,
+        duration: 0,
+        mobility: 0,
+        guard: 0,
+        force: 0,
+        precision: 0
+    };
     rng;
     nextId = 1;
     ents = [];
@@ -241,6 +251,8 @@ export class Simulation {
     fields = [];
     constructs = [];
     projectiles = [];
+    delayedStrikes = [];
+    eliteEchoes = new Map();
     world = { minX: -48, maxX: 48, minZ: -36, maxZ: 36 };
     // D20 asks for a semi-open arena: islands of blockers, never corridors and never
     // an empty field. Circles cluster into organic islands and give free sliding, which
@@ -261,6 +273,10 @@ export class Simulation {
     eliteAcc = 0;
     firstElite = false;
     orbitAcc = 0;
+    orbitPhoenixAt = 0;
+    sentryGridAcc = 0;
+    /** Shared cadence for Hunter Battery: the apotheosis is a coordinated volley, not five independent damage multipliers. */
+    sentryBatteryAt = 0;
     moveAmount = 0;
     /**
      * D17. The window is deliberately shorter than the dash itself, so the tail of every
@@ -351,15 +367,10 @@ export class Simulation {
      * from twelve units away, which is exactly what the telemetry caught it doing.
      */
     /**
-     * D41 forbids copying a phenomenon at the elite verbatim, and the telemetry showed why.
-     * The hero swings into dozens of bodies, so most of the catalogue spends its budget by
-     * spreading: a chain hops onward, a driver pierces a file, a ring catches everyone in
-     * the circle. Pointed at one lone hero all of that surplus lands on nothing, and the
-     * fielded refusals measured three damage against a hundred and eighty of health - the
-     * hero could not feel his own declined card come back at all. Concentrating the blow
-     * restores what the phenomenon is worth rather than handing the elite a bonus.
-     * A per-phenomenon figure belongs in the data of step 3, where each entry states its
-     * own mirror; one honest scalar is the placeholder until then.
+     * D41/v0.11: a declined Phenomenon never calls the hero dispatcher from an elite.
+     * The refusal preserves fantasy/identity but is translated to an authored duel pattern
+     * with tell -> active -> recovery in start/resolveEliteEcho below. effectGrammar remains
+     * useful for ownership/LOS/reach data; it is not an excuse to mirror player geometry.
      */
     /** D28: a phenomenon forks three ways. */
     static MUTATION_BRANCHES = 3;
@@ -391,8 +402,6 @@ export class Simulation {
      * the reach of the longest phenomenon, so the measure tracks time the hero could actually
      * be hitting it. Diagnostic only - nothing in the simulation branches on this.
      */
-    /** Per-elite runtimes for claimed phenomena, keyed "<entity>:<skill>". */
-    rivalSkills = new Map();
     /** Next moment each elite may field a refusal, keyed by entity id. */
     rivalCastAt = new Map();
     eliteLog = [];
@@ -412,9 +421,9 @@ export class Simulation {
         this.benchmark = !!cfg.benchmark;
         this.mode = cfg.mode ?? 'clean';
         if (this.mode === 'clean') {
-            const start = skillOrder.includes(cfg.startingSkill)
+            const start = activeSkillOrder.includes(cfg.startingSkill)
                 ? cfg.startingSkill
-                : 'ember_lance';
+                : 'cleaver';
             this.slots = [start, null, null, null];
             this.catalysts = [null, null, null];
             this.skillReserve = [null];
@@ -446,7 +455,8 @@ export class Simulation {
             control: 0,
             statusPotency: 0,
             mutation: null,
-            mutationUpgrade: null
+            mutationUpgrade: null,
+            mutationApotheosis: null
         };
     }
     get time() {
@@ -640,16 +650,77 @@ export class Simulation {
         const alive = [];
         for (const p of this.projectiles) {
             p.ttl -= this.dt;
-            if (p.ttl <= 0)
+            if (p.ttl <= 0) {
+                if (p.behavior === 'roller' && p.apotheosis === 'mass_singularity')
+                    this.scheduleStrike({ at: this.time + 0.18, x: p.x, z: p.z, radius: p.radius * 1.8, damage: p.damage * 1.45, faction: p.faction, ownerId: p.ownerId, source: 'mass_driver', sourceSlot: p.sourceSlot, intent: 'control', telegraph: 'mass_singularity_collapse' });
                 continue;
+            }
+            // A Returner is not "three ordinary projectiles with another sprite": the same actor
+            // turns around, clears its hit memory and traces a second damaging path back home.
+            if (p.behavior === 'returner' && (p.phase ?? 0) === 0 && p.returnAt !== undefined && p.ttl <= p.returnAt) {
+                p.hitIds = [];
+                if (p.carousel) {
+                    const vm = Math.hypot(p.vx, p.vz) || 1;
+                    p.phase = 1;
+                    p.phaseAt = this.time + 0.72;
+                    p.orbitX = p.x - (p.vx / vm) * 1.25;
+                    p.orbitZ = p.z - (p.vz / vm) * 1.25;
+                }
+                else
+                    p.phase = 2;
+            }
+            if (p.behavior === 'returner' && (p.phase ?? 0) === 1) {
+                if (p.phaseAt !== undefined && this.time >= p.phaseAt) {
+                    p.phase = 2;
+                    p.hitIds = [];
+                }
+                else {
+                    const ox = p.orbitX ?? p.x, oz = p.orbitZ ?? p.z, rx = p.x - ox, rz = p.z - oz, rm = Math.hypot(rx, rz) || 1, speed = Math.max(5.2, Math.hypot(p.vx, p.vz));
+                    p.vx = (-rz / rm) * speed + (ox + rx / rm * 1.25 - p.x) * 2.2;
+                    p.vz = (rx / rm) * speed + (oz + rz / rm * 1.25 - p.z) * 2.2;
+                }
+            }
+            if (p.behavior === 'returner' && (p.phase ?? 0) === 2) {
+                const owner = this.projectileOwner(p);
+                const hx = p.faction === 'hero' ? this.px : (owner?.x ?? p.x);
+                const hz = p.faction === 'hero' ? this.pz : (owner?.z ?? p.z);
+                const dx = hx - p.x, dz = hz - p.z, m = Math.hypot(dx, dz) || 1, speed = Math.max(5.2, Math.hypot(p.vx, p.vz));
+                p.vx = dx / m * speed;
+                p.vz = dz / m * speed;
+                if (m < 0.5)
+                    continue;
+            }
+            if (p.apotheosis === 'returner_phoenix') {
+                p.trailAcc = (p.trailAcc ?? 0) + this.dt;
+                if (p.trailAcc >= 0.14) {
+                    p.trailAcc -= 0.14;
+                    this.fields.push({ id: this.nextId++, x: p.x, z: p.z, radius: 0.46, ttl: 1.35, kind: 'fire', dps: p.damage * 0.24, tickAcc: 0, faction: p.faction, ownerId: p.ownerId, source: 'shard_fan', sourceSlot: p.sourceSlot, mutation: p.mutation, rivalConcentration: p.rivalConcentration });
+                }
+            }
+            if (p.behavior === 'roller' && p.growth)
+                p.radius = Math.min(2.2, p.radius + p.growth * this.dt);
             const x0 = p.x, z0 = p.z, x1 = x0 + p.vx * this.dt, z1 = z0 + p.vz * this.dt;
-            if (p.faction === 'rival' &&
-                !p.guarded &&
-                (() => { const st = this.skillsRuntime.get('orbit_blades'); return !!st && this.mutationIs(st, 'orbit_guard'); })()) {
-                const guardT = this.segmentCircleT(x0, z0, x1, z1, this.px, this.pz, 2.55);
-                if (guardT !== null) {
-                    p.damage *= 0.35;
-                    p.guarded = true;
+            if (p.faction === 'rival' && !p.guarded) {
+                const st = this.skillsRuntime.get('orbit_blades');
+                if (st && this.mutationIs(st, 'orbit_guard')) {
+                    const guardT = this.segmentCircleT(x0, z0, x1, z1, this.px, this.pz, 2.55);
+                    if (guardT !== null) {
+                        if (this.mutationIs(st, 'orbit_aegis_crown')) {
+                            p.faction = 'hero';
+                            p.ownerId = 0;
+                            p.vx *= -1.1;
+                            p.vz *= -1.1;
+                            p.damage *= 0.82;
+                            p.source = 'orbit_blades';
+                            p.phase = 1;
+                            p.hitIds = [];
+                            this.aegisCharge = Math.min(12, this.aegisCharge + 1);
+                            this.events.push({ type: 'Reaction', tick: this.tick, reaction: 'aegis', x: p.x, z: p.z, amount: p.damage });
+                        }
+                        else
+                            p.damage *= 0.35;
+                        p.guarded = true;
+                    }
                 }
             }
             let cover = null, coverT = Infinity;
@@ -661,30 +732,10 @@ export class Simulation {
                     coverT = t;
                 }
             }
+            const src = p.faction === 'hero' ? { faction: 'hero', owner: null, x: x0, z: z0, aimX: p.vx, aimZ: p.vz, vx: p.vx, vz: p.vz } : { faction: 'rival', owner: this.projectileOwner(p), x: x0, z: z0, aimX: p.vx, aimZ: p.vz, vx: p.vx, vz: p.vz };
             let target = null, targetT = Infinity;
-            const src = p.faction === 'hero'
-                ? {
-                    faction: 'hero',
-                    owner: null,
-                    x: x0,
-                    z: z0,
-                    aimX: p.vx,
-                    aimZ: p.vz,
-                    vx: p.vx,
-                    vz: p.vz
-                }
-                : {
-                    faction: 'rival',
-                    owner: this.projectileOwner(p),
-                    x: x0,
-                    z: z0,
-                    aimX: p.vx,
-                    aimZ: p.vz,
-                    vx: p.vx,
-                    vz: p.vz
-                };
             for (const e of this.targetsFor(src)) {
-                if (e.hp <= 0)
+                if (e.hp <= 0 || (p.hitIds ?? []).includes(e.id))
                     continue;
                 const t = this.segmentCircleT(x0, z0, x1, z1, e.x, e.z, e.radius + p.radius);
                 if (t !== null && t < targetT) {
@@ -695,7 +746,14 @@ export class Simulation {
             if (cover && coverT <= targetT) {
                 p.x = x0 + (x1 - x0) * coverT;
                 p.z = z0 + (z1 - z0) * coverT;
-                this.damageObstacle(cover, p.coverDamage);
+                const destroyed = this.damageObstacle(cover, p.coverDamage);
+                if (p.behavior === 'roller' && destroyed) {
+                    p.damage *= 1.06;
+                    p.radius = Math.min(2.2, p.radius + 0.09);
+                    p.x = x1;
+                    p.z = z1;
+                    alive.push(p);
+                }
                 continue;
             }
             if (target) {
@@ -707,22 +765,80 @@ export class Simulation {
                         target.igniteUntil = Math.max(target.igniteUntil, this.time + 2.6 * this.memoryFactor());
                         this.noteState('ignite');
                     }
+                    if (p.behavior === 'roller') {
+                        const m = Math.hypot(p.vx, p.vz) || 1, push = 0.45 + this.doctrines.force * 0.08;
+                        target.x += p.vx / m * push;
+                        target.z += p.vz / m * push;
+                        target.displacedUntil = this.time + 0.8;
+                    }
                 }
-                else {
+                else
                     this.damageHero(p.damage, p.source, this.projectileOwner(p), p.rivalConcentration);
+                if (p.behavior === 'roller' || p.behavior === 'returner') {
+                    (p.hitIds ??= []).push(target.id);
+                    p.x = x1;
+                    p.z = z1;
+                    if (p.behavior === 'roller')
+                        p.damage *= 1.035;
+                    alive.push(p);
                 }
                 continue;
             }
             p.x = x1;
             p.z = z1;
-            if (p.x < this.world.minX - 1 ||
-                p.x > this.world.maxX + 1 ||
-                p.z < this.world.minZ - 1 ||
-                p.z > this.world.maxZ + 1)
+            if (p.x < this.world.minX - 1 || p.x > this.world.maxX + 1 || p.z < this.world.minZ - 1 || p.z > this.world.maxZ + 1)
                 continue;
             alive.push(p);
         }
         this.projectiles = alive;
+    }
+    scheduleStrike(strike) {
+        this.delayedStrikes.push({ id: this.nextId++, ...strike });
+        this.events.push({
+            type: 'CombatShape',
+            tick: this.tick,
+            source: strike.telegraph,
+            intent: strike.intent,
+            shape: { kind: 'circle', x: strike.x, z: strike.z, radius: strike.radius }
+        });
+    }
+    /**
+     * Delayed impacts are a first-class combat primitive in v0.11: the tell is emitted when
+     * scheduled and the active impact is emitted here. That makes artillery, sky-lances and
+     * elite Echoes readable without pretending an instantaneous circle was an animation.
+     */
+    updateDelayedStrikes() {
+        if (!this.delayedStrikes.length)
+            return;
+        const keep = [];
+        for (const q of this.delayedStrikes) {
+            if (this.time + 1e-9 < q.at) {
+                keep.push(q);
+                continue;
+            }
+            this.events.push({
+                type: 'CombatShape',
+                tick: this.tick,
+                source: `${q.source}_impact`,
+                intent: q.intent,
+                shape: { kind: 'circle', x: q.x, z: q.z, radius: q.radius }
+            });
+            const owner = q.ownerId ? this.ents.find((e) => e.id === q.ownerId) ?? null : null;
+            if (q.faction === 'rival') {
+                if (Math.hypot(this.px - q.x, this.pz - q.z) <= q.radius + HERO_HIT_RADIUS)
+                    this.damageHero(q.damage, String(q.source), owner, 1);
+            }
+            else {
+                for (const e of this.ents) {
+                    if (e.hp <= 0 || Math.hypot(e.x - q.x, e.z - q.z) > q.radius + e.radius)
+                        continue;
+                    this.damage(e, q.damage, String(q.source), false, q.x, q.z, q.sourceSlot);
+                }
+            }
+            if (q.fieldKind)
+                this.fields.push({ id: this.nextId++, x: q.x, z: q.z, radius: q.radius * 0.92, ttl: q.fieldDuration ?? 2.5, kind: q.fieldKind, dps: q.fieldDps ?? q.damage * 0.18, tickAcc: 0, faction: q.faction, ownerId: q.ownerId, source: String(q.source), sourceSlot: q.sourceSlot, mutation: null, rivalConcentration: 1 });
+        }
+        this.delayedStrikes = keep;
     }
     initPois() {
         this.pois = [
@@ -803,10 +919,10 @@ export class Simulation {
         if (this.hasChoice)
             return;
         if (p.kind === 'phenomenon') {
-            if (this.allOwnedSkills().length < 4 && this.skillOrderUnowned().length)
+            if (this.skillOrderUnowned().length)
                 this.generateDiscovery();
             else
-                this.generateLevelOffers();
+                this.generateResonanceChoice();
             return;
         }
         if (p.kind === 'catalyst') {
@@ -1106,8 +1222,10 @@ export class Simulation {
         this.recycleFarEnemies();
         this.updateSquadTasks();
         this.updateEnemyAI();
+        this.updateEliteEchoes();
         this.resolveEntityObstacles();
         this.updateProjectiles();
+        this.updateDelayedStrikes();
         this.updateFields();
         this.updateConstructs();
         this.updateDots();
@@ -1371,14 +1489,14 @@ export class Simulation {
             free[j] = tmp;
         }
         // Roughly half the store is growth directions, and of the phenomena only some can be
-        // fielded yet, so a purely random draw leaves most elites with nothing to show: the
+        // fielded yet, so a purely random draw can leave an elite with nothing to show: the
         // telemetry measured 0.29 casts per ordinary fight, meaning the hero almost never sees
-        // a refusal come back at him. Lead with one weapon this elite can actually use, then
+        // refusal link used to disappear. Lead with one active weapon Echo when the tier can carry it, then
         // fill the rest at random, so an elite that could demonstrate the link does.
         const armed = free.findIndex((c) => !!c.skill);
         // Higher tiers have enough capacity to guarantee a readable cast. Common elites have
-        // one slot only (D9), so forcing a weapon every time made refused axes impossible to
-        // mirror. With all 18 Phenomena now castable, leave one common in four unbiased.
+        // one slot only (D9), so forcing a weapon every time would make refused growth directions impossible
+        // to mirror. All v0.11 discovery Phenomena have authored Echo profiles; leave one common in four unbiased.
         const forceReadableWeapon = e.rarity !== 'common' || e.id % 4 !== 0;
         if (forceReadableWeapon && armed > 0) {
             const lead = free[armed];
@@ -1428,11 +1546,8 @@ export class Simulation {
     }
     /** D11: the cards of a fallen elite go back to the store for the next one to pick up. */
     releaseRepertoire(e) {
-        const prefix = e.id + ':';
-        for (const k of [...this.rivalSkills.keys()])
-            if (k.startsWith(prefix))
-                this.rivalSkills.delete(k);
         this.rivalCastAt.delete(e.id);
+        this.eliteEchoes.delete(e.id);
         if (!e.repertoire.length)
             return;
         for (const c of this.refusalStore)
@@ -1440,91 +1555,222 @@ export class Simulation {
                 c.heldBy = 0;
         e.repertoire.length = 0;
     }
-    rivalRuntime(e, id) {
-        const key = e.id + ':' + id;
-        let st = this.rivalSkills.get(key);
-        if (!st) {
-            st = this.newSkill(id);
-            this.rivalSkills.set(key, st);
-        }
-        return st;
-    }
     /**
      * The payoff of the draft: an elite turns a phenomenon the hero declined back on them.
      * Cadence and reach are deliberately slack - the point here is that the link reads, and
      * D49 calibration only becomes possible once the telemetry of step 11 exists.
      */
+    echoTellDuration(id) {
+        if (id === 'rail_spear')
+            return 0.92;
+        if (id === 'mortar_bloom')
+            return 0.78;
+        if (id === 'mass_driver')
+            return 0.74;
+        if (id === 'tether_drag')
+            return 0.86;
+        if (id === 'cleaver')
+            return 0.58;
+        return 0.68;
+    }
+    echoTelegraph(q) {
+        const push = (shape, intent = 'damage', suffix = '') => this.events.push({ type: 'CombatShape', tick: this.tick, source: `echo_${q.skill}_tell${suffix}`, intent, shape });
+        if (q.skill === 'rail_spear' || q.skill === 'mass_driver' || q.skill === 'breach_line') {
+            push({ kind: 'ray', x: q.x, z: q.z, aimX: q.aimX, aimZ: q.aimZ, range: q.skill === 'rail_spear' ? 26 : 19, halfWidth: q.skill === 'rail_spear' ? 0.42 : 0.95 });
+            return;
+        }
+        if (q.skill === 'cleaver' || q.skill === 'contact_saw' || q.skill === 'backhand') {
+            push({ kind: 'sector', x: q.x, z: q.z, radius: 3.4, aimX: q.aimX, aimZ: q.aimZ, halfAngle: 0.9 });
+            return;
+        }
+        if (q.skill === 'frost_ring' || q.skill === 'spreading_front') {
+            push({ kind: 'circle', x: q.targetX, z: q.targetZ, radius: 2.4 }, 'control');
+            return;
+        }
+        if (q.skill === 'chain_arc') {
+            for (let i = 0; i < 3; i++) {
+                const a = i * Math.PI * 2 / 3;
+                push({ kind: 'circle', x: q.targetX + Math.cos(a) * 2.2, z: q.targetZ + Math.sin(a) * 2.2, radius: 1.05 }, 'damage', `_${i}`);
+            }
+            return;
+        }
+        if (q.skill === 'orbit_blades') {
+            push({ kind: 'circle', x: q.x, z: q.z, radius: 3.0 }, 'damage');
+            return;
+        }
+        if (q.skill === 'mortar_bloom' || q.skill === 'pin_burst') {
+            for (let i = 0; i < 3; i++)
+                push({ kind: 'circle', x: q.targetX + q.aimX * i * 1.1, z: q.targetZ + q.aimZ * i * 1.1, radius: 1.35 }, 'damage', `_${i}`);
+            return;
+        }
+        if (q.skill === 'sentry') {
+            const px = -q.aimZ, pz = q.aimX;
+            for (const side of [-1, 1])
+                push({ kind: 'ray', x: q.x + px * side * 1.5, z: q.z + pz * side * 1.5, aimX: q.aimX, aimZ: q.aimZ, range: 10, halfWidth: 0.24 }, 'damage', side < 0 ? '_l' : '_r');
+            return;
+        }
+        if (q.skill === 'toxic_mist') {
+            for (let i = 0; i < 3; i++)
+                push({ kind: 'circle', x: q.targetX - q.aimX * i * 1.2, z: q.targetZ - q.aimZ * i * 1.2, radius: 1.35 }, 'field', `_${i}`);
+            return;
+        }
+        if (q.skill === 'shard_fan') {
+            push({ kind: 'ray', x: q.x, z: q.z, aimX: q.aimX, aimZ: q.aimZ, range: 16, halfWidth: 1.15 });
+            return;
+        }
+        if (q.skill === 'tether_drag') {
+            push({ kind: 'circle', x: q.targetX, z: q.targetZ, radius: 1.05 }, 'control');
+            return;
+        }
+        push({ kind: 'circle', x: q.targetX, z: q.targetZ, radius: 1.4 });
+    }
+    startEliteEcho(e, card) {
+        const id = card.skill;
+        const dx = this.px - e.x, dz = this.pz - e.z, m = Math.hypot(dx, dz) || 1;
+        const q = {
+            entityId: e.id, skill: id, serial: card.serial, phase: 'tell',
+            until: this.time + this.echoTellDuration(id), x: e.x, z: e.z,
+            aimX: dx / m, aimZ: dz / m,
+            targetX: this.px + this.playerVX * 0.28, targetZ: this.pz + this.playerVZ * 0.28
+        };
+        this.eliteEchoes.set(e.id, q);
+        this.events.push({ type: 'EliteEchoPhase', tick: this.tick, entity: e.id, skill: id, phase: 'tell', x: e.x, z: e.z, aimX: q.aimX, aimZ: q.aimZ });
+        this.echoTelegraph(q);
+    }
+    resolveEliteEcho(e, q) {
+        const dmg = (n, source = `echo_${q.skill}`) => this.damageHero(n * this.damageScale(), source, e, 1);
+        const hitRay = (range, width, amount) => {
+            if (!this.lineOfSight(q.x, q.z, this.px, this.pz, width * 0.2))
+                return;
+            const dx = this.px - q.x, dz = this.pz - q.z, t = dx * q.aimX + dz * q.aimZ;
+            const lat = Math.abs(dx * q.aimZ - dz * q.aimX);
+            if (t >= 0 && t <= range && lat <= width + HERO_HIT_RADIUS)
+                dmg(amount);
+        };
+        if (q.skill === 'rail_spear') {
+            this.combatShape('echo_rail_spear_active', { kind: 'ray', x: q.x, z: q.z, aimX: q.aimX, aimZ: q.aimZ, range: 26, halfWidth: 0.42 });
+            hitRay(26, 0.42, 34);
+        }
+        else if (q.skill === 'frost_ring' || q.skill === 'spreading_front') {
+            const px = -q.aimZ, pz = q.aimX;
+            for (const side of [-1, 1])
+                this.scheduleStrike({ at: this.time + 0.22, x: q.targetX + px * side * 2.2, z: q.targetZ + pz * side * 2.2, radius: 1.55, damage: 18 * this.damageScale(), faction: 'rival', ownerId: e.id, source: q.skill, sourceSlot: -1, intent: 'control', telegraph: `echo_${q.skill}_front` });
+            this.fields.push({ id: this.nextId++, x: q.targetX, z: q.targetZ, radius: 1.45, ttl: 2.3, kind: 'frost', dps: 10 * this.damageScale(), tickAcc: 0, faction: 'rival', ownerId: e.id, source: q.skill, sourceSlot: -1, mutation: null, rivalConcentration: 1 });
+        }
+        else if (q.skill === 'cleaver' || q.skill === 'contact_saw' || q.skill === 'backhand') {
+            this.combatShape(`echo_${q.skill}_active`, { kind: 'sector', x: q.x, z: q.z, radius: 3.4, aimX: q.aimX, aimZ: q.aimZ, halfAngle: 0.9 });
+            const dx = this.px - q.x, dz = this.pz - q.z, d = Math.hypot(dx, dz) || 1, dot = (dx / d) * q.aimX + (dz / d) * q.aimZ;
+            if (d <= 3.4 + HERO_HIT_RADIUS && dot > Math.cos(0.9))
+                dmg(28);
+        }
+        else if (q.skill === 'chain_arc') {
+            for (let i = 0; i < 3; i++) {
+                const a = i * Math.PI * 2 / 3 + Math.atan2(q.aimZ, q.aimX);
+                this.scheduleStrike({ at: this.time + 0.18 + i * 0.1, x: q.targetX + Math.cos(a) * 2.2, z: q.targetZ + Math.sin(a) * 2.2, radius: 1.05, damage: 14 * this.damageScale(), faction: 'rival', ownerId: e.id, source: q.skill, sourceSlot: -1, intent: 'damage', telegraph: 'echo_chain_node' });
+            }
+        }
+        else if (q.skill === 'orbit_blades') {
+            const gap = this.rng.int(7);
+            for (let i = 0; i < 7; i++)
+                if (i !== gap) {
+                    const a = i * Math.PI * 2 / 7, speed = 5.1;
+                    this.spawnProjectile({ x: e.x + Math.cos(a) * 1.3, z: e.z + Math.sin(a) * 1.3, vx: Math.cos(a) * speed, vz: Math.sin(a) * speed, radius: 0.26, ttl: 2.1, damage: 14 * this.damageScale(), coverDamage: 8, faction: 'rival', ownerId: e.id, source: 'orbit_blades', sourceSlot: -1, mutation: null, rivalConcentration: 1, behavior: 'echo', phase: 0, hitIds: [] });
+                }
+        }
+        else if (q.skill === 'mortar_bloom' || q.skill === 'pin_burst') {
+            for (let i = 0; i < 3; i++)
+                this.scheduleStrike({ at: this.time + 0.28 + i * 0.24, x: q.targetX + this.playerVX * i * 0.18, z: q.targetZ + this.playerVZ * i * 0.18, radius: 1.35, damage: 19 * this.damageScale(), faction: 'rival', ownerId: e.id, source: q.skill, sourceSlot: -1, intent: 'damage', telegraph: 'echo_bombardment' });
+        }
+        else if (q.skill === 'sentry') {
+            const perpX = -q.aimZ, perpZ = q.aimX;
+            for (const side of [-1, 1]) {
+                const sx = e.x + perpX * side * 1.5, sz = e.z + perpZ * side * 1.5, dx = q.targetX - sx, dz = q.targetZ - sz, m = Math.hypot(dx, dz) || 1;
+                this.spawnProjectile({ x: sx, z: sz, vx: dx / m * 7.2, vz: dz / m * 7.2, radius: 0.22, ttl: 2.2, damage: 18 * this.damageScale(), coverDamage: 12, faction: 'rival', ownerId: e.id, source: 'sentry', sourceSlot: -1, mutation: null, rivalConcentration: 1, behavior: 'echo', phase: 0, hitIds: [] });
+            }
+        }
+        else if (q.skill === 'toxic_mist') {
+            for (let i = 0; i < 3; i++)
+                this.fields.push({ id: this.nextId++, x: q.targetX - this.playerVX * 0.25 * i, z: q.targetZ - this.playerVZ * 0.25 * i, radius: 1.35, ttl: 2.8, kind: 'toxic', dps: 8 * this.damageScale(), tickAcc: 0, faction: 'rival', ownerId: e.id, source: q.skill, sourceSlot: -1, mutation: null, rivalConcentration: 1 });
+        }
+        else if (q.skill === 'mass_driver') {
+            this.spawnProjectile({ x: e.x, z: e.z, vx: q.aimX * 3.8, vz: q.aimZ * 3.8, radius: 0.72, ttl: 5.0, damage: 28 * this.damageScale(), coverDamage: 75, faction: 'rival', ownerId: e.id, source: 'mass_driver', sourceSlot: -1, mutation: null, rivalConcentration: 1, behavior: 'roller', phase: 0, hitIds: [], growth: 0 });
+        }
+        else if (q.skill === 'shard_fan') {
+            const perpX = -q.aimZ, perpZ = q.aimX;
+            for (const side of [-0.45, 0, 0.45]) {
+                const ax = q.aimX + perpX * side, az = q.aimZ + perpZ * side, m = Math.hypot(ax, az) || 1;
+                this.spawnProjectile({ x: e.x, z: e.z, vx: ax / m * 6.4, vz: az / m * 6.4, radius: 0.24, ttl: 2.6, damage: 15 * this.damageScale(), coverDamage: 10, faction: 'rival', ownerId: e.id, source: 'shard_fan', sourceSlot: -1, mutation: null, rivalConcentration: 1, behavior: 'returner', returnAt: 1.25, phase: 0, hitIds: [] });
+            }
+        }
+        else if (q.skill === 'tether_drag') {
+            this.combatShape('echo_tether_active', { kind: 'circle', x: q.targetX, z: q.targetZ, radius: 1.05 }, 'control');
+            const dx = q.targetX - this.px, dz = q.targetZ - this.pz, d = Math.hypot(dx, dz) || 1;
+            if (d < 7.5) {
+                this.px += dx / d * Math.min(1.8, d * 0.32);
+                this.pz += dz / d * Math.min(1.8, d * 0.32);
+                dmg(10, 'echo_tether_drag');
+            }
+        }
+        else {
+            this.spawnProjectile({ x: e.x, z: e.z, vx: q.aimX * 5.4, vz: q.aimZ * 5.4, radius: 0.28, ttl: 3, damage: 17 * this.damageScale(), coverDamage: 8, faction: 'rival', ownerId: e.id, source: q.skill, sourceSlot: -1, mutation: null, rivalConcentration: 1, behavior: 'echo', phase: 0, hitIds: [] });
+        }
+    }
+    updateEliteEchoes() {
+        for (const [id, q] of [...this.eliteEchoes]) {
+            const e = this.ents.find(x => x.id === id && x.hp > 0);
+            if (!e) {
+                this.eliteEchoes.delete(id);
+                continue;
+            }
+            if (this.time + 1e-9 < q.until)
+                continue;
+            if (q.phase === 'tell') {
+                q.phase = 'active';
+                q.until = this.time + 0.14;
+                this.events.push({ type: 'EliteEchoPhase', tick: this.tick, entity: e.id, skill: q.skill, phase: 'active', x: e.x, z: e.z, aimX: q.aimX, aimZ: q.aimZ });
+                this.resolveEliteEcho(e, q);
+                this.metrics.rivalCasts++;
+                const record = this.eliteLogById.get(e.id);
+                if (record) {
+                    record.casts++;
+                    record.castSkills[q.skill] = (record.castSkills[q.skill] ?? 0) + 1;
+                }
+                this.events.push({ type: 'RivalCast', tick: this.tick, entity: e.id, skill: q.skill, serial: q.serial, x: e.x, z: e.z });
+            }
+            else if (q.phase === 'active') {
+                q.phase = 'recovery';
+                q.until = this.time + (q.skill === 'rail_spear' ? 0.9 : 0.68);
+                this.events.push({ type: 'EliteEchoPhase', tick: this.tick, entity: e.id, skill: q.skill, phase: 'recovery', x: e.x, z: e.z, aimX: q.aimX, aimZ: q.aimZ });
+            }
+            else {
+                this.eliteEchoes.delete(id);
+                const gap = Math.max(1.7, (this.rng.range(3.5, 5.5) - e.repertoire.length * 0.22) * Math.pow(0.86, this.rivalAxisCount(e, 'tempo')) * (e.relicGapMul ?? 1));
+                this.rivalCastAt.set(e.id, this.time + gap);
+            }
+        }
+    }
+    /**
+     * A declined Phenomenon is inherited as an Elite Echo, never as the player's cast. The
+     * fantasy is recognisable, but its duel grammar is authored around one hero and always
+     * exposes tell -> active -> recovery.
+     */
     fieldRefusals(e, d) {
-        if (e.hp <= 0 || !e.repertoire.length)
+        if (e.hp <= 0 || !e.repertoire.length || this.eliteEchoes.has(e.id))
             return;
         const ready = this.rivalCastAt.get(e.id);
         if (ready === undefined) {
-            // Never open with a refusal: the hero should read the elite's own shape first.
             this.rivalCastAt.set(e.id, this.time + this.rng.range(2.6, 4.6));
             return;
         }
         if (this.time < ready)
             return;
-        const usable = e.repertoire
-            .map((serial) => this.refusalStore.find((c) => c.serial === serial))
-            .filter((c) => !!c &&
-            !!c.skill &&
-            d <= Simulation.rivalReach(c.skill) * (e.relicReachMul ?? 1) &&
-            (!effectGrammar[c.skill].blockedByCover ||
-                this.lineOfSight(e.x, e.z, this.px, this.pz, 0.12)));
+        const usable = e.repertoire.map(serial => this.refusalStore.find(c => c.serial === serial)).filter((c) => !!c && !!c.skill && d <= Simulation.rivalReach(c.skill) * (e.relicReachMul ?? 1) && (!effectGrammar[c.skill].blockedByCover || this.lineOfSight(e.x, e.z, this.px, this.pz, 0.12)));
         if (!usable.length) {
-            // Out of reach is a waiting game, not a dead end: poll often so the blow lands the
-            // moment the elite closes. A repertoire with nothing castable at all is a dead end,
-            // so back off there instead of asking again every tick.
-            const holdsPhenomenon = e.repertoire.some((serial) => {
-                const c = this.refusalStore.find((x) => x.serial === serial);
-                return !!c && !!c.skill;
-            });
-            this.rivalCastAt.set(e.id, this.time + (holdsPhenomenon ? 0.35 : 4));
+            const holds = e.repertoire.some(serial => { const c = this.refusalStore.find(x => x.serial === serial); return !!c && !!c.skill; });
+            this.rivalCastAt.set(e.id, this.time + (holds ? 0.35 : 4));
             return;
         }
-        const card = usable[this.rng.int(usable.length)];
-        const id = card.skill;
-        const dx = this.px - e.x, dz = this.pz - e.z, m = Math.hypot(dx, dz) || 1;
-        const src = {
-            faction: 'rival',
-            owner: e,
-            x: e.x,
-            z: e.z,
-            aimX: dx / m,
-            aimZ: dz / m,
-            vx: 0,
-            vz: 0
-        };
-        this.castOwner = e;
-        this.castRivalConcentration = effectGrammar[id].rivalConcentration;
-        try {
-            this.dispatchSkill(id, this.rivalRuntime(e, id), 0, src);
-        }
-        finally {
-            this.castOwner = null;
-            this.castRivalConcentration = 1;
-        }
-        this.metrics.rivalCasts++;
-        const record = this.eliteLogById.get(e.id);
-        if (record) {
-            record.casts++;
-            record.castSkills[id] = (record.castSkills[id] ?? 0) + 1;
-        }
-        this.events.push({
-            type: 'RivalCast',
-            tick: this.tick,
-            entity: e.id,
-            skill: id,
-            serial: card.serial,
-            x: e.x,
-            z: e.z
-        });
-        // A deeper repertoire presses harder, but never faster than roughly one blow per two seconds.
-        const gap = Math.max(1.4, (this.rng.range(3.4, 5.4) - e.repertoire.length * 0.25) *
-            Math.pow(0.86, this.rivalAxisCount(e, 'tempo')) *
-            (e.relicGapMul ?? 1));
-        this.rivalCastAt.set(e.id, this.time + gap);
+        this.startEliteEcho(e, usable[this.rng.int(usable.length)]);
     }
     /**
      * Accumulates the seconds an elite spends inside the hero's reach. Wall-clock from the first
@@ -1842,7 +2088,7 @@ export class Simulation {
                 }
             }
             let speed = e.speed *
-                (e.chillUntil > this.time ? (e.kind === 'elite' ? 0.88 : 0.72) : 1) *
+                ((e.frozenUntil ?? 0) > this.time ? (e.kind === 'elite' ? 0.45 : 0.08) : e.chillUntil > this.time ? (e.kind === 'elite' ? 0.88 : 0.72) : 1) *
                 (e.buffUntil > this.time ? 1.32 : 1);
             if (e.affix === 'regenerating' && this.time - e.lastDamageAt > 3) {
                 e.regenTick += dt;
@@ -1854,9 +2100,33 @@ export class Simulation {
             else
                 e.regenTick = 0;
             if (e.kind === 'elite' && e.affix === 'shielded') {
-                const target = Math.atan2(this.pz - e.z, this.px - e.x);
-                let diff = this.angleDiff(target, e.shieldAngle);
-                e.shieldAngle += Math.max(-0.82 * dt, Math.min(0.82 * dt, diff));
+                e.shieldState ??= 'guard';
+                e.shieldStability ??= 100;
+                if (e.shieldState === 'broken') {
+                    if (this.time >= (e.shieldCommitUntil ?? 0)) {
+                        e.shieldState = 'guard';
+                        e.shieldStability = 100;
+                        e.affixPulse = Math.max(e.affixPulse, 2.8);
+                    }
+                }
+                else if (e.shieldState === 'commit') {
+                    speed *= 1.18;
+                    if (this.time >= (e.shieldCommitUntil ?? 0))
+                        e.shieldState = 'guard';
+                }
+                else {
+                    const target = Math.atan2(this.pz - e.z, this.px - e.x);
+                    const diff = this.angleDiff(target, e.shieldAngle);
+                    e.shieldAngle += Math.max(-0.82 * dt, Math.min(0.82 * dt, diff));
+                    if (e.affixPulse <= 0 && d < 8.5) {
+                        e.shieldState = 'commit';
+                        e.shieldCommitUntil = this.time + 0.82;
+                        e.affixPulse = 4.6;
+                        e.shieldAngle = target;
+                        const ax = Math.cos(e.shieldAngle), az = Math.sin(e.shieldAngle);
+                        this.events.push({ type: 'CombatShape', tick: this.tick, source: 'shield_commit', intent: 'control', shape: { kind: 'sector', x: e.x, z: e.z, radius: 3.4, aimX: ax, aimZ: az, halfAngle: 0.72 } });
+                    }
+                }
             }
             if (e.kind !== 'elite' && e.orderUntil > this.time) {
                 this.steerTo(e, e.orderX, e.orderZ, speed, 1.15);
@@ -2298,7 +2568,7 @@ export class Simulation {
             }
             return;
         }
-        const reduction = this.armor / (this.armor + 100), mitigated = amount * (1 - reduction) * this.itemDamageTakenMul;
+        const reduction = this.armor / (this.armor + 100), closeThreat = this.ents.some((e) => e.hp > 0 && Math.hypot(e.x - this.px, e.z - this.pz) < 3.6), guardMul = closeThreat ? Math.pow(0.94, this.doctrines.guard) : 1, mitigated = amount * (1 - reduction) * this.itemDamageTakenMul * guardMul;
         if (attacker) {
             const record = this.eliteLogById.get(attacker.id);
             if (record) {
@@ -2351,6 +2621,14 @@ export class Simulation {
             const legacyRival = f.kind === 'ink' || f.kind === 'architect';
             const faction = f.faction ?? (legacyRival ? 'rival' : 'hero');
             const owner = f.ownerId ? this.ents.find((e) => e.id === f.ownerId) ?? null : null;
+            if (f.behavior === 'host' && f.faction === 'hero') {
+                const target = this.ents.filter(e => e.hp > 0).sort((a, b) => Number(b.kind === 'elite') - Number(a.kind === 'elite') || Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b.x - f.x, b.z - f.z))[0];
+                if (target) {
+                    const dx = target.x - f.x, dz = target.z - f.z, d = Math.hypot(dx, dz) || 1;
+                    f.x += dx / d * 1.75 * this.dt;
+                    f.z += dz / d * 1.75 * this.dt;
+                }
+            }
             if (f.kind === 'ink' || f.kind === 'architect') {
                 if (Math.hypot(this.px - f.x, this.pz - f.z) < f.radius)
                     this.hitPlayer(f.dps * this.dt, owner);
@@ -2419,8 +2697,10 @@ export class Simulation {
                     this.xp += p.value;
                 else if (p.kind === 'core')
                     this.eliteCore += p.value;
-                else if (p.kind === 'mutation')
+                else if (p.kind === 'mutation') {
                     this.mutationCores += p.value;
+                    this.events.push({ type: 'RareEvent', tick: this.tick, title: 'MUTATION CORE', detail: `Ядро получено · запас ${this.mutationCores}`, x: p.x, z: p.z });
+                }
                 else {
                     this.healPlayer(p.value);
                     this.metrics.healsPicked++;
@@ -2623,35 +2903,40 @@ export class Simulation {
             const owner = c.ownerId ? this.ents.find((e) => e.id === c.ownerId) ?? null : null;
             const followX = c.faction === 'rival' && owner ? owner.x : this.px;
             const followZ = c.faction === 'rival' && owner ? owner.z : this.pz;
-            if (c.mutation === 'sentry_crawler' || c.mutationUpgrade === 'sentry_crawler') {
-                const dx = followX - c.x, dz = followZ - c.z, d = Math.hypot(dx, dz) || 1;
-                if (d > 2.6) {
-                    c.x += (dx / d) * 1.65 * this.dt;
-                    c.z += (dz / d) * 1.65 * this.dt;
+            if (c.mutation === 'sentry_crawler' ||
+                c.mutationUpgrade === 'sentry_crawler' ||
+                c.mutationApotheosis === 'sentry_walker') {
+                const angle = ((c.id % 7) / 7) * Math.PI * 2 + this.time * 0.45;
+                const desiredX = followX + Math.cos(angle) * (c.mutationApotheosis === 'sentry_walker' ? 2.1 : 2.6);
+                const desiredZ = followZ + Math.sin(angle) * (c.mutationApotheosis === 'sentry_walker' ? 2.1 : 2.6);
+                const dx = desiredX - c.x, dz = desiredZ - c.z, d = Math.hypot(dx, dz) || 1;
+                if (d > 0.25) {
+                    const sp = c.mutationApotheosis === 'sentry_walker' ? 2.6 : 1.65;
+                    c.x += (dx / d) * sp * this.dt;
+                    c.z += (dz / d) * sp * this.dt;
                 }
             }
             if (c.cooldown <= 0) {
-                const interval = c.mutation === 'sentry_gatling' ? 0.3 : c.mutation === 'sentry_rail' ? 1.1 : 0.62;
+                let interval = c.mutation === 'sentry_gatling' ? 0.3 : c.mutation === 'sentry_rail' ? 1.1 : 0.62;
+                if (c.mutationApotheosis === 'sentry_hunter_battery')
+                    interval = 1.15;
                 c.cooldown = interval;
-                const tx = c.faction === 'rival' ? this.px : this.aimPoint(this.heroSource(), c.range).x;
-                const tz = c.faction === 'rival' ? this.pz : this.aimPoint(this.heroSource(), c.range).z;
-                const dx = tx - c.x, dz = tz - c.z, dm = Math.hypot(dx, dz) || 1;
-                const constructSrc = {
+                const cs = {
                     faction: c.faction,
                     owner,
                     x: c.x,
                     z: c.z,
-                    aimX: dx / dm,
-                    aimZ: dz / dm,
+                    aimX: 1,
+                    aimZ: 0,
                     vx: 0,
                     vz: 0
                 };
-                let targets = this.targetsFor(constructSrc).filter((e) => e.hp > 0 &&
-                    this.targetVisible(constructSrc, e) &&
-                    Math.hypot(e.x - c.x, e.z - c.z) <= c.range);
-                if (c.mutation === 'sentry_rail')
-                    targets.sort((a, b) => Number(b.kind === 'elite') - Number(a.kind === 'elite') ||
+                const targets = this.targetsFor(cs).filter((e) => e.hp > 0 && this.targetVisible(cs, e) && Math.hypot(e.x - c.x, e.z - c.z) <= c.range);
+                if (c.mutation === 'sentry_rail' || c.mutationApotheosis === 'sentry_hunter_battery') {
+                    targets.sort((a, b) => Number(b.markUntil > this.time || b.kind === 'elite') -
+                        Number(a.markUntil > this.time || a.kind === 'elite') ||
                         Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z));
+                }
                 else
                     targets.sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z));
                 const t = targets[0];
@@ -2661,10 +2946,17 @@ export class Simulation {
                         dmg *= 0.52;
                     if (c.mutation === 'sentry_rail')
                         dmg *= 1.9;
+                    // Hunter Battery trades constant personal DPS for target painting + a shared, telegraphed salvo.
+                    // Previously this stacked *2.15 on top of Rail *1.9 and then consumed its own Mark for another
+                    // 35%, which made five autonomous turrets outperform entire close/control builds with no risk.
+                    if (c.mutationApotheosis === 'sentry_hunter_battery')
+                        dmg *= 1.02;
                     if (c.mutation === 'sentry_relay' &&
                         (t.markUntil > this.time || t.embedded > 0 || this.time - t.lastArcAt < 2.2))
                         dmg *= 1.28;
-                    const prevOwner = this.castOwner, prevConcentration = this.castRivalConcentration;
+                    const dx = t.x - c.x, dz = t.z - c.z, m = Math.hypot(dx, dz) || 1;
+                    this.combatShape(c.mutationApotheosis === 'sentry_hunter_battery' ? 'sentry_hunter_tracking' : 'sentry', { kind: 'ray', x: c.x, z: c.z, aimX: dx / m, aimZ: dz / m, range: m, halfWidth: c.mutationApotheosis === 'sentry_hunter_battery' ? 0.13 : 0.08 });
+                    const prevOwner = this.castOwner, prevC = this.castRivalConcentration;
                     if (c.faction === 'rival') {
                         this.castOwner = owner;
                         this.castRivalConcentration = c.rivalConcentration;
@@ -2674,19 +2966,91 @@ export class Simulation {
                     }
                     finally {
                         this.castOwner = prevOwner;
-                        this.castRivalConcentration = prevConcentration;
+                        this.castRivalConcentration = prevC;
                     }
                     t.sentryTouchedUntil = this.time + 4;
+                    // Paint AFTER the projectile resolves. The turret no longer manufactures and consumes its own
+                    // Mark in the same call; the visible mark is a hand-off to Rail/Returner/another chain node.
+                    if (c.mutationApotheosis === 'sentry_hunter_battery' && c.faction === 'hero')
+                        t.markUntil = Math.max(t.markUntil, this.time + 2.0);
                     if (c.mutation === 'sentry_relay' && c.faction === 'hero') {
                         t.markUntil = Math.max(t.markUntil, this.time + 2.8 * this.memoryFactor());
                         t.lastArcAt = this.time;
                     }
+                    if (c.mutationApotheosis === 'sentry_walker' &&
+                        c.faction === 'hero' &&
+                        Math.hypot(this.px - c.x, this.pz - c.z) < 2.5)
+                        this.grantBarrier(1.4);
                 }
             }
             if (c.ttl > 0)
                 alive.push(c);
         }
         this.constructs = alive;
+        // Hunter Battery is one coordinated event with a readable lock phase. More turrets make the
+        // salvo stronger, but they do not each multiply the same target every second.
+        const battery = alive.filter((c) => c.faction === 'hero' && c.mutationApotheosis === 'sentry_hunter_battery');
+        if (battery.length && this.time >= this.sentryBatteryAt) {
+            const target = this.ents
+                .filter((e) => e.hp > 0 && battery.some((c) => Math.hypot(e.x - c.x, e.z - c.z) <= c.range))
+                .sort((a, b) => Number(b.kind === 'elite') - Number(a.kind === 'elite') ||
+                Number(b.markUntil > this.time) - Number(a.markUntil > this.time) ||
+                Math.hypot(a.x - this.px, a.z - this.pz) - Math.hypot(b.x - this.px, b.z - this.pz))[0];
+            if (target) {
+                this.sentryBatteryAt = this.time + 3.35;
+                target.markUntil = Math.max(target.markUntil, this.time + 2.3);
+                let power = 0;
+                for (const c of battery) {
+                    power += c.power;
+                    const dx = target.x - c.x, dz = target.z - c.z, m = Math.hypot(dx, dz) || 1;
+                    this.combatShape('sentry_battery_tell', {
+                        kind: 'ray',
+                        x: c.x,
+                        z: c.z,
+                        aimX: dx / m,
+                        aimZ: dz / m,
+                        range: m,
+                        halfWidth: 0.11
+                    });
+                }
+                const averagePower = power / battery.length;
+                this.scheduleStrike({
+                    at: this.time + 0.48,
+                    x: target.x,
+                    z: target.z,
+                    radius: 0.82,
+                    damage: skills.sentry.baseDamage * averagePower * (0.95 + battery.length * 0.38),
+                    faction: 'hero',
+                    ownerId: 0,
+                    source: 'sentry',
+                    sourceSlot: battery[0].sourceSlot,
+                    intent: 'damage',
+                    telegraph: 'sentry_battery_beacon'
+                });
+            }
+        }
+        this.sentryGridAcc += this.dt;
+        const grid = alive.filter((c) => c.faction === 'hero' && c.mutationApotheosis === 'sentry_gravity_grid');
+        if (grid.length >= 2 && this.sentryGridAcc >= 0.28) {
+            this.sentryGridAcc = 0;
+            for (let i = 0; i < grid.length; i++) {
+                const a = grid[i], b = grid[(i + 1) % grid.length], dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
+                this.combatShape('sentry_gravity_grid', { kind: 'ray', x: a.x, z: a.z, aimX: dx / len, aimZ: dz / len, range: len, halfWidth: 0.42 }, 'control');
+                for (const e of this.ents) {
+                    if (e.hp <= 0)
+                        continue;
+                    const ex = e.x - a.x, ez = e.z - a.z, t = Math.max(0, Math.min(len, (ex * dx + ez * dz) / len)), cx = a.x + (dx / len) * t, cz = a.z + (dz / len) * t, ddx = cx - e.x, ddz = cz - e.z, d = Math.hypot(ddx, ddz);
+                    if (d < 0.75 + e.radius) {
+                        this.damage(e, skills.sentry.baseDamage * 0.24 * this.corePower(), 'sentry', false, cx, cz, a.sourceSlot);
+                        if (d > 0.05) {
+                            e.x += (ddx / d) * 0.18;
+                            e.z += (ddz / d) * 0.18;
+                            e.displacedUntil = this.time + 0.45;
+                        }
+                    }
+                }
+            }
+        }
     }
     updateOrbitBlades() {
         const st = this.skillsRuntime.get('orbit_blades');
@@ -2696,9 +3060,8 @@ export class Simulation {
         if (this.orbitAcc < 0.13)
             return;
         this.orbitAcc -= 0.13;
-        const mut = st.mutation, radius = this.skillRadius(st, skills.orbit_blades.baseRadius);
-        let dmg = skills.orbit_blades.baseDamage * this.powerBucket(st) * 0.36;
-        let count = 3 + Math.max(0, st.count - 1) + this.resonance.multiplicity;
+        const mut = st.mutation;
+        let radius = this.skillRadius(st, skills.orbit_blades.baseRadius), dmg = skills.orbit_blades.baseDamage * this.powerBucket(st) * 0.36, count = 3 + Math.max(0, st.count - 1) + this.resonance.multiplicity;
         if (mut === 'orbit_many') {
             count += 3;
             dmg *= 0.9;
@@ -2707,10 +3070,12 @@ export class Simulation {
             count = 2 + Math.max(0, st.count - 1) + this.resonance.multiplicity;
             dmg *= 1.4;
         }
-        let blood = 1;
+        let blood = 1, wounded = 0;
         if (this.mutationIs(st, 'orbit_blood')) {
-            const wounded = this.ents.filter((e) => e.woundUntil > this.time && Math.hypot(e.x - this.px, e.z - this.pz) < 5).length;
-            blood = 1 + Math.min(0.6, wounded * 0.06);
+            wounded = this.ents.filter(e => e.woundUntil > this.time && Math.hypot(e.x - this.px, e.z - this.pz) < 6).length;
+            blood = 1 + Math.min(0.7, wounded * 0.07);
+            if (this.mutationIs(st, 'orbit_sanguine_crown'))
+                radius *= 1 + Math.min(0.42, wounded * 0.045);
         }
         for (const e of this.ents) {
             if (e.hp <= 0 || this.time - e.orbitHitAt < 0.38)
@@ -2721,8 +3086,33 @@ export class Simulation {
                 let m = dmg * blood;
                 if (mut === 'orbit_saw' && e.kind === 'elite')
                     m *= 1.9;
-                this.damage(e, m, 'orbit_blades', false);
+                this.damage(e, m, 'orbit_blades', false, this.px, this.pz, this.slots.indexOf('orbit_blades'));
                 this.closeDamage += m;
+                if (this.mutationIs(st, 'orbit_sanguine_crown') && e.woundUntil > this.time)
+                    this.grantBarrier(Math.min(4, m * 0.025));
+            }
+        }
+        if (this.mutationIs(st, 'orbit_aegis_crown') && this.aegisCharge >= 6) {
+            this.aegisCharge = 0;
+            this.grantBarrier(16);
+            const rr = radius + 1.8;
+            this.combatShape('orbit_aegis_crown', { kind: 'circle', x: this.px, z: this.pz, radius: rr }, 'control');
+            for (const e of this.ents) {
+                const dx = e.x - this.px, dz = e.z - this.pz, d = Math.hypot(dx, dz) || 1;
+                if (d < rr + e.radius) {
+                    this.damage(e, 22 * this.powerBucket(st), 'orbit_blades', false);
+                    e.x += dx / d * 0.75;
+                    e.z += dz / d * 0.75;
+                }
+            }
+            this.events.push({ type: 'RareEvent', tick: this.tick, title: 'КОРОНА ЭГИДЫ', detail: 'Перехваты выпущены ударной волной', x: this.px, z: this.pz });
+        }
+        if (this.mutationIs(st, 'orbit_phoenix') && this.time >= this.orbitPhoenixAt) {
+            this.orbitPhoenixAt = this.time + 1.35;
+            const t = this.ents.filter(e => e.hp > 0).sort((a, b) => Number((b.markUntil > this.time) || b.kind === 'elite') - Number((a.markUntil > this.time) || a.kind === 'elite') || Math.hypot(a.x - this.px, a.z - this.pz) - Math.hypot(b.x - this.px, b.z - this.pz))[0];
+            if (t) {
+                const dx = t.x - this.px, dz = t.z - this.pz, m = Math.hypot(dx, dz) || 1;
+                this.spawnProjectile({ x: this.px + dx / m * radius, z: this.pz + dz / m * radius, vx: dx / m * 8.5, vz: dz / m * 8.5, radius: 0.28, ttl: 2.8, damage: skills.orbit_blades.baseDamage * this.powerBucket(st) * 1.25, coverDamage: 16, faction: 'hero', ownerId: 0, source: 'orbit_blades', sourceSlot: this.slots.indexOf('orbit_blades'), mutation: st.mutation, apotheosis: 'orbit_phoenix', rivalConcentration: 1, behavior: 'returner', returnAt: 1.3, phase: 0, hitIds: [] });
             }
         }
     }
@@ -2772,16 +3162,16 @@ export class Simulation {
         return this.activationScale;
     }
     mutationIs(st, id) {
-        return st.mutation === id || st.mutationUpgrade === id;
+        return st.mutation === id || st.mutationUpgrade === id || st.mutationApotheosis === id;
     }
     mutationContinuation(st) {
         return st.mutationUpgrade ? mutationDef(st.id, st.mutationUpgrade).continuation : undefined;
     }
     powerBucket(st) {
-        return this.corePower() * (1 + this.globalPower) * (this.mutationContinuation(st)?.powerMul ?? 1);
+        return this.corePower() * (1 + this.globalPower) * (1 + this.doctrines.might * 0.11) * (this.mutationContinuation(st)?.powerMul ?? 1);
     }
     skillRadius(st, base, _slot = this.currentSlot) {
-        return base * Math.sqrt(1 + Math.max(0, st.coverage)) * (this.mutationContinuation(st)?.radiusMul ?? 1);
+        return base * Math.sqrt(1 + Math.max(0, st.coverage)) * (1 + this.doctrines.size * 0.12) * (this.mutationContinuation(st)?.radiusMul ?? 1);
     }
     skillRange(st, base) {
         return base * (1 + Math.max(0, st.range)) * (this.mutationContinuation(st)?.rangeMul ?? 1);
@@ -2796,6 +3186,7 @@ export class Simulation {
         return (base *
             (1 + Math.max(0, st.duration)) *
             (1 + heroAxis * 0.22) *
+            (1 + (rival ? 0 : this.doctrines.duration) * 0.14) *
             Math.pow(1.22, rivalAxis) *
             (this.mutationContinuation(st)?.durationMul ?? 1));
     }
@@ -2803,6 +3194,8 @@ export class Simulation {
         let c = Math.max(1, Math.round(st.count)) + this.activationCountBonus;
         const mult = this.supportsAxis(st.id, 'multiplicity') ? this.resonance.multiplicity : 0;
         c += Math.min(3, mult);
+        if (!this.castOwner)
+            c += Math.min(3, Math.floor(this.doctrines.quantity / 2));
         c += this.mutationContinuation(st)?.countAdd ?? 0;
         return Math.max(1, c);
     }
@@ -2941,77 +3334,77 @@ export class Simulation {
     }
     /** Covers an angle instead of a point, so a rough aim still lands something. */
     castShardFan(st, slot, src) {
-        const mut = st.mutation, range = skills.shard_fan.baseRange * (1 + st.range);
-        const lines = (mut === 'fan_wide' ? 7 : 5) + (this.mutationContinuation(st)?.countAdd ?? 0), spread = mut === 'fan_tight' ? 0.16 : mut === 'fan_wide' ? 0.62 : 0.4, speed = 19.5, baseDamage = skills.shard_fan.baseDamage *
-            this.powerBucket(st) *
-            this.activationScale *
-            (mut === 'fan_wide' ? 0.76 : 1);
-        for (let i = 0; i < lines; i++) {
-            const ang = (i / (lines - 1) - 0.5) * 2 * spread, c = Math.cos(ang), sn = Math.sin(ang), ax = src.aimX * c - src.aimZ * sn, az = src.aimX * sn + src.aimZ * c;
-            this.combatShape('shard_fan', {
-                kind: 'sector',
-                x: src.x,
-                z: src.z,
-                radius: range,
-                aimX: ax,
-                aimZ: az,
-                halfAngle: 0.06
-            });
-            this.spawnProjectile({
-                x: src.x + ax * 0.55,
-                z: src.z + az * 0.55,
-                vx: ax * speed,
-                vz: az * speed,
-                radius: 0.2,
-                ttl: range / speed,
-                damage: baseDamage,
-                coverDamage: baseDamage * 0.72,
-                faction: src.faction,
-                ownerId: src.owner?.id ?? 0,
-                source: 'shard_fan',
-                sourceSlot: slot,
-                mutation: mut,
-                rivalConcentration: effectGrammar.shard_fan.rivalConcentration
-            });
+        const mut = st.mutation, range = this.skillRange(st, skills.shard_fan.baseRange);
+        let count = Math.min(5, this.projectileCount(st, slot));
+        let spread = 0.18, speed = 9.2, damage = skills.shard_fan.baseDamage * this.powerBucket(st) * this.slotAmp(slot);
+        if (mut === 'fan_tight') {
+            count = 1;
+            speed = 12.4;
+            damage *= 1.55;
+            spread = 0;
         }
-    }
-    /** Gathers a scattered crowd into one place where everything else can reach it. */
-    castTetherDrag(st, slot, src) {
-        const mut = st.mutation, range = skills.tether_drag.baseRange * (1 + st.range), width = this.skillRadius(st, skills.tether_drag.baseRadius, slot);
-        let pull = mut === 'tether_hook' ? 5.5 : mut === 'tether_net' ? 2.1 : 3.2;
-        const cap = mut === 'tether_hook' ? 1 : mut === 'tether_net' ? 8 : 4;
-        this.combatShape('tether_drag', {
-            kind: 'sector',
-            x: src.x,
-            z: src.z,
-            radius: range,
-            aimX: src.aimX,
-            aimZ: src.aimZ,
-            halfAngle: 0.1
-        });
-        let taken = 0;
-        for (const e of this.targetsFor(src)) {
-            if (taken >= cap)
-                break;
-            const dx = e.x - src.x, dz = e.z - src.z, along = dx * src.aimX + dz * src.aimZ;
-            if (along < 0 || along > range)
-                continue;
-            if (Math.abs(dx * src.aimZ - dz * src.aimX) > width + e.radius)
-                continue;
-            taken++;
-            const d = Math.hypot(dx, dz) || 1;
-            const dmg = skills.tether_drag.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
-            this.damage(e, dmg, 'tether_drag', true);
-            e.x -= (dx / d) * pull;
-            e.z -= (dz / d) * pull;
-            this.currentActivationControl++;
-            if (mut === 'tether_bind') {
-                e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.9 * this.memoryFactor());
-                this.noteState('displaced');
+        if (mut === 'fan_wide') {
+            count = Math.max(3, count);
+            spread = 0.34;
+            damage *= 0.82;
+        }
+        if (this.mutationIs(st, 'fan_storm'))
+            count = Math.min(7, count + 2);
+        let baseAimX = src.aimX, baseAimZ = src.aimZ;
+        if (this.mutationIs(st, 'returner_execution')) {
+            const priority = this.targetsFor(src).filter(e => e.hp > 0 && e.kind === 'elite' && this.targetVisible(src, e)).sort((a, b) => Number(b.markUntil > this.time) - Number(a.markUntil > this.time) || Math.hypot(a.x - src.x, a.z - src.z) - Math.hypot(b.x - src.x, b.z - src.z))[0];
+            if (priority) {
+                const dx = priority.x - src.x, dz = priority.z - src.z, m = Math.hypot(dx, dz) || 1;
+                baseAimX = dx / m;
+                baseAimZ = dz / m;
+                priority.markUntil = Math.max(priority.markUntil, this.time + 2.4);
             }
         }
+        for (let i = 0; i < count; i++) {
+            const ang = count === 1 ? 0 : (i - (count - 1) / 2) * spread, c = Math.cos(ang), sn = Math.sin(ang), ax = baseAimX * c - baseAimZ * sn, az = baseAimX * sn + baseAimZ * c;
+            this.combatShape('shard_fan', { kind: 'ray', x: src.x, z: src.z, aimX: ax, aimZ: az, range, halfWidth: 0.18 });
+            this.spawnProjectile({ x: src.x + ax * 0.55, z: src.z + az * 0.55, vx: ax * speed, vz: az * speed, radius: 0.22, ttl: Math.max(1.8, range / speed * 2.2), damage, coverDamage: damage * 0.7, faction: src.faction, ownerId: src.owner?.id ?? 0, source: 'shard_fan', sourceSlot: slot, mutation: mut, apotheosis: st.mutationApotheosis, rivalConcentration: effectGrammar.shard_fan.rivalConcentration, behavior: 'returner', returnAt: Math.max(0.75, range / speed * 0.78), phase: 0, hitIds: [], carousel: this.mutationIs(st, 'returner_carousel'), trailAcc: 0 });
+        }
     }
-    /** Stops a group where it stands rather than where the hero does. */
+    castTetherDrag(st, slot, src) {
+        const mut = st.mutation, range = this.skillRange(st, skills.tether_drag.baseRange), base = this.aimPoint(src, range);
+        const anchors = [];
+        if (this.mutationIs(st, 'gravity_dragnet')) {
+            for (let i = 0; i < 3; i++) {
+                const a = i * Math.PI * 2 / 3 + this.cycle * 0.4;
+                anchors.push({ x: base.x + Math.cos(a) * 2.3, z: base.z + Math.sin(a) * 2.3 });
+            }
+        }
+        else
+            anchors.push(base);
+        const radius = this.skillRadius(st, mut === 'tether_net' ? 4.8 : mut === 'tether_hook' ? 2.2 : 3.4, slot);
+        for (const anchor of anchors) {
+            this.combatShape('tether_drag', { kind: 'circle', x: anchor.x, z: anchor.z, radius }, 'control');
+            let pulled = 0;
+            const candidates = this.targetsFor(src).filter(e => e.hp > 0 && Math.hypot(e.x - anchor.x, e.z - anchor.z) <= radius + e.radius).sort((a, b) => Math.hypot(a.x - anchor.x, a.z - anchor.z) - Math.hypot(b.x - anchor.x, b.z - anchor.z));
+            const cap = mut === 'tether_hook' ? 2 : mut === 'tether_net' ? 10 : 6;
+            for (const e of candidates) {
+                if (pulled++ >= cap)
+                    break;
+                const dx = anchor.x - e.x, dz = anchor.z - e.z, d = Math.hypot(dx, dz) || 1, pull = (mut === 'tether_hook' ? 2.4 : 1.35) * (1 + st.control * 0.25);
+                this.damage(e, skills.tether_drag.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e), 'tether_drag', false, anchor.x, anchor.z, slot);
+                e.x += dx / d * Math.min(pull, d * 0.62);
+                e.z += dz / d * Math.min(pull, d * 0.62);
+                e.displacedUntil = Math.max(e.displacedUntil, this.time + (this.mutationIs(st, 'tether_lock') ? 1.55 : 0.65));
+                this.currentActivationControl += 1.2 + st.control;
+                this.noteState('displaced');
+                if (this.mutationIs(st, 'gravity_prison') && e.kind === 'elite') {
+                    e.exposedUntil = Math.max(e.exposedUntil, this.time + 2.1);
+                    e.chillUntil = Math.max(e.chillUntil, this.time + 1.2);
+                    if (e.affix === 'shielded')
+                        e.shieldStability = Math.max(0, (e.shieldStability ?? 100) - 28);
+                    this.combatShape('gravity_prison', { kind: 'circle', x: e.x, z: e.z, radius: e.radius + 1.2 }, 'control');
+                }
+            }
+            if (this.mutationIs(st, 'gravity_singularity'))
+                this.scheduleStrike({ at: this.time + 0.65, x: anchor.x, z: anchor.z, radius: radius * 0.72, damage: skills.tether_drag.baseDamage * this.powerBucket(st) * 2.4, faction: src.faction, ownerId: src.owner?.id ?? 0, source: 'tether_drag', sourceSlot: slot, intent: 'control', telegraph: 'gravity_singularity_tell' });
+        }
+    }
     castPinBurst(st, slot, src) {
         const mut = st.mutation, range = skills.pin_burst.baseRange * (1 + st.range);
         let r = this.skillRadius(st, skills.pin_burst.baseRadius, slot);
@@ -3635,84 +4028,68 @@ export class Simulation {
         }
     }
     castFrost(st, slot, src) {
-        const mut = st.mutation, r = this.skillRadius(st, skills.frost_ring.baseRadius, slot), capacitive = (() => { const st = this.skillsRuntime.get('chain_arc'); return !!st && this.mutationIs(st, 'arc_capacitive'); })() && this.charge > 0
-            ? 1 + Math.min(0.4, this.charge * 0.08)
-            : 1;
+        const mut = st.mutation, r = this.skillRadius(st, skills.frost_ring.baseRadius, slot);
+        const capacitive = (() => { const arc = this.skillsRuntime.get('chain_arc'); return !!arc && this.mutationIs(arc, 'arc_capacitive') && this.charge > 0 ? 1 + Math.min(0.4, this.charge * 0.08) : 1; })();
         this.combatShape('frost_ring', { kind: 'circle', x: src.x, z: src.z, radius: r }, 'control');
+        let shattered = 0;
+        let firstShatter = null;
         for (const e of this.targetsFor(src)) {
             const d = Math.hypot(e.x - src.x, e.z - src.z);
             if (d > r + e.radius)
                 continue;
+            const wasChilled = e.chillUntil > this.time, wasFrozen = (e.frozenUntil ?? 0) > this.time;
             let dmg = skills.frost_ring.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e) * capacitive;
             if (mut === 'frost_rim')
                 dmg *= d > r * 0.62 ? 2 : 0.48;
-            if (mut === 'frost_snap' && e.chillUntil > this.time) {
-                dmg += 18 * this.powerBucket(st);
-                e.chillUntil = 0;
-            }
             const ignited = e.igniteUntil > this.time;
             if (ignited) {
                 e.igniteUntil = 0;
                 dmg *= 1.18;
                 this.metrics.reactions++;
-                this.events.push({
-                    type: 'Reaction',
-                    tick: this.tick,
-                    reaction: 'thermal_shock',
-                    x: e.x,
-                    z: e.z,
-                    amount: dmg * 0.42
-                });
-                for (const o of this.targetsFor(src)) {
-                    if (o !== e && o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < 1.7)
-                        this.damage(o, dmg * 0.42, 'thermal_shock', false, e.x, e.z);
-                }
+                this.events.push({ type: 'Reaction', tick: this.tick, reaction: 'thermal_shock', x: e.x, z: e.z, amount: dmg * 0.42 });
             }
-            const was = e.chillUntil > this.time, killed = this.damage(e, dmg, 'frost_ring', false);
-            e.chillUntil = this.time + 2.4 * (1 + st.statusPotency) * this.memoryFactor();
+            const meterGain = 1 + st.statusPotency * 0.45 + (this.doctrines.force * 0.08);
+            e.frostMeter = (e.frostMeter ?? 0) + meterGain;
+            const freezeAt = e.kind === 'elite' ? 3.5 : 2.0;
+            if ((e.frostMeter ?? 0) >= freezeAt) {
+                e.frostMeter = 0;
+                e.frozenUntil = this.time + (e.kind === 'elite' ? 0.7 : 1.35) * this.memoryFactor();
+                e.exposedUntil = Math.max(e.exposedUntil, this.time + (e.kind === 'elite' ? 0.85 : 0.45));
+            }
+            let shatter = wasFrozen || (mut === 'frost_snap' && wasChilled);
+            if (shatter) {
+                dmg += 22 * this.powerBucket(st);
+                e.frozenUntil = 0;
+                e.chillUntil = 0;
+                shattered++;
+                firstShatter ??= e;
+                this.events.push({ type: 'RareEvent', tick: this.tick, title: 'SHATTER', detail: e.kind === 'elite' ? 'Хрупкость элиты разбита' : 'Лёд расколот', x: e.x, z: e.z });
+            }
+            const killed = this.damage(e, dmg, 'frost_ring', false, src.x, src.z, slot);
+            e.chillUntil = Math.max(e.chillUntil, this.time + 2.4 * (1 + st.statusPotency) * this.memoryFactor());
             this.noteState('chill');
             this.currentActivationControl += 1 + st.control;
             if (this.mutationIs(st, 'frost_brittle'))
-                e.exposedUntil = this.time + 2.8 * this.memoryFactor();
-            if (this.mutationIs(st, 'frost_skin') && killed && (was || ignited))
+                e.exposedUntil = Math.max(e.exposedUntil, this.time + 2.8 * this.memoryFactor());
+            if (this.mutationIs(st, 'frost_skin') && killed && (wasChilled || ignited || shatter))
                 this.grantBarrier(9);
+            if (this.mutationIs(st, 'frost_spirefall') && (shatter || e.exposedUntil > this.time)) {
+                for (const [ox, oz] of [[1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]])
+                    this.scheduleStrike({ at: this.time + 0.22, x: e.x + ox, z: e.z + oz, radius: 0.62, damage: 11 * this.powerBucket(st), faction: src.faction, ownerId: src.owner?.id ?? 0, source: 'frost_ring', sourceSlot: slot, intent: 'damage', telegraph: 'frost_spire_tell' });
+            }
         }
         if (mut === 'frost_front') {
-            this.fields.push({
-                id: this.nextId++,
-                x: src.x,
-                z: src.z,
-                radius: r * 1.12,
-                ttl: this.persistentDuration(st, 1.6, slot),
-                kind: 'frost',
-                dps: 13 * this.powerBucket(st),
-                tickAcc: 0,
-                faction: src.faction,
-                ownerId: src.owner?.id ?? 0,
-                source: st.id,
-                sourceSlot: slot,
-                mutation: st.mutation,
-                rivalConcentration: effectGrammar[st.id].rivalConcentration
-            });
+            this.fields.push({ id: this.nextId++, x: src.x, z: src.z, radius: r * 1.12, ttl: this.persistentDuration(st, 1.6, slot), kind: 'frost', dps: 13 * this.powerBucket(st), tickAcc: 0, faction: src.faction, ownerId: src.owner?.id ?? 0, source: st.id, sourceSlot: slot, mutation: st.mutation, rivalConcentration: effectGrammar[st.id].rivalConcentration });
             this.noteState('field');
         }
-        for (let i = 0; i < Math.min(2, this.supportsAxis(st.id, 'multiplicity') ? this.resonance.multiplicity : 0); i++)
-            this.fields.push({
-                id: this.nextId++,
-                x: src.x,
-                z: src.z,
-                radius: r * (0.78 + i * 0.22),
-                ttl: 0.55 + i * 0.18,
-                kind: 'frost',
-                dps: 8 * this.powerBucket(st),
-                tickAcc: 0,
-                faction: src.faction,
-                ownerId: src.owner?.id ?? 0,
-                source: st.id,
-                sourceSlot: slot,
-                mutation: st.mutation,
-                rivalConcentration: effectGrammar[st.id].rivalConcentration
-            });
+        if (this.mutationIs(st, 'frost_glacier_heart') && shattered > 0) {
+            const target = firstShatter ?? { x: src.x + src.aimX * 2, z: src.z + src.aimZ * 2 }, dx = target.x - src.x, dz = target.z - src.z, m = Math.hypot(dx, dz) || 1;
+            this.spawnProjectile({ x: src.x, z: src.z, vx: dx / m * 3.1, vz: dz / m * 3.1, radius: 1.15, ttl: 4.5, damage: 12 * this.powerBucket(st), coverDamage: 18, faction: src.faction, ownerId: src.owner?.id ?? 0, source: 'frost_ring', sourceSlot: slot, mutation: st.mutation, apotheosis: st.mutationApotheosis, rivalConcentration: 1, behavior: 'roller', phase: 0, hitIds: [], growth: 0.02 });
+        }
+        if (this.mutationIs(st, 'frost_worldstorm')) {
+            this.spawnProjectile({ x: src.x, z: src.z, vx: src.aimX * 2.25, vz: src.aimZ * 2.25, radius: r * 0.62, ttl: 7.0, damage: 9 * this.powerBucket(st), coverDamage: 25, faction: src.faction, ownerId: src.owner?.id ?? 0, source: 'frost_ring', sourceSlot: slot, mutation: st.mutation, apotheosis: st.mutationApotheosis, rivalConcentration: 1, behavior: 'roller', phase: 0, hitIds: [], growth: 0.035 });
+            this.events.push({ type: 'RareEvent', tick: this.tick, title: 'БЕЛЫЙ ШТОРМ', detail: 'Ледяной фронт движется через арену', x: src.x, z: src.z });
+        }
         if (capacitive > 1)
             this.charge = 0;
     }
@@ -3720,32 +4097,15 @@ export class Simulation {
         const mut = st.mutation;
         if (mut === 'rail_gun' && this.cycle % 2 === 1)
             return;
-        const count = this.projectileCount(st, slot) + (mut === 'rail_fan' ? 2 : 0), rays = [];
+        const requestedCount = this.projectileCount(st, slot), count = mut === 'rail_gun' ? 1 : requestedCount + (mut === 'rail_fan' ? 2 : 0), rays = [];
         for (let i = 0; i < count; i++)
             rays.push((i - (count - 1) / 2) * (mut === 'rail_fan' ? 0.11 : 0.055));
+        let latticePoint = null;
         for (const ang of rays) {
             const a = this.rotatedAim(src, ang);
-            let base = skills.rail_spear.baseDamage *
-                this.powerBucket(st) *
-                (mut === 'rail_gun'
-                    ? 2.35
-                    : mut === 'rail_fan'
-                        ? 0.58
-                        : mut === 'rail_rack'
-                            ? 0.78
-                            : count > 1
-                                ? 0.8
-                                : 1);
+            let base = skills.rail_spear.baseDamage * this.powerBucket(st) * (mut === 'rail_gun' ? 2.35 : mut === 'rail_fan' ? 0.58 : mut === 'rail_rack' ? 0.78 : count > 1 ? 0.8 : 1);
             const range = this.skillRange(st, mut === 'rail_gun' ? 25 : skills.rail_spear.baseRange), width = this.skillRadius(st, 0.34, slot);
-            this.combatShape('rail_spear', {
-                kind: 'ray',
-                x: src.x,
-                z: src.z,
-                aimX: a.x,
-                aimZ: a.z,
-                range,
-                halfWidth: width
-            });
+            this.combatShape('rail_spear', { kind: 'ray', x: src.x, z: src.z, aimX: a.x, aimZ: a.z, range, halfWidth: width });
             const hits = this.rayHits(src, a.x, a.z, range, width, mut === 'rail_gun' ? 14 : mut === 'rail_fan' ? 5 : 8);
             let first = true;
             for (const h of hits) {
@@ -3753,18 +4113,31 @@ export class Simulation {
                 if (this.mutationIs(st, 'rail_spot') && h.e.markUntil > this.time)
                     dmg *= 1.25;
                 const hadMark = h.e.markUntil > this.time;
-                this.damage(h.e, dmg, 'rail_spear', true);
+                this.damage(h.e, dmg, 'rail_spear', true, src.x, src.z, slot);
                 h.e.embedded = Math.min(8, h.e.embedded + (mut === 'rail_rack' ? 2 : 1));
                 this.noteState('embed');
                 if ((this.mutationIs(st, 'rail_spot') || hadMark) && hadMark)
                     h.e.exposedUntil = this.time + 3;
                 if (this.mutationIs(st, 'rail_harpoon') && first && h.e.kind === 'elite') {
                     const dx = src.x - h.e.x, dz = src.z - h.e.z, d = Math.hypot(dx, dz) || 1;
-                    h.e.x += (dx / d) * 1.25;
-                    h.e.z += (dz / d) * 1.25;
+                    h.e.x += dx / d * 1.25;
+                    h.e.z += dz / d * 1.25;
                 }
+                if (this.mutationIs(st, 'rail_execution_line') && first && h.e.kind === 'elite')
+                    this.scheduleStrike({ at: this.time + 0.55, x: h.e.x, z: h.e.z, radius: 0.85, damage: base * 1.25, faction: src.faction, ownerId: src.owner?.id ?? 0, source: 'rail_spear', sourceSlot: slot, intent: 'damage', telegraph: 'rail_execution_beacon' });
+                if (this.mutationIs(st, 'rail_sky_lance') && hadMark)
+                    this.scheduleStrike({ at: this.time + 0.72, x: h.e.x, z: h.e.z, radius: 1.0, damage: base * 1.7, faction: src.faction, ownerId: src.owner?.id ?? 0, source: 'rail_spear', sourceSlot: slot, intent: 'damage', telegraph: 'rail_sky_lance_beacon' });
+                latticePoint ??= { x: h.e.x, z: h.e.z };
                 first = false;
             }
+        }
+        if (this.mutationIs(st, 'rail_lattice')) {
+            const p = latticePoint ?? this.aimPoint(src, this.skillRange(st, skills.rail_spear.baseRange) * 0.75), a0 = Math.atan2(src.aimZ, src.aimX);
+            for (const off of [0, Math.PI / 2])
+                for (let i = -3; i <= 3; i++) {
+                    const a = a0 + off;
+                    this.scheduleStrike({ at: this.time + 0.42 + Math.abs(i) * 0.035, x: p.x + Math.cos(a) * i * 1.3, z: p.z + Math.sin(a) * i * 1.3, radius: 0.42, damage: skills.rail_spear.baseDamage * this.powerBucket(st) * 0.48, faction: src.faction, ownerId: src.owner?.id ?? 0, source: 'rail_spear', sourceSlot: slot, intent: 'damage', telegraph: 'rail_lattice_node' });
+                }
         }
     }
     castCleaver(st, slot, src, repeat = false) {
@@ -3772,55 +4145,64 @@ export class Simulation {
         let half = mut === 'cleaver_guillotine' ? 0.65 : 1.12;
         if (mut === 'cleaver_roundhouse')
             half = Math.PI;
-        this.combatShape('cleaver', {
-            kind: 'sector',
-            x: src.x,
-            z: src.z,
-            radius: r,
-            aimX: src.aimX,
-            aimZ: src.aimZ,
-            halfAngle: half
-        });
-        let kills = 0;
+        this.combatShape('cleaver', { kind: 'sector', x: src.x, z: src.z, radius: r, aimX: src.aimX, aimZ: src.aimZ, halfAngle: half });
+        let kills = 0, hookX = 0, hookZ = 0, hookN = 0;
         for (const e of this.targetsFor(src)) {
             const dx = e.x - src.x, dz = e.z - src.z, d = Math.hypot(dx, dz);
             if (d > r + e.radius || d < 0.01)
                 continue;
-            const dot = (dx / d) * src.aimX + (dz / d) * src.aimZ;
+            const dot = dx / d * src.aimX + dz / d * src.aimZ;
             if (Math.acos(Math.max(-1, Math.min(1, dot))) > half)
                 continue;
-            let dmg = skills.cleaver.baseDamage *
-                this.powerBucket(st) *
-                this.slotAmp(slot, e) *
-                (repeat ? 0.65 : 1);
-            if (mut === 'cleaver_roundhouse')
-                dmg *= 1.0;
+            let dmg = skills.cleaver.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e) * (repeat ? 0.65 : 1);
             if (mut === 'cleaver_guillotine' && e.hp / e.maxHp < 0.25)
                 dmg *= 2;
             if (this.mutationIs(st, 'cleaver_deep'))
                 dmg *= 0.72;
-            const killed = this.damage(e, dmg, 'cleaver', true);
+            const killed = this.damage(e, dmg, 'cleaver', true, src.x, src.z, slot);
             this.closeDamage += dmg;
             if (killed)
                 kills++;
-            e.woundUntil = Math.max(e.woundUntil, this.time +
-                (this.mutationIs(st, 'cleaver_deep') ? 4.8 : 2.6) * (1 + st.statusPotency) * this.memoryFactor());
+            e.woundUntil = Math.max(e.woundUntil, this.time + (this.mutationIs(st, 'cleaver_deep') ? 4.8 : 2.6) * (1 + st.statusPotency) * this.memoryFactor());
             e.woundDps = Math.max(e.woundDps, (this.mutationIs(st, 'cleaver_deep') ? 11 : 4.5) * this.powerBucket(st));
             this.noteState('wound');
-            if (mut === 'cleaver_hook') {
-                const tx = src.x - e.x, tz = src.z - e.z, td = Math.hypot(tx, tz) || 1;
-                e.x += (tx / td) * 0.65 * (1 + st.control);
-                e.z += (tz / td) * 0.65 * (1 + st.control);
+            if (mut === 'cleaver_hook' || this.mutationIs(st, 'cleaver_chainhook')) {
+                const tx = src.x - e.x, tz = src.z - e.z, td = Math.hypot(tx, tz) || 1, pull = this.mutationIs(st, 'cleaver_chainhook') ? 1.05 : 0.65;
+                e.x += tx / td * pull * (1 + st.control);
+                e.z += tz / td * pull * (1 + st.control);
+                hookX += e.x;
+                hookZ += e.z;
+                hookN++;
             }
-            if (this.mutationIs(st, 'cleaver_deep')) {
-                e.woundUntil = this.time + 4 * (1 + st.statusPotency) * this.memoryFactor();
-                e.woundDps = Math.max(e.woundDps, 10 * this.powerBucket(st));
+            if (this.mutationIs(st, 'cleaver_rupture')) {
+                e.woundStacks = (e.woundStacks ?? 0) + 1;
+                const need = e.kind === 'elite' ? 3 : 2;
+                if ((e.woundStacks ?? 0) >= need) {
+                    e.woundStacks = 0;
+                    const burst = 42 * this.powerBucket(st);
+                    this.combatShape('cleaver_rupture', { kind: 'circle', x: e.x, z: e.z, radius: 1.8 });
+                    for (const o of this.targetsFor(src))
+                        if (o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < 1.8 + o.radius)
+                            this.damage(o, burst, 'cleaver', false, e.x, e.z, slot);
+                }
             }
         }
+        if (this.mutationIs(st, 'cleaver_rift_hook') && hookN) {
+            const x = hookX / hookN, z = hookZ / hookN;
+            this.scheduleStrike({ at: this.time + 0.24, x, z, radius: 2.1, damage: skills.cleaver.baseDamage * this.powerBucket(st) * 0.72, faction: src.faction, ownerId: src.owner?.id ?? 0, source: 'cleaver', sourceSlot: slot, intent: 'control', telegraph: 'cleaver_rift_tell' });
+        }
         if (this.mutationIs(st, 'cleaver_rhythm') && kills > 0 && !repeat) {
-            this.butcherStacks = Math.min(4, this.butcherStacks + kills);
-            if (this.rng.float() < Math.min(0.65, this.butcherStacks * 0.16)) {
+            this.butcherStacks = Math.min(6, this.butcherStacks + kills);
+            if (this.mutationIs(st, 'cleaver_harvest_dance') || this.rng.float() < Math.min(0.65, this.butcherStacks * 0.16)) {
+                const ax = src.aimX, az = src.aimZ;
+                src.aimX = -az;
+                src.aimZ = ax;
+                this.combatShape('cleaver_harvest_dance', { kind: 'circle', x: src.x, z: src.z, radius: r * 1.18 });
                 this.castCleaver(st, slot, src, true);
+                src.aimX = ax;
+                src.aimZ = az;
+                if (this.mutationIs(st, 'cleaver_harvest_dance'))
+                    this.grantBarrier(3.5 * kills);
                 this.butcherStacks = 0;
             }
         }
@@ -3837,33 +4219,24 @@ export class Simulation {
         }
     }
     castArc(st, slot, src) {
-        const mut = st.mutation, maxJumps = (mut === 'arc_forked' ? 7 : 4) +
-            Math.max(0, st.count - 1) +
-            this.resonance.multiplicity +
-            (this.mutationContinuation(st)?.countAdd ?? 0), jumpRange = this.skillRange(st, this.mutationIs(st, 'arc_relay') ? 5.8 : 4.2);
+        const mut = st.mutation, maxJumps = (mut === 'arc_forked' ? 7 : 4) + Math.max(0, st.count - 1) + this.resonance.multiplicity + (this.mutationContinuation(st)?.countAdd ?? 0), jumpRange = this.skillRange(st, this.mutationIs(st, 'arc_relay') ? 5.8 : 4.2);
+        const available = this.targetsFor(src).filter(e => e.hp > 0 && this.targetVisible(src, e) && Math.hypot(e.x - src.x, e.z - src.z) < this.skillRange(st, skills.chain_arc.baseRange));
         let current;
-        const available = this.targetsFor(src).filter((e) => e.hp > 0 &&
-            this.targetVisible(src, e) &&
-            Math.hypot(e.x - src.x, e.z - src.z) < this.skillRange(st, skills.chain_arc.baseRange));
-        const embedded = available.filter((e) => e.embedded > 0);
+        const embedded = available.filter(e => e.embedded > 0);
         if (embedded.length)
             current = embedded.sort((a, b) => b.embedded - a.embedded)[0];
         if (mut === 'arc_ground')
-            current = available
-                .filter((e) => e.markUntil > this.time || e.embedded > 0)
-                .sort((a, b) => Math.hypot(a.x - src.x, a.z - src.z) - Math.hypot(b.x - src.x, b.z - src.z))[0];
+            current = available.filter(e => e.markUntil > this.time || e.embedded > 0).sort((a, b) => Math.hypot(a.x - src.x, a.z - src.z) - Math.hypot(b.x - src.x, b.z - src.z))[0];
         if (!current)
             current = available.sort((a, b) => Math.hypot(a.x - src.x, a.z - src.z) - Math.hypot(b.x - src.x, b.z - src.z))[0];
         if (!current)
             return;
-        const hit = new Set();
+        const hit = new Set(), path = [];
         let jumps = 0, prevX = src.x, prevZ = src.z;
         while (current && jumps < maxJumps) {
             hit.add(current.id);
-            let dmg = skills.chain_arc.baseDamage *
-                this.powerBucket(st) *
-                this.slotAmp(slot, current) *
-                Math.pow(mut === 'arc_forked' ? 0.93 : 0.88, jumps);
+            path.push(current);
+            let dmg = skills.chain_arc.baseDamage * this.powerBucket(st) * this.slotAmp(slot, current) * Math.pow(mut === 'arc_forked' ? 0.93 : 0.88, jumps);
             if (mut === 'arc_ground' && (current.markUntil > this.time || current.embedded > 0))
                 dmg *= 1.45;
             if (current.embedded > 0) {
@@ -3871,25 +4244,11 @@ export class Simulation {
                 current.embedded--;
                 this.metrics.reactions++;
             }
-            this.damage(current, dmg, 'chain_arc', false, prevX, prevZ);
+            this.combatShape('chain_arc', { kind: 'ray', x: prevX, z: prevZ, aimX: (current.x - prevX) / (Math.hypot(current.x - prevX, current.z - prevZ) || 1), aimZ: (current.z - prevZ) / (Math.hypot(current.x - prevX, current.z - prevZ) || 1), range: Math.hypot(current.x - prevX, current.z - prevZ), halfWidth: 0.08 });
+            this.damage(current, dmg, 'chain_arc', false, prevX, prevZ, slot);
             this.noteState('charge');
             if (this.mutationIs(st, 'arc_cage') && this.time - current.lastArcAt < 2.2)
-                this.fields.push({
-                    id: this.nextId++,
-                    x: current.x,
-                    z: current.z,
-                    radius: 1.25,
-                    ttl: 1.7 * (1 + st.duration),
-                    kind: 'arc',
-                    dps: 13 * this.powerBucket(st),
-                    tickAcc: 0,
-                    faction: src.faction,
-                    ownerId: src.owner?.id ?? 0,
-                    source: st.id,
-                    sourceSlot: slot,
-                    mutation: st.mutation,
-                    rivalConcentration: effectGrammar[st.id].rivalConcentration
-                });
+                this.fields.push({ id: this.nextId++, x: current.x, z: current.z, radius: 1.25, ttl: 1.7 * (1 + st.duration), kind: 'arc', dps: 13 * this.powerBucket(st), tickAcc: 0, faction: src.faction, ownerId: src.owner?.id ?? 0, source: st.id, sourceSlot: slot, mutation: st.mutation, rivalConcentration: effectGrammar[st.id].rivalConcentration });
             current.lastArcAt = this.time;
             prevX = current.x;
             prevZ = current.z;
@@ -3908,6 +4267,26 @@ export class Simulation {
         }
         if (mut === 'arc_capacitive' && jumps < maxJumps)
             this.charge = Math.min(5, this.charge + (maxJumps - jumps));
+        if (this.mutationIs(st, 'arc_closed_loop') && path.length > 1) {
+            const first = path[0], last = path[path.length - 1], d = Math.hypot(first.x - last.x, first.z - last.z) || 1;
+            this.combatShape('arc_closed_loop', { kind: 'ray', x: last.x, z: last.z, aimX: (first.x - last.x) / d, aimZ: (first.z - last.z) / d, range: d, halfWidth: 0.14 });
+            this.damage(first, skills.chain_arc.baseDamage * this.powerBucket(st) * 1.55, 'chain_arc', false, last.x, last.z, slot);
+        }
+        if (this.mutationIs(st, 'arc_hunting_storm')) {
+            const extra = this.targetsFor(src).filter(e => e.hp > 0 && !hit.has(e.id) && path.some(h => Math.hypot(e.x - h.x, e.z - h.z) < jumpRange * 1.2)).slice(0, 3);
+            for (const e of extra)
+                this.scheduleStrike({ at: this.time + 0.18, x: e.x, z: e.z, radius: 0.72, damage: skills.chain_arc.baseDamage * this.powerBucket(st) * 0.82, faction: src.faction, ownerId: src.owner?.id ?? 0, source: 'chain_arc', sourceSlot: slot, intent: 'damage', telegraph: 'arc_hunting_node', fieldKind: 'arc', fieldDuration: 1.25, fieldDps: 7 * this.powerBucket(st) });
+        }
+        if (this.mutationIs(st, 'arc_living_circuit') && src.faction === 'hero') {
+            for (const c of this.constructs.filter(q => q.faction === 'hero').slice(0, 4)) {
+                const target = this.ents.filter(e => e.hp > 0 && Math.hypot(e.x - c.x, e.z - c.z) < c.range).sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z))[0];
+                if (!target)
+                    continue;
+                const dx = target.x - c.x, dz = target.z - c.z, d = Math.hypot(dx, dz) || 1;
+                this.combatShape('arc_living_circuit', { kind: 'ray', x: c.x, z: c.z, aimX: dx / d, aimZ: dz / d, range: d, halfWidth: 0.1 });
+                this.damage(target, skills.chain_arc.baseDamage * this.powerBucket(st) * 0.65, 'chain_arc', false, c.x, c.z, slot);
+            }
+        }
     }
     castOrbit(st, slot, src) {
         // The hero owns a continuously simulated orbit; a rival cannot borrow that global loop.
@@ -3931,76 +4310,53 @@ export class Simulation {
             r *= 1.35;
             mult *= 1.35;
         }
-        else if (this.mutationIs(st, 'mortar_airburst')) {
-            r *= 1.45;
-            mult *= 0.82;
+        if (this.mutationIs(st, 'mortar_airburst')) {
+            r *= 1.2;
+            mult *= 0.86;
         }
-        const explosions = mut === 'mortar_cluster' ? 3 : Math.max(1, this.projectileCount(st, slot));
-        for (let n = 0; n < explosions; n++) {
-            const a = n ? this.rng.range(0, Math.PI * 2) : 0, rr = n ? this.rng.range(0.7, 1.6) : 0, cx = p.x + Math.cos(a) * rr, cz = p.z + Math.sin(a) * rr;
-            this.combatShape('mortar_bloom', { kind: 'circle', x: cx, z: cz, radius: r });
+        const baseDamage = skills.mortar_bloom.baseDamage * this.powerBucket(st) * this.slotAmp(slot) * mult;
+        let points = [];
+        if (this.mutationIs(st, 'mortar_carpet')) {
+            for (let i = -2; i <= 2; i++)
+                points.push({ x: p.x + src.aimX * i * 1.7, z: p.z + src.aimZ * i * 1.7, delay: 0.25 + (i + 2) * 0.13 });
+        }
+        else if (this.mutationIs(st, 'mortar_hunter_pass')) {
+            const elite = this.targetsFor(src).filter(e => e.kind === 'elite' && e.hp > 0).sort((a, b) => Number(b.markUntil > this.time) - Number(a.markUntil > this.time) || Math.hypot(a.x - src.x, a.z - src.z) - Math.hypot(b.x - src.x, b.z - src.z))[0];
+            const t = elite ?? { x: p.x, z: p.z };
+            for (let i = 0; i < 3; i++) {
+                const a = i * Math.PI * 2 / 3;
+                points.push({ x: t.x + Math.cos(a) * 1.35, z: t.z + Math.sin(a) * 1.35, delay: 0.28 + i * 0.22 });
+            }
+        }
+        else {
+            const n = mut === 'mortar_cluster' ? 3 : Math.max(1, Math.min(3, this.projectileCount(st, slot)));
+            for (let i = 0; i < n; i++) {
+                const a = i ? this.rng.range(0, Math.PI * 2) : 0, rr = i ? this.rng.range(0.7, 1.5) : 0;
+                points.push({ x: p.x + Math.cos(a) * rr, z: p.z + Math.sin(a) * rr, delay: 0.38 + i * 0.12 });
+            }
+        }
+        for (const q of points)
+            this.scheduleStrike({ at: this.time + q.delay, x: q.x, z: q.z, radius: r, damage: baseDamage * (points.length > 1 ? 0.86 : 1), faction: src.faction, ownerId: src.owner?.id ?? 0, source: 'mortar_bloom', sourceSlot: slot, intent: 'damage', telegraph: 'bombardier_marker', fieldKind: this.mutationIs(st, 'mortar_gravity_field') ? 'arc' : this.mutationIs(st, 'mortar_crater') ? 'frost' : undefined, fieldDuration: this.mutationIs(st, 'mortar_gravity_field') ? 3.4 : 2.5, fieldDps: this.mutationIs(st, 'mortar_gravity_field') ? 5 * this.powerBucket(st) : 6 * this.powerBucket(st) });
+        if (this.mutationIs(st, 'mortar_gravity_field')) {
             for (const e of this.targetsFor(src)) {
-                const d = Math.hypot(e.x - cx, e.z - cz);
-                if (d <= r + e.radius) {
-                    let dmg = skills.mortar_bloom.baseDamage *
-                        this.powerBucket(st) *
-                        this.slotAmp(slot, e) *
-                        mult *
-                        (explosions > 1 ? 0.86 : 1);
-                    if (mut === 'mortar_spotter' && e.kind === 'elite' && e.markUntil > this.time)
-                        dmg *= 1.45;
-                    this.damage(e, dmg, 'mortar_bloom', false, cx, cz);
+                const dx = p.x - e.x, dz = p.z - e.z, d = Math.hypot(dx, dz) || 1;
+                if (d < r * 2.2) {
+                    e.x += dx / d * 0.55;
+                    e.z += dz / d * 0.55;
+                    e.displacedUntil = this.time + 0.8;
                 }
             }
-            if (this.mutationIs(st, 'mortar_crater') && n === 0)
-                this.fields.push({
-                    id: this.nextId++,
-                    x: cx,
-                    z: cz,
-                    radius: r * 0.9,
-                    ttl: this.persistentDuration(st, 3.3, slot),
-                    kind: 'frost',
-                    dps: 6 * this.powerBucket(st),
-                    tickAcc: 0,
-                    faction: src.faction,
-                    ownerId: src.owner?.id ?? 0,
-                    source: st.id,
-                    sourceSlot: slot,
-                    mutation: st.mutation,
-                    rivalConcentration: effectGrammar[st.id].rivalConcentration
-                });
         }
         this.noteState('field');
     }
     castSentry(st, slot, src) {
         const count = Math.max(1, Math.min(5, st.count + Math.ceil(this.resonance.multiplicity / 2)));
         for (let i = 0; i < count; i++) {
-            const a = (i * Math.PI * 2) / count + this.cycle * 0.7, r = 1.2;
-            this.constructs.push({
-                id: this.nextId++,
-                x: src.x + Math.cos(a) * r,
-                z: src.z + Math.sin(a) * r,
-                ttl: this.persistentDuration(st, 7.5, slot),
-                cooldown: 0.1 + i * 0.08,
-                range: this.skillRange(st, skills.sentry.baseRange),
-                power: this.slotAmp(slot),
-                skill: 'sentry',
-                faction: src.faction,
-                ownerId: src.owner?.id ?? 0,
-                sourceSlot: slot,
-                mutation: st.mutation,
-                mutationUpgrade: st.mutationUpgrade,
-                rivalConcentration: effectGrammar.sentry.rivalConcentration
-            });
-            this.events.push({
-                type: 'ConstructSpawned',
-                tick: this.tick,
-                skill: 'sentry',
-                x: src.x + Math.cos(a) * r,
-                z: src.z + Math.sin(a) * r
-            });
+            const a = i * Math.PI * 2 / count + this.cycle * 0.7, r = 1.2;
+            this.constructs.push({ id: this.nextId++, x: src.x + Math.cos(a) * r, z: src.z + Math.sin(a) * r, ttl: this.persistentDuration(st, 7.5, slot), cooldown: this.mutationIs(st, 'sentry_hunter_battery') ? 0 : 0.1 + i * 0.08, range: this.skillRange(st, skills.sentry.baseRange), power: this.slotAmp(slot), skill: 'sentry', faction: src.faction, ownerId: src.owner?.id ?? 0, sourceSlot: slot, mutation: st.mutation, mutationUpgrade: st.mutationUpgrade, mutationApotheosis: st.mutationApotheosis, rivalConcentration: effectGrammar.sentry.rivalConcentration });
+            this.events.push({ type: 'ConstructSpawned', tick: this.tick, skill: 'sentry', x: src.x + Math.cos(a) * r, z: src.z + Math.sin(a) * r });
         }
-        while (this.constructs.length > 5)
+        while (this.constructs.length > 7)
             this.constructs.shift();
         this.noteState('construct');
     }
@@ -4011,8 +4367,8 @@ export class Simulation {
             dps *= 1.85;
         }
         const x = this.mutationIs(st, 'toxic_plume') ? src.x - src.vx * 0.55 : src.x, z = this.mutationIs(st, 'toxic_plume') ? src.z - src.vz * 0.55 : src.z;
-        this.combatShape('toxic_mist', { kind: 'circle', x, z, radius: r }, 'field');
-        if (this.mutationIs(st, 'toxic_reactive')) {
+        const reactiveTargets = [];
+        if (this.mutationIs(st, 'toxic_reactive'))
             for (const e of this.targetsFor(src)) {
                 if (e.hp <= 0 || Math.hypot(e.x - x, e.z - z) > r + e.radius)
                     continue;
@@ -4024,47 +4380,27 @@ export class Simulation {
                     }
                     else
                         e.igniteUntil = 0;
-                    this.damage(e, dps * 1.25, 'septic_cut', false, x, z);
+                    this.damage(e, dps * 1.25, 'septic_cut', false, x, z, slot);
                     this.metrics.reactions++;
+                    reactiveTargets.push(e);
                 }
             }
+        const pushField = (fx, fz, fr, ttl, behavior) => this.fields.push({ id: this.nextId++, x: fx, z: fz, radius: fr, ttl, kind: 'toxic', dps, tickAcc: 0, faction: src.faction, ownerId: src.owner?.id ?? 0, source: st.id, sourceSlot: slot, mutation: st.mutation, rivalConcentration: effectGrammar[st.id].rivalConcentration, behavior });
+        this.combatShape('toxic_mist', { kind: 'circle', x, z, radius: r }, 'field');
+        pushField(x, z, r, this.persistentDuration(st, 4.2, slot), this.mutationIs(st, 'toxic_pestilent_host') ? 'host' : undefined);
+        if (this.mutationIs(st, 'toxic_plague_road')) {
+            const m = Math.hypot(src.vx, src.vz) || 1, dx = src.vx / m, dz = src.vz / m;
+            for (let i = 1; i <= 3; i++)
+                pushField(x - dx * i * 1.3, z - dz * i * 1.3, r * 0.55, 2.4);
         }
-        this.fields.push({
-            id: this.nextId++,
-            x,
-            z,
-            radius: r,
-            ttl: this.persistentDuration(st, 4.2, slot),
-            kind: 'toxic',
-            dps,
-            tickAcc: 0,
-            faction: src.faction,
-            ownerId: src.owner?.id ?? 0,
-            source: st.id,
-            sourceSlot: slot,
-            mutation: st.mutation,
-            rivalConcentration: effectGrammar[st.id].rivalConcentration
-        });
-        for (let i = 0; i < Math.min(3, this.resonance.multiplicity); i++) {
-            const a = this.cycle * 0.9 +
-                (i * Math.PI * 2) / Math.max(1, Math.min(3, this.resonance.multiplicity)), rr = r * 0.48;
-            this.fields.push({
-                id: this.nextId++,
-                x: x + Math.cos(a) * rr,
-                z: z + Math.sin(a) * rr,
-                radius: r * 0.58,
-                ttl: this.persistentDuration(st, 3.0, slot),
-                kind: 'toxic',
-                dps: dps * 0.58,
-                tickAcc: 0,
-                faction: src.faction,
-                ownerId: src.owner?.id ?? 0,
-                source: st.id,
-                sourceSlot: slot,
-                mutation: st.mutation,
-                rivalConcentration: effectGrammar[st.id].rivalConcentration
-            });
-        }
+        if (this.mutationIs(st, 'toxic_septic_bloom'))
+            for (const e of reactiveTargets) {
+                for (let i = 0; i < 4; i++) {
+                    const a = i * Math.PI / 2;
+                    pushField(e.x + Math.cos(a) * 1.1, e.z + Math.sin(a) * 1.1, r * 0.42, 2.2);
+                    this.scheduleStrike({ at: this.time + 0.12 + i * 0.04, x: e.x + Math.cos(a) * 1.1, z: e.z + Math.sin(a) * 1.1, radius: r * 0.45, damage: dps * 0.72, faction: src.faction, ownerId: src.owner?.id ?? 0, source: 'toxic_mist', sourceSlot: slot, intent: 'field', telegraph: 'septic_bloom' });
+                }
+            }
         this.noteState('toxin');
     }
     castRepulse(st, slot, src) {
@@ -4103,57 +4439,49 @@ export class Simulation {
         }
     }
     castMassDriver(st, slot, src) {
-        const mut = st.mutation, range = this.skillRange(st, mut === 'mass_rail' ? 26 : skills.mass_driver.baseRange), width = this.skillRadius(st, mut === 'mass_rail' ? 0.34 : 0.52, slot);
-        this.combatShape('mass_driver', {
-            kind: 'ray',
-            x: src.x,
-            z: src.z,
-            aimX: src.aimX,
-            aimZ: src.aimZ,
-            range,
-            halfWidth: width
-        }, 'control');
-        const hits = this.rayHits(src, src.aimX, src.aimZ, range, width, 18);
+        const mut = st.mutation, range = this.skillRange(st, skills.mass_driver.baseRange);
+        let speed = 3.8, radius = this.skillRadius(st, 0.72, slot), damage = skills.mass_driver.baseDamage * this.powerBucket(st) * this.slotAmp(slot), cover = 90;
+        if (mut === 'mass_rail') {
+            speed = 6.2;
+            radius *= 0.72;
+            damage *= 1.45;
+        }
+        if (mut === 'mass_snowball') {
+            speed = 3.25;
+            radius *= 1.08;
+        }
         let cargo = 0;
         if (this.mutationIs(st, 'mass_cargo')) {
             for (const c of this.constructs) {
                 const dx = c.x - src.x, dz = c.z - src.z, t = dx * src.aimX + dz * src.aimZ, lat = Math.abs(dx * src.aimZ - dz * src.aimX);
-                if (t > 0 && t < range && lat < 1.2)
+                if (t > 0 && t < range && lat < 1.5)
                     cargo++;
             }
-            for (const p of this.pickups) {
-                const dx = p.x - src.x, dz = p.z - src.z, t = dx * src.aimX + dz * src.aimZ, lat = Math.abs(dx * src.aimZ - dz * src.aimX);
-                if (t > 0 && t < range && lat < 0.9)
+            for (const q of this.pickups) {
+                const dx = q.x - src.x, dz = q.z - src.z, t = dx * src.aimX + dz * src.aimZ, lat = Math.abs(dx * src.aimZ - dz * src.aimX);
+                if (t > 0 && t < range && lat < 1.1)
                     cargo++;
             }
+            damage *= 1 + Math.min(0.9, cargo * 0.14);
+            radius *= 1 + Math.min(0.35, cargo * 0.04);
         }
-        let terminal = 1;
         if (this.mutationIs(st, 'mass_terminal')) {
-            terminal += Math.min(1.0, this.charge * 0.14 + (this.capacitorCharge + this.overflowCharge) / 260);
+            damage *= 1 + Math.min(1.0, this.charge * 0.12 + (this.capacitorCharge + this.overflowCharge) / 300);
             this.charge = 0;
         }
-        let n = 0;
-        for (const h of hits) {
-            let dmg = skills.mass_driver.baseDamage *
-                this.powerBucket(st) *
-                this.slotAmp(slot, h.e) *
-                (mut === 'mass_rail' ? 1.55 : 1) *
-                terminal *
-                (this.mutationIs(st, 'mass_cargo') ? 1 + Math.min(0.8, cargo * 0.16) : 1);
-            if (mut === 'mass_snowball')
-                dmg *= 1 + Math.min(0.9, n * 0.1);
-            this.damage(h.e, dmg, 'mass_driver', true);
-            const push = 0.7 * (1 + st.control);
-            h.e.x += src.aimX * push;
-            h.e.z += src.aimZ * push;
-            h.e.displacedUntil = this.time + 1.2;
-            this.noteState('displaced');
-            this.currentActivationControl += 0.8 + st.control;
-            n++;
+        if (mut === 'mass_recoil' || this.mutationIs(st, 'mass_counterthrust')) {
+            const kick = this.mutationIs(st, 'mass_comet_recoil') ? 1.8 : 1.05;
+            this.displaceSource(src, -src.aimX * kick, -src.aimZ * kick);
+            if (!src.owner && this.mutationIs(st, 'mass_comet_recoil'))
+                this.dashIFramesUntil = Math.max(this.dashIFramesUntil, this.time + 0.16);
         }
-        if (mut === 'mass_recoil') {
-            this.displaceSource(src, -src.aimX * 0.9, -src.aimZ * 0.9);
+        if (this.mutationIs(st, 'mass_comet_recoil')) {
+            speed *= 1.35;
+            damage *= 1.28;
+            radius *= 1.18;
         }
+        this.combatShape('mass_driver', { kind: 'ray', x: src.x, z: src.z, aimX: src.aimX, aimZ: src.aimZ, range, halfWidth: radius }, 'control');
+        this.spawnProjectile({ x: src.x + src.aimX * (radius + 0.25), z: src.z + src.aimZ * (radius + 0.25), vx: src.aimX * speed, vz: src.aimZ * speed, radius, ttl: range / speed, damage, coverDamage: cover + damage * 0.8, faction: src.faction, ownerId: src.owner?.id ?? 0, source: 'mass_driver', sourceSlot: slot, mutation: mut, apotheosis: st.mutationApotheosis, rivalConcentration: effectGrammar.mass_driver.rivalConcentration, behavior: 'roller', phase: 0, hitIds: [], growth: this.mutationIs(st, 'mass_avalanche') ? 0.12 : mut === 'mass_snowball' ? 0.06 : 0 });
     }
     damage(e, amount, source, directional, sourceX = this.px, sourceZ = this.pz, sourceSlot = this.currentSlot) {
         // A rival-owned cast resolves against the player, not against the enemy roster.
@@ -4269,8 +4597,13 @@ export class Simulation {
                 actual *= 0.65;
         }
         if (e.kind === 'elite' && e.affix === 'shielded' && directional) {
-            const incoming = Math.atan2(sourceZ - e.z, sourceX - e.x), diff = Math.abs(this.angleDiff(incoming, e.shieldAngle));
-            actual *= diff < 0.95 ? 0.42 : 1.2;
+            const state = e.shieldState ?? 'guard';
+            if (state === 'broken')
+                actual *= 1.3;
+            else {
+                const incoming = Math.atan2(sourceZ - e.z, sourceX - e.x), diff = Math.abs(this.angleDiff(incoming, e.shieldAngle));
+                actual *= diff < 0.95 ? (state === 'commit' ? 0.58 : 0.42) : (state === 'commit' ? 1.35 : 1.2);
+            }
         }
         const before = e.hp;
         e.hp -= actual;
@@ -4310,8 +4643,20 @@ export class Simulation {
         }
         if (directional)
             this.directionalDamage += actual;
-        if (source === 'cleaver' || source === 'orbit_blades')
+        if (source === 'cleaver' || source === 'orbit_blades') {
             this.closeDamage += actual;
+            if (this.doctrines.guard > 0 && Math.hypot(e.x - this.px, e.z - this.pz) < 4.2)
+                this.grantBarrier(Math.min(3.5, actual * (0.0025 + this.doctrines.guard * 0.0014)));
+            if (e.kind === 'elite' && e.affix === 'shielded' && this.doctrines.force > 0) {
+                e.shieldStability = Math.max(0, (e.shieldStability ?? 100) - actual * (0.018 + this.doctrines.force * 0.008));
+                if ((e.shieldStability ?? 0) <= 0 && (e.shieldState ?? 'guard') !== 'broken') {
+                    e.shieldState = 'broken';
+                    e.shieldCommitUntil = this.time + 1.65;
+                    e.exposedUntil = Math.max(e.exposedUntil, this.time + 1.65);
+                    this.events.push({ type: 'RareEvent', tick: this.tick, title: 'ЩИТ СЛОМАН', detail: 'Окно уязвимости элиты', x: e.x, z: e.z });
+                }
+            }
+        }
         if (source.includes('field') || source === 'toxic_mist')
             this.fieldDamage += actual;
         if (skill && this.currentSlot >= 0) {
@@ -4557,7 +4902,7 @@ export class Simulation {
             if (!id)
                 return false;
             const st = this.skillState(id);
-            return !st.mutation || (!st.mutationUpgrade && mutationChildren(id, st.mutation).length > 0);
+            return !st.mutation || (!st.mutationUpgrade && mutationChildren(id, st.mutation).length > 0) || (!!st.mutationUpgrade && !st.mutationApotheosis && mutationChildren(id, st.mutationUpgrade).length > 0);
         });
         if (this.mutationCores > 0 && evolvable.length) {
             this.generateMutationTargetOffers();
@@ -4582,7 +4927,7 @@ export class Simulation {
     }
     skillOrderUnowned() {
         const owned = this.allOwnedSkills();
-        return skillOrder.filter((id) => !owned.includes(id));
+        return activeSkillOrder.filter((id) => !owned.includes(id));
     }
     shuffle(a) {
         for (let i = a.length - 1; i > 0; i--) {
@@ -4780,57 +5125,43 @@ export class Simulation {
         };
     }
     generateDiscovery() {
-        const choices = this.shuffle(this.skillOrderUnowned()).slice(0, 3);
-        this.rewardOffers = choices.map((id) => ({
-            id: `discover:${id}:${this.rng.nextU32()}`,
-            kind: 'skill_add',
-            title: skills[id].name,
-            subtitle: 'DISCOVERY · полноценный Phenomenon',
-            description: `${skills[id].description} Сильная сторона: ${skills[id].identity ?? '—'} Слабость: ${skills[id].weakness ?? '—'} Базовая мощность автоматически соответствует текущему Core Rank.`,
-            skill: id
-        }));
+        const choices = this.shuffle(this.skillOrderUnowned()).slice(0, 3), free = this.slots.some((x) => !x) || this.skillReserve.some((x) => !x);
+        this.rewardOffers = choices.map((id) => free ? this.makeSkillAdd(id) : this.makeSkillSwap(id));
         this.choiceSerial++;
     }
-    /**
-     * D38 retired the five fixed discovery levels: a phenomenon may now arrive at any
-     * level. D26 answers the question of what a level is worth once the build is full -
-     * a relic, an operator or a direction of growth - and D27 keeps the roster itself
-     * open by offering a swap, the displaced phenomenon stepping into the reserve.
-     * Three distinct kinds are preferred so a level rarely reads as three shades of the
-     * same decision; growth fills whatever is left because it is always applicable.
-     */
+    makeDoctrineOffer(id) {
+        const did = id ?? doctrineOrder[this.rng.int(doctrineOrder.length)], d = doctrines[did], before = this.doctrines[did], after = before + 1;
+        return {
+            id: `doctrine:${did}:${this.rng.nextU32()}`,
+            kind: 'doctrine',
+            title: d.name,
+            subtitle: `ДОКТРИНА ${before} → ${after}`,
+            description: d.description,
+            doctrine: did,
+            amount: 1,
+            before: String(before),
+            after: String(after)
+        };
+    }
+    /** v0.11: XP answers exactly one question — what kind of build is the hero becoming? */
     generateLevelOffers() {
+        const ids = this.shuffle([...doctrineOrder]);
+        // Soft steering without a hard recipe: close builds see survival/reach more often,
+        // projectile/construct builds still retain wildcard access to the entire doctrine pool.
+        const close = this.slots.filter((id) => id === 'cleaver' || id === 'orbit_blades').length;
+        const preferred = close >= 2 ? ['size', 'guard', 'mobility', 'force'] : ['might', 'precision', 'quantity', 'duration'];
         const out = [];
-        const unownedSkills = this.skillOrderUnowned();
-        if (unownedSkills.length) {
-            const id = unownedSkills[this.rng.int(unownedSkills.length)];
-            const free = this.slots.findIndex((x) => !x) >= 0 || this.skillReserve.some((x) => !x);
-            out.push(free ? this.makeSkillAdd(id) : this.makeSkillSwap(id));
+        if (this.rng.float() < 0.7) {
+            const p = preferred.filter((x) => !out.includes(x));
+            if (p.length)
+                out.push(p[this.rng.int(p.length)]);
         }
-        // D32 cut the operator reserve from four places to two, so "there is an operator the
-        // hero has not seen" is no longer the same question as "there is anywhere to put it".
-        // Offering one that cannot be placed would hand the hero a card that refuses to be taken.
-        const unownedCats = this.catalystOrderUnowned();
-        const roomForCatalyst = this.catalysts.some((x) => !x) || this.catalystReserve.some((x) => !x);
-        if (unownedCats.length && roomForCatalyst) {
-            out.push(this.makeCatalystAdd(unownedCats[this.rng.int(unownedCats.length)]));
+        while (out.length < 3 && ids.length) {
+            const id = ids.shift();
+            if (!out.includes(id))
+                out.push(id);
         }
-        const item = this.rollItemId();
-        if (item)
-            out.push(this.makeItemOffer(item));
-        // D26 names growth as one of the three things a level may offer and D37 makes it the
-        // only way the hero lifts every node at once. Letting it fill whatever the finds left
-        // over meant it almost never appeared: measured over six seeds the hero stopped
-        // growing, a common elite went from twelve seconds to thirty, and twelve of thirteen
-        // elites outlived the run. One of the three places is reserved for it.
-        this.shuffle(out);
-        const keep = out.slice(0, 2);
-        const axes = this.shuffle([...resonanceOrder]);
-        while (keep.length < 2 && axes.length > 1)
-            keep.push(this.makeResonanceOffer(axes.shift()));
-        keep.push(this.makeResonanceOffer(axes.shift()));
-        this.shuffle(keep);
-        this.rewardOffers = keep;
+        this.rewardOffers = out.slice(0, 3).map((id) => this.makeDoctrineOffer(id));
         this.choiceSerial++;
     }
     catalystOrderUnowned() {
@@ -4881,23 +5212,28 @@ export class Simulation {
             if (!id)
                 return false;
             const st = this.skillState(id);
-            return !st.mutation || (!st.mutationUpgrade && mutationChildren(id, st.mutation).length > 0);
+            if (!st.mutation)
+                return mutationRoots(id).length > 0;
+            if (!st.mutationUpgrade)
+                return mutationChildren(id, st.mutation).length > 0;
+            return !st.mutationApotheosis && mutationChildren(id, st.mutationUpgrade).length > 0;
         });
         if (!active.length)
             return;
         this.rewardOffers = this.shuffle([...active])
             .slice(0, 3)
             .map((id) => {
-            const st = this.skillState(id);
-            const continuation = !!st.mutation;
+            const st = this.skillState(id), tier = !st.mutation ? 1 : !st.mutationUpgrade ? 2 : 3;
             return {
                 id: `mut-target:${id}:${this.rng.nextU32()}`,
                 kind: 'mutation_target',
                 title: skills[id].name,
-                subtitle: `${continuation ? 'ПРОДОЛЖЕНИЕ' : 'МУТАЦИЯ'} · CORE ${this.mutationCores}`,
-                description: continuation
-                    ? `Продолжить выбранную ветвь «${mutationDef(id, st.mutation).name}». Корень останется активен.`
-                    : `Выбрать одну из трёх ветвей ${skills[id].name}. Core принадлежит рану: если мутированный Phenomenon уйдёт в Архив, ядро вернётся.`,
+                subtitle: tier === 3 ? `АПОФЕОЗ · CORE ${this.mutationCores}` : `${tier === 2 ? 'ПРОДОЛЖЕНИЕ' : 'МУТАЦИЯ'} · CORE ${this.mutationCores}`,
+                description: tier === 3
+                    ? `Третий уровень ветви «${mutationDef(id, st.mutationUpgrade).name}»: качественная трансформация, а не числовой бонус.`
+                    : tier === 2
+                        ? `Продолжить ветвь «${mutationDef(id, st.mutation).name}». Корень останется активен.`
+                        : `Выбрать одну из трёх ветвей ${skills[id].name}.`,
                 skill: id
             };
         });
@@ -5030,13 +5366,17 @@ export class Simulation {
             if (!this.placeCatalyst(offer.catalyst))
                 return false;
         }
+        else if (offer.kind === 'doctrine' && offer.doctrine) {
+            this.applyDoctrine(offer.doctrine, offer.amount ?? 1);
+        }
         else if ((offer.kind === 'resonance' || offer.kind === 'elite') && offer.resonance) {
             this.applyCoreAxis(offer.resonance, offer.amount ?? 1);
         }
         else
             this.applyGlobal(offer.stat, offer.amount ?? 0);
         this.events.push({ type: 'RewardChosen', tick: this.tick, title: offer.title });
-        this.concedeRefusal(offers.filter((o) => o !== offer));
+        if (!offers.every((o) => o.kind === 'doctrine'))
+            this.concedeRefusal(offers.filter((o) => o !== offer));
         return true;
     }
     /**
@@ -5097,6 +5437,17 @@ export class Simulation {
         if (axis === 'mobility')
             this.moveSpeed *= 1 + 0.045 * amount;
     }
+    applyDoctrine(id, amount) {
+        this.doctrines[id] += amount;
+        if (id === 'mobility') {
+            this.moveSpeed *= Math.pow(1.055, amount);
+            this.dashCooldownMul *= Math.pow(0.96, amount);
+        }
+        if (id === 'guard') {
+            this.armor += 4 * amount;
+            this.grantBarrier(5 * amount);
+        }
+    }
     applyGlobal(stat, amount = 0) {
         if (stat === 'hp') {
             this.maxHp += amount;
@@ -5124,13 +5475,16 @@ export class Simulation {
      */
     generateMutationOffer(id) {
         const st = this.skillState(id);
-        const choices = st.mutation
-            ? mutationChildren(id, st.mutation).map((m) => m.id)
+        const tier = !st.mutation ? 1 : !st.mutationUpgrade ? 2 : 3;
+        const parent = tier === 1 ? null : tier === 2 ? st.mutation : st.mutationUpgrade;
+        const choices = parent
+            ? mutationChildren(id, parent).map((m) => m.id)
             : mutationRoots(id).map((m) => m.id);
         this.mutationOffer = {
             skill: id,
-            choices: st.mutation ? choices : this.shuffle([...choices]).slice(0, Simulation.MUTATION_BRANCHES),
-            refusalAvailable: false
+            choices: tier === 1 ? this.shuffle([...choices]).slice(0, Simulation.MUTATION_BRANCHES) : choices,
+            refusalAvailable: tier === 1 && this.mutationRefusalToken,
+            tier
         };
         this.choiceSerial++;
     }
@@ -5143,16 +5497,24 @@ export class Simulation {
             return false;
         const st = this.skillState(m.skill);
         const def = mutationDef(m.skill, id);
-        if (def.parent) {
-            if (st.mutation !== def.parent || st.mutationUpgrade)
-                return false;
-            st.mutationUpgrade = id;
-        }
-        else {
+        if (!def.parent) {
             if (st.mutation)
                 return false;
             st.mutation = id;
         }
+        else if (st.mutation === def.parent) {
+            if (st.mutationUpgrade)
+                return false;
+            st.mutationUpgrade = id;
+        }
+        else if (st.mutationUpgrade === def.parent) {
+            if (st.mutationApotheosis)
+                return false;
+            st.mutationApotheosis = id;
+            this.events.push({ type: 'RareEvent', tick: this.tick, title: 'АПОФЕОЗ', detail: `${skills[m.skill].name}: ${def.name}` });
+        }
+        else
+            return false;
         if (this.pendingMutationTarget && this.mutationCores > 0)
             this.mutationCores--;
         this.pendingMutationTarget = false;
@@ -5213,9 +5575,10 @@ export class Simulation {
             if (leaving) {
                 const st = this.skillState(leaving);
                 if (st.mutation) {
-                    this.mutationCores += 1 + (st.mutationUpgrade ? 1 : 0);
+                    this.mutationCores += 1 + (st.mutationUpgrade ? 1 : 0) + (st.mutationApotheosis ? 1 : 0);
                     st.mutation = null;
                     st.mutationUpgrade = null;
+                    st.mutationApotheosis = null;
                 }
             }
         }
@@ -5257,6 +5620,7 @@ export class Simulation {
             st.crit = 0.1;
             st.mutation = cfg.mutations?.[id] ?? null;
             st.mutationUpgrade = cfg.mutationUpgrades?.[id] ?? null;
+            st.mutationApotheosis = cfg.mutationApotheoses?.[id] ?? null;
             this.skillsRuntime.set(id, st);
         }
         for (const id of this.catalysts) {
@@ -5333,6 +5697,10 @@ export class Simulation {
                 revived: e.revived,
                 buffed: e.buffUntil > this.time,
                 shieldAngle: e.shieldAngle,
+                shieldState: e.shieldState ?? 'guard',
+                shieldStability: e.shieldStability ?? 100,
+                echoPhase: this.eliteEchoes.get(e.id)?.phase ?? 'none',
+                echoSkill: this.eliteEchoes.get(e.id)?.skill,
                 regenerating: e.affix === 'regenerating' && this.time - e.lastDamageAt > 3,
                 orderX: e.orderX,
                 orderZ: e.orderZ,
@@ -5357,6 +5725,7 @@ export class Simulation {
                     marked: e.markUntil > this.time,
                     ignited: e.igniteUntil > this.time,
                     chilled: e.chillUntil > this.time,
+                    frozen: (e.frozenUntil ?? 0) > this.time,
                     wounded: e.woundUntil > this.time,
                     exposed: e.exposedUntil > this.time,
                     embedded: e.embedded,
@@ -5396,7 +5765,9 @@ export class Simulation {
                 radius: p.radius,
                 faction: p.faction,
                 source: p.source,
-                guarded: p.guarded
+                guarded: p.guarded,
+                behavior: p.behavior ?? 'normal',
+                phase: p.phase ?? 0
             })),
             world: {
                 ...this.world,
@@ -5417,6 +5788,7 @@ export class Simulation {
             },
             skills: [...this.skillsRuntime.values()].map((s) => ({ ...s })),
             resonance: { ...this.resonance },
+            doctrines: { ...this.doctrines },
             metrics: { ...this.metrics },
             eliteCore: this.eliteCore,
             mutationCores: this.mutationCores,
@@ -5426,7 +5798,8 @@ export class Simulation {
                 ? {
                     skill: this.mutationOffer.skill,
                     choices: [...this.mutationOffer.choices],
-                    refusalAvailable: this.mutationOffer.refusalAvailable
+                    refusalAvailable: this.mutationOffer.refusalAvailable,
+                    tier: this.mutationOffer.tier
                 }
                 : null,
             rerolls: this.rerolls,
@@ -5485,7 +5858,7 @@ export class Simulation {
         for (const p of this.pois)
             put('poi', p.id, p.kind, p.state, p.guardianId, p.x, p.z);
         for (const s of [...this.skillsRuntime.values()].sort((a, b) => a.id.localeCompare(b.id)))
-            put('skill', s.id, s.level, s.power, s.coverage, s.range, s.duration, s.crit, s.eliteDamage, s.count, s.control, s.statusPotency, s.mutation);
+            put('skill', s.id, s.level, s.power, s.coverage, s.range, s.duration, s.crit, s.eliteDamage, s.count, s.control, s.statusPotency, s.mutation, s.mutationUpgrade, s.mutationApotheosis);
         for (const c of [...this.catalystRuntime.values()].sort((a, b) => a.id.localeCompare(b.id)))
             put('catalyst', c.id);
         for (const e of this.ents)

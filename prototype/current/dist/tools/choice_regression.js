@@ -14,8 +14,12 @@ for (let guard = 0; guard < 60 * 60 * 8 && !sim.finished; guard++) {
         let ok = false;
         if (before.mutationOffer)
             ok = sim.chooseMutation(0);
-        else if (before.rewardOffers)
+        else if (before.rewardOffers) {
+            const ordinary = before.rewardOffers.every((o) => o.kind === 'doctrine');
+            const special = before.rewardOffers.every((o) => o.kind !== 'doctrine');
+            assert(ordinary || special, 'choice window mixed Doctrines with another progression category');
             ok = sim.chooseReward(0);
+        }
         assert(ok, `choice ${resolved + 1} was rejected (serial ${serial})`);
         const after = sim.snapshot();
         if (sim.hasChoice) {
@@ -29,7 +33,7 @@ for (let guard = 0; guard < 60 * 60 * 8 && !sim.finished; guard++) {
     // This driver is about choice lifecycle, not loot routing, so inject one core solely to
     // keep the mutation-target -> branch modal chain under regression coverage.
     if (!injectedMutationCore && sim.snapshot().player.level >= 6) {
-        sim.mutationCores = 1;
+        sim.mutationCores = 3;
         injectedMutationCore = true;
     }
     const a = guard * 0.017;

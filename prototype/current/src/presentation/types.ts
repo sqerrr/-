@@ -61,6 +61,8 @@ export type PresentationCue =
     }
   | { type: 'eliteSpawn'; time: number; x: number; z: number; chassis?: EliteChassis }
   | { type: 'playerHit'; time: number; amount: number; x: number; z: number }
+  | { type: 'eliteEcho'; time: number; entity: number; skill: SkillId; phase: 'tell' | 'active' | 'recovery'; x: number; z: number; aimX: number; aimZ: number }
+  | { type: 'rareEvent'; time: number; title: string; detail: string; x?: number; z?: number }
   | {
       type: 'eliteOrder';
       time: number;
@@ -125,6 +127,8 @@ export function isPresentationRelevantEvent(e: GameEvent) {
     e.type === 'EntitySpawned' ||
     e.type === 'EntityDied' ||
     e.type === 'PlayerHit' ||
+    e.type === 'EliteEchoPhase' ||
+    e.type === 'RareEvent' ||
     e.type === 'EliteOrder'
   );
 }
@@ -150,6 +154,9 @@ export function fallbackDeadActor(e: Extract<GameEvent, { type: 'EntityDied' }>)
     revived: false,
     buffed: false,
     shieldAngle: 0,
+    shieldState: 'guard',
+    shieldStability: 100,
+    echoPhase: 'none',
     regenerating: false,
     orderX: 0,
     orderZ: 0,
@@ -166,6 +173,7 @@ export function fallbackDeadActor(e: Extract<GameEvent, { type: 'EntityDied' }>)
       marked: false,
       ignited: false,
       chilled: false,
+      frozen: false,
       wounded: false,
       exposed: false,
       embedded: 0,

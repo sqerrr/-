@@ -304,13 +304,14 @@ export class WebGLRenderer {
     for (const e of cues) {
       const time = e.time;
       if (e.type === 'combatShape') {
-        const ttl = e.source.startsWith('telegraph_')
+        const longTell = /telegraph|tell|marker|beacon|lattice|echo_/.test(e.source);
+        const ttl = longTell
           ? 0.92
           : e.intent === 'field'
-            ? 0.3
+            ? 0.36
             : e.intent === 'control'
-              ? 0.3
-              : 0.2;
+              ? 0.34
+              : 0.22;
         this.combatFx.push({
           start: time,
           ttl,
@@ -318,6 +319,25 @@ export class WebGLRenderer {
           intent: e.intent,
           shape: e.shape
         });
+        continue;
+      }
+      if (e.type === 'eliteEcho') {
+        const color = rgba(skills[e.skill]?.color ?? '#ff725f', e.phase === 'tell' ? 0.92 : e.phase === 'active' ? 0.98 : 0.5);
+        if (e.phase === 'tell') {
+          this.fx.push({ kind: 'ring', start: time, ttl: 0.76, x: e.x, z: e.z, r: 2.4, color });
+          this.fx.push({ kind: 'beam', start: time, ttl: 0.72, x1: e.x, z1: e.z, x2: e.x + e.aimX * 7.5, z2: e.z + e.aimZ * 7.5, width: 3, color: [color[0], color[1], color[2], 0.42] });
+        } else if (e.phase === 'active') {
+          this.fx.push({ kind: 'pulse', start: time, ttl: 0.34, x: e.x, z: e.z, r: 2.0, color });
+        } else {
+          this.fx.push({ kind: 'ring', start: time, ttl: 0.48, x: e.x, z: e.z, r: 1.45, color: [color[0], color[1], color[2], 0.38] });
+        }
+        continue;
+      }
+      if (e.type === 'rareEvent') {
+        if (e.x !== undefined && e.z !== undefined) {
+          this.fx.push({ kind: 'ring', start: time, ttl: 0.9, x: e.x, z: e.z, r: 4.4, color: rgba('#ffe07d', 0.98) });
+          this.fx.push({ kind: 'pulse', start: time + 0.03, ttl: 0.52, x: e.x, z: e.z, r: 2.2, color: rgba('#fff3b8', 0.5) });
+        }
         continue;
       }
       if (e.type === 'skillCast') {
@@ -509,6 +529,19 @@ export class WebGLRenderer {
               color: rgba('#b2ff77', 0.34)
             });
         }
+        if (e.skill === 'chain_arc') {
+          this.fx.push({ kind: 'pulse', start: time, ttl: 0.26, x: e.x, z: e.z, r: 1.25, color: rgba('#6edcff', 0.72) });
+          this.fx.push({ kind: 'ring', start: time, ttl: 0.44, x: e.x, z: e.z, r: 2.0, color: rgba('#b8f2ff', 0.72) });
+        }
+        if (e.skill === 'shard_fan') {
+          this.fx.push({ kind: 'ring', start: time, ttl: 0.36, x: e.x, z: e.z, r: 1.35, color: rgba('#ffcf82', 0.82) });
+          this.fx.push({ kind: 'beam', start: time, ttl: 0.25, x1: e.x, z1: e.z, x2: e.x + e.aimX * 5.0, z2: e.z + e.aimZ * 5.0, width: 3, color: rgba('#ffd9a6', 0.36) });
+        }
+        if (e.skill === 'tether_drag') {
+          const tx = e.x + e.aimX * 7.0, tz = e.z + e.aimZ * 7.0;
+          this.fx.push({ kind: 'beam', start: time, ttl: 0.34, x1: e.x, z1: e.z, x2: tx, z2: tz, width: 2, color: rgba('#c597ff', 0.55) });
+          this.fx.push({ kind: 'ring', start: time, ttl: 0.54, x: tx, z: tz, r: 1.8, color: rgba('#b079ff', 0.85) });
+        }
         if (e.skill === 'repulse_halo') {
           this.fx.push({
             kind: 'ring',
@@ -530,25 +563,36 @@ export class WebGLRenderer {
           });
         }
         if (e.skill === 'mass_driver') {
+          // Grave Roller is a physical body. The cast animation only shows the shove/launch;
+          // the moving projectile below owns the rest of the route, so we never fake a hitscan beam.
           this.fx.push({
             kind: 'beam',
             start: time,
-            ttl: evo ? 0.58 : 0.42,
-            x1: e.x,
-            z1: e.z,
-            x2: e.x + e.aimX * (evo ? 24 : 19),
-            z2: e.z + e.aimZ * (evo ? 24 : 19),
-            width: evo ? 24 : 15,
+            ttl: evo ? 0.3 : 0.22,
+            x1: e.x - e.aimX * 0.45,
+            z1: e.z - e.aimZ * 0.45,
+            x2: e.x + e.aimX * 2.6,
+            z2: e.z + e.aimZ * 2.6,
+            width: evo ? 11 : 7,
             color: rgba(evo ? '#ffd26f' : '#b76cff', evo ? 0.68 : 0.48)
           });
           this.fx.push({
             kind: 'pulse',
             start: time,
-            ttl: evo ? 0.48 : 0.34,
+            ttl: evo ? 0.5 : 0.36,
             x: e.x,
             z: e.z,
-            r: evo ? 1.7 : 1.1,
+            r: evo ? 2.0 : 1.25,
             color: rgba(evo ? '#ffe1a4' : '#d9b4ff', 0.84)
+          });
+          this.fx.push({
+            kind: 'ring',
+            start: time + 0.04,
+            ttl: 0.46,
+            x: e.x - e.aimX * 0.55,
+            z: e.z - e.aimZ * 0.55,
+            r: evo ? 1.55 : 1.05,
+            color: rgba('#f0c9ff', 0.58)
           });
         }
       } else if (e.type === 'catalyst') {
@@ -598,18 +642,27 @@ export class WebGLRenderer {
             width: 8,
             color: rgba('#ff55ba', 0.98)
           });
-        else if (e.source === 'mass_driver')
+        else if (e.source === 'mass_driver') {
+          // Impact belongs to the rolling body, not a line from the hero to the victim.
           this.fx.push({
-            kind: 'beam',
+            kind: 'pulse',
             start: time,
-            ttl: 0.22,
-            x1: e.sourceX,
-            z1: e.sourceZ,
-            x2: e.x,
-            z2: e.z,
-            width: 12,
-            color: rgba('#c177ff', 0.95)
+            ttl: 0.28,
+            x: e.x,
+            z: e.z,
+            r: 1.15,
+            color: rgba('#c177ff', 0.84)
           });
+          this.fx.push({
+            kind: 'ring',
+            start: time,
+            ttl: 0.34,
+            x: e.x,
+            z: e.z,
+            r: 1.55,
+            color: rgba('#efd2ff', 0.62)
+          });
+        }
         else if (e.source === 'sentry')
           this.fx.push({
             kind: 'beam',
@@ -829,25 +882,30 @@ export class WebGLRenderer {
     intent: 'damage' | 'control' | 'field',
     alpha = 1
   ): [number, number, number, number] {
-    const c =
-      source === 'ember_lance' || source === 'mortar_bloom'
-        ? rgba('#ff9a4d', alpha)
-        : source === 'rail_spear'
-          ? rgba('#ff65c8', alpha)
-          : source === 'mass_driver'
-            ? rgba('#c483ff', alpha)
-            : source === 'frost_ring' || source === 'repulse_halo'
-              ? rgba('#72dcff', alpha)
-              : source === 'toxic_mist'
-                ? rgba('#86e46b', alpha)
-                : source === 'cleaver'
-                  ? rgba('#fff0d6', alpha)
-                  : source === 'orbit_blades'
-                    ? rgba('#77f5d8', alpha)
-                    : intent === 'control'
-                      ? rgba('#8fdcff', alpha)
-                      : rgba('#f2e5d6', alpha);
-    return c;
+    const q = source.toLowerCase();
+    if (q.includes('rail')) return rgba('#ff65c8', alpha);
+    if (q.includes('frost') || q.includes('glacier') || q.includes('whiteout') || q.includes('spire'))
+      return rgba('#72dcff', alpha);
+    if (q.includes('cleaver') || q.includes('harvest') || q.includes('rupture') || q.includes('wound'))
+      return rgba('#fff0d6', alpha);
+    if (q.includes('orbit') || q.includes('aegis')) return rgba('#77f5d8', alpha);
+    if (q.includes('arc') || q.includes('circuit')) return rgba('#68cfff', alpha);
+    if (q.includes('sentry') || q.includes('battery') || q.includes('grid')) return rgba('#5be7c5', alpha);
+    if (q.includes('toxic') || q.includes('septic') || q.includes('plague') || q.includes('pestilent'))
+      return rgba('#86e46b', alpha);
+    if (q.includes('mortar') || q.includes('bombard')) return rgba('#ff9a4d', alpha);
+    if (q.includes('mass') || q.includes('roller') || q.includes('avalanche') || q.includes('comet'))
+      return rgba('#c483ff', alpha);
+    if (q.includes('return') || q.includes('shard') || q.includes('carousel') || q.includes('phoenix'))
+      return rgba('#ffbd68', alpha);
+    if (q.includes('tether') || q.includes('gravity') || q.includes('singular')) return rgba('#b079ff', alpha);
+    if (q.includes('ember')) return rgba('#ff9a4d', alpha);
+    if (q.includes('repulse')) return rgba('#72dcff', alpha);
+    return intent === 'control'
+      ? rgba('#8fdcff', alpha)
+      : intent === 'field'
+        ? rgba('#8ee6a8', alpha)
+        : rgba('#f2e5d6', alpha);
   }
 
   draw(s: Snapshot, aim: Vec2, presentation: PresentationFrame) {
@@ -920,15 +978,24 @@ export class WebGLRenderer {
       });
     }
     for (const p of s.projectiles) {
-      const color = rgba(skills[p.source].color, p.faction === 'hero' ? 0.96 : 0.82);
-      shapes.push({ x: p.x, z: p.z, r: Math.max(0.16, p.radius * 1.35), mode: 0, color });
-      shapes.push({
-        x: p.x,
-        z: p.z,
-        r: Math.max(0.28, p.radius * 2.15),
-        mode: 1,
-        color: [color[0], color[1], color[2], p.guarded ? 0.24 : 0.48]
-      });
+      const base = skills[p.source]?.color ?? (p.faction === 'hero' ? '#e8f1ff' : '#ff665c');
+      const color = rgba(base, p.faction === 'hero' ? 0.96 : 0.9);
+      if (p.behavior === 'roller') {
+        const pulse = 1 + 0.08 * Math.sin(s.time * 7 + p.id);
+        shapes.push({ x: p.x, z: p.z, r: Math.max(0.7, p.radius * 1.1) * pulse, mode: 0, color: rgba(p.source === 'frost_ring' ? '#bcefff' : '#6d567f', 0.86) });
+        shapes.push({ x: p.x, z: p.z, r: Math.max(1.0, p.radius * 1.55) * pulse, mode: 1, color });
+        shapes.push({ x: p.x, z: p.z, r: Math.max(1.35, p.radius * 1.95) * pulse, mode: 1, color: [color[0], color[1], color[2], 0.32] });
+      } else if (p.behavior === 'returner') {
+        const phase = p.phase ?? 0,
+          rr = Math.max(0.22, p.radius * (phase === 1 ? 2.6 : 1.7));
+        shapes.push({ x: p.x, z: p.z, r: rr, mode: 1, color });
+        shapes.push({ x: p.x, z: p.z, r: Math.max(0.12, p.radius * 0.75), mode: 0, color: rgba('#fff0bf', 0.9) });
+      } else {
+        shapes.push({ x: p.x, z: p.z, r: Math.max(0.16, p.radius * 1.35), mode: 0, color });
+        shapes.push({ x: p.x, z: p.z, r: Math.max(0.28, p.radius * 2.15), mode: 1, color: [color[0], color[1], color[2], p.guarded ? 0.24 : 0.48] });
+      }
+      if (p.faction === 'rival')
+        shapes.push({ x: p.x, z: p.z, r: Math.max(0.4, p.radius * 2.8), mode: 1, color: rgba('#ff5d63', 0.42) });
     }
     for (const f of s.fields) {
       const c =
@@ -1030,6 +1097,16 @@ export class WebGLRenderer {
         shapes.push({ x: e.x, z: e.z, r: e.radius + 0.3, mode: 1, color: rgba('#ff9b44', 0.55) });
       if (e.status.chilled)
         shapes.push({ x: e.x, z: e.z, r: e.radius + 0.18, mode: 1, color: rgba('#7adfff', 0.4) });
+      if (e.status.frozen) {
+        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.34, mode: 1, color: rgba('#d9f8ff', 0.94) });
+        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.65 + 0.06 * Math.sin(s.time * 8), mode: 1, color: rgba('#68dfff', 0.52) });
+      }
+      if (e.status.wounded)
+        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.42 + 0.05 * Math.sin(s.time * 9), mode: 1, color: rgba('#ff5e67', 0.6) });
+      if (e.status.toxined)
+        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.56, mode: 1, color: rgba('#7be86c', 0.52) });
+      if (e.status.exposed)
+        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.76, mode: 1, color: rgba('#ffe16f', 0.78) });
       // Chassis influence must be visible even before the player reads any UI.
       if (e.elite && e.chassis === 'marshal')
         shapes.push({ x: e.x, z: e.z, r: 7.0, mode: 1, color: rgba('#ffb448', 0.24) });
@@ -1089,8 +1166,12 @@ export class WebGLRenderer {
       }
       if (e.elite && e.affix === 'shielded') {
         const sx = e.x + Math.cos(e.shieldAngle) * 1.1,
-          sz = e.z + Math.sin(e.shieldAngle) * 1.1;
-        shapes.push({ x: sx, z: sz, r: 1.05, mode: 1, color: rgba('#8bdcff', 0.78) });
+          sz = e.z + Math.sin(e.shieldAngle) * 1.1,
+          sc = e.shieldState === 'broken' ? '#ff6464' : e.shieldState === 'commit' ? '#ffc261' : '#8bdcff',
+          sa = e.shieldState === 'broken' ? 0.34 : 0.84;
+        shapes.push({ x: sx, z: sz, r: 1.05 + (e.shieldState === 'commit' ? 0.18 : 0), mode: 1, color: rgba(sc, sa) });
+        if (e.shieldState === 'broken')
+          shapes.push({ x: e.x, z: e.z, r: e.radius + 1.15 + 0.1 * Math.sin(s.time * 12), mode: 1, color: rgba('#ff6464', 0.48) });
       }
       if (e.elite && e.affix === 'vanguard') {
         shapes.push({ x: e.x, z: e.z, r: 7.5, mode: 1, color: rgba('#ff9c4a', 0.34) });
@@ -1291,6 +1372,59 @@ export class WebGLRenderer {
         }
       }
     }
+    // v0.11 readability signatures. Geometry tells *where* an effect is; this pass tells
+    // *what* it is without requiring text or colour recognition. Each active chassis owns a
+    // moving signature and Elite Echo uses the same visual language through its source id.
+    for (const f of this.combatFx) {
+      const t = (s.time - f.start) / f.ttl;
+      if (t < 0 || t > 1) continue;
+      const src=f.source.toLowerCase(), a=(1-t)*0.82, pulse=0.5+0.5*Math.sin(s.time*13+f.start*17), c=this.combatColor(f.source,f.intent,a);
+      if (f.shape.kind === 'circle') {
+        const q=f.shape, center=this.worldToScreen(q.x,q.z,s), point=(r:number,ang:number)=>this.worldToScreen(q.x+Math.cos(ang)*r,q.z+Math.sin(ang)*r,s);
+        if (src.includes('frost') || src.includes('glacier') || src.includes('whiteout') || src.includes('spire')) {
+          // Rotating crystalline spokes: frost is readable even when its blue hue is obscured.
+          for(let i=0;i<6;i++){const ang=s.time*0.8+i*Math.PI/3,p1=point(q.radius*0.28,ang),p2=point(q.radius*(0.82+0.08*pulse),ang);line(p1.x,p1.y,p2.x,p2.y,1.8,c);}
+        } else if (src.includes('orbit') || src.includes('aegis')) {
+          // Four tangent blade marks circle the perimeter.
+          for(let i=0;i<4;i++){const ang=-s.time*2.4+i*Math.PI/2,p=point(q.radius,ang),p2=point(q.radius,ang+0.16);line(p.x,p.y,p2.x,p2.y,4.2,c);}
+        } else if (src.includes('mortar') || src.includes('bombard')) {
+          // Target reticle + falling tracer; bombardment should never look like a passive aura.
+          const rr=Math.max(10,q.radius*this.isoX*0.56);line(center.x-rr,center.y,center.x+rr,center.y,1.4,c);line(center.x,center.y-rr*0.55,center.x,center.y+rr*0.55,1.4,c);line(center.x,center.y-80*(1-t)-18,center.x,center.y-8,2.6,c);
+        } else if (src.includes('toxic') || src.includes('plague') || src.includes('septic') || src.includes('pestilent')) {
+          // Uneven drifting bubbles distinguish a living cloud from a generic damage circle.
+          for(let i=0;i<5;i++){const ang=i*2.17+s.time*(i%2?0.28:-0.22),r=q.radius*(0.3+0.11*i),p=point(r,ang),rr=3+2*Math.sin(s.time*3+i);line(p.x-rr,p.y,p.x+rr,p.y,Math.max(1,2-t),c);}
+        } else if (src.includes('tether') || src.includes('gravity') || src.includes('singular')) {
+          // Inward spokes animate the direction of force instead of showing only a purple ring.
+          for(let i=0;i<6;i++){const ang=i*Math.PI/3+s.time*0.18,po=point(q.radius*(0.82-0.08*pulse),ang),pi=point(q.radius*0.34,ang);line(po.x,po.y,pi.x,pi.y,2.3,c);}
+        } else if (src.includes('cleaver') || src.includes('harvest') || src.includes('rupture')) {
+          // A quick rotating cut-mark for circular harvest/rupture follow-ups.
+          for(let i=0;i<3;i++){const ang=-s.time*4+i*Math.PI*2/3,p1=point(q.radius*0.35,ang),p2=point(q.radius*0.9,ang+0.34);line(p1.x,p1.y,p2.x,p2.y,3,c);}
+        }
+      } else if (f.shape.kind === 'ray') {
+        const q=f.shape,m=Math.hypot(q.aimX,q.aimZ)||1,ax=q.aimX/m,az=q.aimZ/m,end=this.worldToScreen(q.x+ax*q.range,q.z+az*q.range,s),start=this.worldToScreen(q.x,q.z,s);
+        if (src.includes('rail')) {
+          // Rail has a white-hot centre and a target scar at the impact end.
+          line(start.x,start.y,end.x,end.y,1.1+2.1*pulse,rgba('#fff4ff',a));
+          line(end.x-7,end.y,end.x+7,end.y,2,c);line(end.x,end.y-5,end.x,end.y+5,2,c);
+        } else if (src.includes('arc') || src.includes('circuit')) {
+          // Short lateral ticks travel along the electrical path on top of the jittered beam.
+          for(let i=1;i<5;i++){const u=(i/5+s.time*0.7)%1,x=start.x+(end.x-start.x)*u,y=start.y+(end.y-start.y)*u;line(x-3,y-3,x+3,y+3,2,c);}
+        } else if (src.includes('return') || src.includes('shard') || src.includes('carousel') || src.includes('phoenix')) {
+          // Dashed flight path makes the outbound/return trajectory legible.
+          for(let i=0;i<5;i++){const u=(i+0.25)/5,v=(i+0.65)/5;line(start.x+(end.x-start.x)*u,start.y+(end.y-start.y)*u,start.x+(end.x-start.x)*v,start.y+(end.y-start.y)*v,1.7,c);}
+        } else if (src.includes('mass') || src.includes('roller') || src.includes('avalanche')) {
+          // Heavy motion gets transverse impact ribs rather than another laser line.
+          for(let i=1;i<5;i++){const u=i/5,x=start.x+(end.x-start.x)*u,y=start.y+(end.y-start.y)*u,dx=end.x-start.x,dy=end.y-start.y,ll=Math.hypot(dx,dy)||1,nx=-dy/ll,ny=dx/ll;line(x-nx*5,y-ny*5,x+nx*5,y+ny*5,2.4,c);}
+        }
+      } else if (f.shape.kind === 'sector') {
+        const q=f.shape, center=this.worldToScreen(q.x,q.z,s), base=Math.atan2(q.aimZ,q.aimX);
+        if (src.includes('cleaver') || src.includes('harvest') || src.includes('wound')) {
+          // Two moving slash blades inside the sector communicate sweep direction/commitment.
+          for(let k=0;k<2;k++){const u=Math.min(1,t*1.35+k*0.24),ang=base-q.halfAngle+2*q.halfAngle*u,p=this.worldToScreen(q.x+Math.cos(ang)*q.radius,q.z+Math.sin(ang)*q.radius,s);line(center.x,center.y,p.x,p.y,3.4-k,c);}
+        }
+      }
+    }
+
     const byId = new Map(s.entities.map((e) => [e.id, e]));
     for (const e of s.entities) {
       if (e.kind === 'binder' && e.linkedTo) {
@@ -1335,6 +1469,11 @@ export class WebGLRenderer {
           rgba('#7c6dff', 0.48)
         );
       }
+      if (e.orderActive && e.squadTask !== 'none') {
+        const a = this.worldToScreen(e.x, e.z, s), b = this.worldToScreen(e.orderX, e.orderZ, s),
+          tc = e.squadTask === 'flank' ? '#c58cff' : e.squadTask === 'intercept' ? '#ffb45f' : e.squadTask === 'hold' ? '#78d4ff' : '#8ee28a';
+        line(a.x, a.y - 14, b.x, b.y - 8, 1.2, rgba(tc, 0.24));
+      }
       if (e.elite && e.affix === 'shielded') {
         const a = this.worldToScreen(e.x, e.z, s),
           ang = e.shieldAngle,
@@ -1350,9 +1489,11 @@ export class WebGLRenderer {
             s
           ),
           front = this.worldToScreen(e.x + Math.cos(ang) * rr, e.z + Math.sin(ang) * rr, s);
-        line(pA.x, pA.y, front.x, front.y, 5, rgba('#7dd9ff', 0.78));
-        line(front.x, front.y, pB.x, pB.y, 5, rgba('#7dd9ff', 0.78));
-        line(a.x, a.y - 8, front.x, front.y, 2, rgba('#7dd9ff', 0.38));
+        const shieldColor = e.shieldState === 'broken' ? '#ff6268' : e.shieldState === 'commit' ? '#ffc05c' : '#7dd9ff',
+          alpha = e.shieldState === 'broken' ? 0.28 : 0.84;
+        line(pA.x, pA.y, front.x, front.y, e.shieldState === 'commit' ? 7 : 5, rgba(shieldColor, alpha));
+        line(front.x, front.y, pB.x, pB.y, e.shieldState === 'commit' ? 7 : 5, rgba(shieldColor, alpha));
+        line(a.x, a.y - 8, front.x, front.y, 2, rgba(shieldColor, alpha * 0.48));
       }
       if (e.elite) {
         const p = this.worldToScreen(e.x, e.z, s),
@@ -1366,6 +1507,11 @@ export class WebGLRenderer {
           bh - 2,
           rgba('#7fe46f', 0.95)
         );
+        if (e.affix === 'shielded') {
+          rect(p.x - bw / 2, p.y - 84, bw, 4, rgba('#070a0d', 0.72));
+          const sc = e.shieldState === 'broken' ? '#ff6464' : e.shieldState === 'commit' ? '#ffc261' : '#73d9ff';
+          rect(p.x - bw / 2 + 1, p.y - 83, (bw - 2) * Math.max(0, Math.min(1, e.shieldStability / 100)), 2, rgba(sc, 0.94));
+        }
         if (e.chassis === 'hunter')
           line(p.x, p.y - 35, p0.x, p0.y - 24, 1.5, rgba('#ff466f', 0.22));
       }
@@ -1597,6 +1743,19 @@ export class WebGLRenderer {
         w = v.w,
         h = v.h,
         tint = v.tint;
+      // Echo phases change the elite's body language as well as the ground telegraph.
+      // Tell compresses/charges, active lunges, recovery visibly slumps: gameplay state is readable on the actor.
+      if (e.elite && e.echoPhase && e.echoPhase !== 'none') {
+        if (e.echoPhase === 'tell') {
+          const charge = 1 + 0.035 * Math.sin(s.time * 18);
+          w *= charge; h *= 0.92; tint = [Math.min(1.5,tint[0]*1.12), Math.min(1.5,tint[1]*1.12), Math.min(1.5,tint[2]*1.12), tint[3]];
+        } else if (e.echoPhase === 'active') {
+          x += e.facingX * 0.16; z += e.facingZ * 0.16; w *= 1.12; h *= 1.06;
+          tint = [Math.min(1.65,tint[0]*1.35), Math.min(1.65,tint[1]*1.15), Math.min(1.65,tint[2]*1.1), tint[3]];
+        } else {
+          w *= 1.04; h *= 0.86; tint = [tint[0]*0.78,tint[1]*0.82,tint[2]*0.9,tint[3]];
+        }
+      }
       if (hit) {
         const t = Math.max(0, Math.min(1, (s.time - hit.start) / hit.ttl)),
           snap = 1 - t,

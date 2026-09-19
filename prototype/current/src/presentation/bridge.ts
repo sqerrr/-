@@ -131,6 +131,10 @@ export class PresentationBridge {
         cues.push({ type: 'eliteSpawn', time, x: e.x, z: e.z, chassis: e.chassis });
       else if (e.type === 'PlayerHit')
         cues.push({ type: 'playerHit', time, amount: e.amount, x: e.x, z: e.z });
+      else if (e.type === 'EliteEchoPhase')
+        cues.push({ type: 'eliteEcho', time, entity: e.entity, skill: e.skill, phase: e.phase, x: e.x, z: e.z, aimX: e.aimX, aimZ: e.aimZ });
+      else if (e.type === 'RareEvent')
+        cues.push({ type: 'rareEvent', time, title: e.title, detail: e.detail, x: e.x, z: e.z });
       else if (e.type === 'EliteOrder')
         cues.push({ type: 'eliteOrder', time, x: e.x, z: e.z, order: e.order, count: e.count });
     }

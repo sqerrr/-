@@ -77,6 +77,8 @@ export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 export type RunMode = 'clean' | 'showcase';
 export type ResonanceId =
   'tempo' | 'multiplicity' | 'precision' | 'persistence' | 'conductivity' | 'mobility';
+export type DoctrineId = 'might' | 'size' | 'quantity' | 'duration' | 'mobility' | 'guard' | 'force' | 'precision';
+export type DoctrineRuntime = Record<DoctrineId, number>;
 // Internal name kept for snapshot compatibility; in v0.10 this is the global Core Axis layer, not per-weapon Resonance.
 export type ResonanceRuntime = Record<ResonanceId, number>;
 export type PoiKind = 'phenomenon' | 'catalyst' | 'resonance' | 'vital';
@@ -127,6 +129,8 @@ export interface SkillRuntime {
   mutation: MutationId | null;
   /** D28/D36: second-level continuation; the root remains active alongside it. */
   mutationUpgrade: MutationId | null;
+  /** v0.11: third, branch-preserving transformation. Never a scalar-only reward. */
+  mutationApotheosis: MutationId | null;
 }
 export interface CatalystRuntime {
   id: CatalystId;
@@ -135,6 +139,7 @@ export interface StatusSnapshot {
   marked: boolean;
   ignited: boolean;
   chilled: boolean;
+  frozen: boolean;
   wounded: boolean;
   exposed: boolean;
   embedded: number;
@@ -201,6 +206,12 @@ export interface SnapshotEntity {
   revived: boolean;
   buffed: boolean;
   shieldAngle: number;
+  /** v0.11 readable shield state: guard turns, commit is locked, broken is punish window. */
+  shieldState: 'guard' | 'commit' | 'broken';
+  shieldStability: number;
+  /** v0.11 body-language state for authored Elite Echo animations. */
+  echoPhase?: 'none' | 'tell' | 'active' | 'recovery';
+  echoSkill?: SkillId;
   regenerating: boolean;
   orderX: number;
   orderZ: number;
@@ -249,6 +260,8 @@ export interface ProjectileSnapshot {
   faction: 'hero' | 'rival';
   source: SkillId;
   guarded: boolean;
+  behavior?: 'normal' | 'roller' | 'returner' | 'echo';
+  phase?: number;
 }
 export interface PoiSnapshot {
   id: number;
@@ -323,13 +336,15 @@ export interface RewardOffer {
     | 'elite'
     | 'mutation_target'
     | 'item_grant'
-    | 'skill_swap';
+    | 'skill_swap'
+    | 'doctrine';
   title: string;
   subtitle: string;
   description: string;
   skill?: SkillId;
   catalyst?: CatalystId;
   resonance?: ResonanceId;
+  doctrine?: DoctrineId;
   item?: ItemId;
   /** For a swap: the slot whose phenomenon steps aside into the reserve (D27). */
   swapSlot?: number;
@@ -356,6 +371,7 @@ export interface RefusedCard {
   skill?: SkillId;
   catalyst?: CatalystId;
   resonance?: ResonanceId;
+  doctrine?: DoctrineId;
   item?: ItemId;
   stat?: string;
   amount?: number;
@@ -406,6 +422,7 @@ export interface MutationOffer {
   skill: SkillId;
   choices: MutationId[];
   refusalAvailable: boolean;
+  tier: 1 | 2 | 3;
 }
 export interface Snapshot {
   tick: number;
@@ -446,6 +463,7 @@ export interface Snapshot {
   chain: ChainSnapshot;
   skills: SkillRuntime[];
   resonance: ResonanceRuntime;
+  doctrines: DoctrineRuntime;
   metrics: Metrics;
   eliteCore: number;
   mutationCores: number;
@@ -551,6 +569,18 @@ export type GameEvent =
     }
   | { type: 'LevelUp'; tick: number; level: number }
   | { type: 'MutationChosen'; tick: number; skill: SkillId; mutation: MutationId }
+  | {
+      type: 'EliteEchoPhase';
+      tick: number;
+      entity: number;
+      skill: SkillId;
+      phase: 'tell' | 'active' | 'recovery';
+      x: number;
+      z: number;
+      aimX: number;
+      aimZ: number;
+    }
+  | { type: 'RareEvent'; tick: number; title: string; detail: string; x?: number; z?: number }
   | { type: 'RewardChosen'; tick: number; title: string }
   | { type: 'RewardRefused'; tick: number; title: string; kind: RefusalKind; serial: number }
   | {

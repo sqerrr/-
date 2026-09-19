@@ -70,8 +70,11 @@ for (let i = 0; i < 3600; i++) {
         // D7: exactly one of the cards the hero passed over reaches the elites, never more.
         const gained = after - before;
         assert(gained <= 1, 'a single draft conceded ' + gained + ' cards');
-        if (offered > 1 && s.rewardOffers[0].kind !== 'mutation_target') {
-          assert(gained === 1, 'a resolved draft conceded nothing');
+        const doctrineWindow = s.rewardOffers.every((o) => o.kind === 'doctrine');
+        const canConcede = s.rewardOffers.some((o) => !!o.skill || !!o.catalyst || !!o.item || !!o.resonance || !!o.stat);
+        if (doctrineWindow) assert(gained === 0, 'Doctrine level-up leaked into the elite refusal economy');
+        else if (offered > 1 && s.rewardOffers[0].kind !== 'mutation_target' && canConcede) {
+          assert(gained === 1, 'a refusable structural draft conceded nothing');
           resolved++;
         }
         maxRefusalsAfterResolve = Math.max(maxRefusalsAfterResolve, after);

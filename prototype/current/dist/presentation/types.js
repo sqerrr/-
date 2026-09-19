@@ -7,6 +7,8 @@ export function isPresentationRelevantEvent(e) {
         e.type === 'EntitySpawned' ||
         e.type === 'EntityDied' ||
         e.type === 'PlayerHit' ||
+        e.type === 'EliteEchoPhase' ||
+        e.type === 'RareEvent' ||
         e.type === 'EliteOrder');
 }
 export function fallbackDeadActor(e) {
@@ -30,6 +32,9 @@ export function fallbackDeadActor(e) {
         revived: false,
         buffed: false,
         shieldAngle: 0,
+        shieldState: 'guard',
+        shieldStability: 100,
+        echoPhase: 'none',
         regenerating: false,
         orderX: 0,
         orderZ: 0,
@@ -46,6 +51,7 @@ export function fallbackDeadActor(e) {
             marked: false,
             ignited: false,
             chilled: false,
+            frozen: false,
             wounded: false,
             exposed: false,
             embedded: 0,

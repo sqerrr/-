@@ -1,12 +1,14 @@
 import {
+  activeSkillOrder,
   catalysts,
+  doctrines,
   mutationDef,
   rarityColor,
   rarityName,
   resonance,
-  skillOrder,
   skills
 } from '../content/definitions.js';
+import { catalystGlyph, itemCategoryColor, itemGlyph, mutationBadge, skillChoiceArt } from '../content/visuals.js';
 import { items as itemDefs } from '../content/items.js';
 import { Simulation } from '../core/simulation.js';
 import type {
@@ -25,28 +27,9 @@ const combatHud = document.getElementById('combatHud') as HTMLCanvasElement;
 const minimap = document.getElementById('minimap') as HTMLCanvasElement;
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
-const visualIconMap: Record<SkillId, string> = {
-  ember_lance: 'ember_lance',
-  frost_ring: 'frost_ring',
-  rail_spear: 'rail_spear',
-  cleaver: 'cleaver',
-  chain_arc: 'chain_arc',
-  orbit_blades: 'orbit_blades',
-  mortar_bloom: 'mortar_bloom',
-  sentry: 'sentry',
-  toxic_mist: 'toxic_mist',
-  repulse_halo: 'repulse_halo',
-  breach_line: 'rail_spear',
-  contact_saw: 'cleaver',
-  backhand: 'cleaver',
-  spreading_front: 'repulse_halo',
-  shard_fan: 'ember_lance',
-  tether_drag: 'chain_arc',
-  pin_burst: 'mortar_bloom',
-  mass_driver: 'mass_driver'
-};
 function skillVisualIcon(id: SkillId, mutated = false) {
-  return `/assets/${visualIconMap[id]}_${mutated ? 'mutated' : 'normal'}.jpg`;
+  const art = skillChoiceArt[id];
+  return mutated ? art.mutated : art.normal;
 }
 
 const params = new URLSearchParams(location.search);
@@ -55,9 +38,9 @@ const seed = Number(params.get('seed') || 12345),
   uiTest = params.get('uitest') === '1',
   debugEnabled = params.get('debug') === '1';
 let runMode: RunMode = params.get('mode') === 'showcase' ? 'showcase' : 'clean';
-let startingSkill: SkillId = skillOrder.includes(params.get('start') as SkillId)
+let startingSkill: SkillId = activeSkillOrder.includes(params.get('start') as SkillId)
   ? (params.get('start') as SkillId)
-  : 'ember_lance';
+  : 'cleaver';
 const newSimulation = () => new Simulation({ seed, hz: 60, mode: runMode, startingSkill });
 let sim = newSimulation();
 let renderer: WebGLRenderer;
@@ -74,7 +57,8 @@ const log: string[] = [];
 let fps = 60,
   fpsFrames = 0,
   fpsLast = performance.now();
-let eliteAlertToken = 0;
+let eliteAlertToken = 0,
+  rareAlertUntil = 0;
 const seenCatalystTriggers = new Set<string>();
 const seenRivalCasts = new Set<string>();
 type CombatFloat = {
@@ -192,7 +176,7 @@ $('seed').textContent = String(seed);
 const modeSelect = $<HTMLSelectElement>('modeSelect'),
   startSelect = $<HTMLSelectElement>('startSkill');
 modeSelect.value = runMode;
-startSelect.innerHTML = skillOrder
+startSelect.innerHTML = activeSkillOrder
   .map((id) => `<option value="${id}">${skills[id].name}</option>`)
   .join('');
 startSelect.value = startingSkill;
@@ -456,7 +440,10 @@ function eventText(e: GameEvent) {
   // D7: exactly one declined card is conceded, and the hero is told which one.
   if (e.type === 'RewardRefused')
     return `Отвергнуто: «${e.title}». Карта ушла элитам и вернётся против тебя.`;
-  if (e.type === 'RivalCast') return `Элита применила отвергнутое: ${skills[e.skill].name}.`;
+  if (e.type === 'RivalCast') return `Элита применила Echo отвергнутого: ${skills[e.skill].name}.`;
+  if (e.type === 'EliteEchoPhase')
+    return `Elite Echo · ${skills[e.skill].name}: ${e.phase === 'tell' ? 'подготовка' : e.phase === 'active' ? 'удар' : 'окно восстановления'}.`;
+  if (e.type === 'RareEvent') return `${e.title}: ${e.detail}`;
   // D14: a relic is a shared source, so losing one to an elite has to be stated as a loss.
   if (e.type === 'RelicAppeared') return `На поле появилась находка: ${e.name}.`;
   if (e.type === 'RelicTaken')
@@ -511,28 +498,43 @@ function eliteAlert(e: GameEvent): [string, string] | null {
       'ЭЛИТА ПЕРЕХВАТИЛА ТЕБЯ',
       'Дистанция не сбрасывает бой: элита возвращена рядом с игроком.'
     ];
+  if (e.type === 'EliteEchoPhase' && e.phase === 'tell')
+    return [`ЭХО · ${skills[e.skill].shortName.toUpperCase()}`, 'ПОДГОТОВКА — смотри на телеграф. Направление фиксируется до удара.'];
+  if (e.type === 'RareEvent') return [e.title, e.detail];
   if (e.type === 'EliteOrder') {
     const t = eventText(e);
     return t ? ['МЕХАНИКА ЭЛИТЫ', t] : null;
   }
   return null;
 }
-function showEliteAlert(title: string, body: string) {
+function showEliteAlert(title: string, body: string, duration = 3400, rare = false) {
+  const now = performance.now();
+  // A frequent Echo tell must never erase a rare structural event before the player can read it.
+  if (!rare && now < rareAlertUntil) return;
+  if (rare) rareAlertUntil = Math.max(rareAlertUntil, now + duration);
   const token = ++eliteAlertToken,
     el = $('eliteAlert');
   $('eliteAlertTitle').textContent = title;
   $('eliteAlertBody').textContent = body;
+  el.classList.toggle('rare', rare);
   el.classList.add('visible');
   setTimeout(() => {
-    if (token === eliteAlertToken) el.classList.remove('visible');
-  }, 3400);
+    if (token === eliteAlertToken) {
+      el.classList.remove('visible');
+      el.classList.remove('rare');
+    }
+  }, duration);
 }
 function pushEvents(events: readonly GameEvent[]) {
   for (const e of events) {
     const t = eventText(e);
     if (t) pushLog(t);
     const a = eliteAlert(e);
-    if (a) showEliteAlert(...a);
+    if (a) {
+      if (e.type === 'EliteEchoPhase') showEliteAlert(a[0], a[1], 1150, false);
+      else if (e.type === 'RareEvent') showEliteAlert(a[0], a[1], 2600, true);
+      else showEliteAlert(...a);
+    }
     if (e.type === 'DamageResolved') {
       const now = sim.time,
         prev = [...combatFloats]
@@ -1091,6 +1093,11 @@ function drawCombatHud(s: Snapshot) {
     const tint = e.boss ? '#ff3c50' : e.elite ? eliteTint(e) : '#df5262';
     ctx.fillStyle = tint;
     ctx.fillRect(p.x - bw / 2 + 1, y + 1, (bw - 2) * Math.max(0, e.hp / e.maxHp), bh - 2);
+    if (e.elite && e.affix === 'shielded') {
+      const sy=y+bh+3, st=e.shieldState==='broken'?'#ff6464':e.shieldState==='commit'?'#ffc261':'#73d9ff';
+      ctx.fillStyle='#05080bd9';ctx.fillRect(p.x-bw/2,sy,bw,4);
+      ctx.fillStyle=st;ctx.fillRect(p.x-bw/2+1,sy+1,(bw-2)*Math.max(0,Math.min(1,e.shieldStability/100)),2);
+    }
     if (e.elite) {
       ctx.font = e.boss ? '800 14px system-ui' : '700 11px system-ui';
       ctx.fillStyle = e.boss ? '#fff' : tint;
@@ -1294,7 +1301,33 @@ function offerKind(o: RewardOffer) {
               ? 'ОСЬ ЯДРА'
               : o.kind === 'elite'
                 ? 'ELITE CACHE'
-                : 'ОБЩИЙ СТАТ';
+                : o.kind === 'doctrine'
+                  ? 'ДОКТРИНА'
+                  : 'ОБЩИЙ СТАТ';
+}
+function offerCategory(o: RewardOffer) {
+  if (o.kind === 'skill_add' || o.kind === 'skill_swap') return 'phenomenon';
+  if (o.kind === 'catalyst_add') return 'catalyst';
+  if (o.kind === 'item_grant' || o.kind === 'elite') return 'item';
+  if (o.kind === 'resonance') return 'resonance';
+  if (o.kind === 'doctrine') return 'doctrine';
+  if (o.kind === 'mutation_target') return 'mutation';
+  return 'global';
+}
+
+function offerIcon(o: RewardOffer): string {
+  if (o.skill) return `<img class="choice-icon-img" src="${skillVisualIcon(o.skill, false)}" alt="">`;
+  if (o.doctrine) { const d=doctrines[o.doctrine]; return `<span class="choice-glyph" style="color:${d.color}">${esc(d.glyph)}</span>`; }
+  if (o.catalyst) return `<span class="choice-glyph catalyst-glyph" style="color:${catalysts[o.catalyst].color}">${esc(catalystGlyph[o.catalyst])}</span>`;
+  if (o.item) { const d=itemDefs[o.item]; return `<span class="choice-glyph item-glyph" style="color:${itemCategoryColor[d.category]}">${esc(itemGlyph[o.item])}</span>`; }
+  return `<span class="choice-glyph">◆</span>`;
+}
+function shortPromise(text: string) {
+  const first = text.split(/(?<=[.!?])\s/)[0] || text;
+  return first.length > 112 ? first.slice(0,109) + '…' : first;
+}
+function categoryLabel(cat: string) {
+  return ({phenomenon:'PHENOMENON',catalyst:'CATALYST',item:'ITEM',resonance:'RESONANCE',doctrine:'DOCTRINE',mutation:'MUTATION',global:'CORE'} as Record<string,string>)[cat] ?? cat.toUpperCase();
 }
 function syncChoiceUI(s: Snapshot, force = false) {
   const has = !!s.mutationOffer || !!s.rewardOffers,
@@ -1326,24 +1359,31 @@ function syncChoiceUI(s: Snapshot, force = false) {
   cards.innerHTML = '';
   openChoiceModal();
   wrap.dataset.choiceSerial = String(s.choiceSerial);
+  const choiceBox = wrap.querySelector<HTMLElement>('.choicebox')!;
+  choiceBox.className = 'choicebox';
   if (s.mutationOffer) {
     const m = s.mutationOffer;
-    $('choiceTitle').textContent = `Мутация: ${skills[m.skill].name}`;
-    $('choiceSub').textContent =
-      'Ядро мутации меняет парадигму Phenomenon и остаётся ресурсом рана: при замене его можно назначить заново.';
+    choiceBox.classList.add('cat-mutation');
+    if (m.tier === 3) choiceBox.classList.add('apotheosis');
+    const tierName = m.tier === 3 ? 'АПОФЕОЗ III' : `МУТАЦИЯ ${m.tier === 1 ? 'I' : 'II'}`;
+    $('choiceTitle').textContent = `${m.tier === 3 ? '✦' : '◆'} ${tierName} · ${skills[m.skill].name}`;
+    $('choiceSub').textContent = m.tier === 3
+      ? 'Финальная трансформация: выбирай новое поведение, а не процент.'
+      : 'Выбор ветки меняет поведение Phenomenon; подробности можно открыть без спешки.';
     $('choiceFoot').textContent = m.refusalAvailable
       ? 'Один раз за ран можно заменить один из предложенных вариантов.'
       : 'Токен отказа уже использован.';
     cards.className = m.choices.length > 2 ? 'cards three' : 'cards two';
     m.choices.forEach((id, i) => {
       const d = mutationDef(m.skill, id),
+        badge = mutationBadge(m.skill, id),
         card = document.createElement('div');
-      card.className = 'card';
+      card.className = `card cat-mutation branch-${badge.branch} tier-${badge.tier} ${m.tier === 3 ? 'apotheosis' : ''}`;
       card.dataset.choice = String(i);
       card.setAttribute('role', 'button');
       card.tabIndex = 0;
-      card.style.setProperty('--rarity', '#c27aff');
-      card.innerHTML = `<div class="tag">МУТАЦИЯ · ${esc(d.tag)}</div><h3>${esc(d.name)}</h3><div class="sub">${esc(skills[m.skill].name)}</div><p>${esc(d.description)}</p><button class="refuse" ${m.refusalAvailable ? '' : 'disabled'}>Заменить этот вариант</button>`;
+      card.style.setProperty('--rarity', m.tier === 3 ? '#ffd36b' : '#c27aff');
+      card.innerHTML = `<span class="choice-key">${i + 1}</span><div class="card-head"><div class="choice-icon"><img class="choice-icon-img" src="${skillVisualIcon(m.skill, true)}" alt=""><span class="mutation-branch branch-${badge.branch}" style="--branch:${badge.tone}"></span><span class="mutation-glyph" style="--branch:${badge.tone}">${esc(badge.glyph)}<i>${badge.tier}</i></span></div><div><div class="tag">${m.tier === 3 ? 'АПОФЕОЗ' : 'МУТАЦИЯ'} · ${esc(d.tag)}</div><h3>${esc(d.name)}</h3></div></div><div class="promise">${esc(shortPromise(d.description))}</div><details><summary>Подробнее</summary><p>${esc(d.description)}</p></details><button class="refuse" ${m.refusalAvailable ? '' : 'disabled'}>Заменить этот вариант</button>`;
       const choose = () =>
         finishChoiceAction(`mutation:${m.skill}:${i}:${id}`, () => sim.chooseMutation(i));
       card.addEventListener('click', (e) => {
@@ -1366,16 +1406,22 @@ function syncChoiceUI(s: Snapshot, force = false) {
     const elite = s.rewardOffers.some((o) => o.kind === 'elite'),
       discovery =
         !elite && s.rewardOffers.length > 0 && s.rewardOffers.every((o) => o.kind === 'skill_add');
+    const categories = [...new Set(s.rewardOffers.map(offerCategory))];
+    choiceBox.classList.add(categories.length === 1 ? `cat-${categories[0]}` : 'cat-mixed');
     $('choiceTitle').textContent = elite
-      ? 'ELITE CACHE'
+      ? '★ ELITE CACHE'
       : discovery
-        ? 'DISCOVERY'
-        : `Уровень ${s.player.level}`;
+        ? '◈ DISCOVERY · PHENOMENON'
+        : categories.length === 1 && categories[0] === 'doctrine'
+          ? `◇ CORE ${s.player.level} · ДОКТРИНА`
+          : `Уровень ${s.player.level}`;
     $('choiceSub').textContent = elite
       ? 'Элитка дала структурную награду: Catalyst должен сразу менять работу связки.'
       : discovery
         ? 'Новый Phenomenon сразу использует текущий Core Rank: поздняя находка не отстаёт по персональным уровням.'
-        : 'Core Rank автоматически поднимает базовую мощность всей Chain. Выберите глобальную ось развития рана.';
+        : categories.length === 1 && categories[0] === 'doctrine'
+          ? 'Один слой, один вопрос: какую специализацию строить дальше? Иконка и короткое обещание читаются до полного текста.'
+          : 'Выберите награду текущего канала прогрессии.';
     $('choiceFoot').textContent =
       elite || discovery
         ? 'Этот выбор нельзя пропустить или перероллить.'
@@ -1384,16 +1430,14 @@ function syncChoiceUI(s: Snapshot, force = false) {
     s.rewardOffers.forEach((o, i) => {
       const card = document.createElement('div'),
         rar = o.rarity;
-      card.className = 'card';
+      const cat = offerCategory(o);
+      card.className = `card cat-${cat}`;
       card.dataset.choice = String(i);
       card.setAttribute('role', 'button');
       card.tabIndex = 0;
-      card.style.setProperty('--rarity', rar ? rarityColor[rar] : '#7c94a4');
-      // D7 concedes one passed card to the elites. Saying which one before the hero
-      // decides turns the refusal into a choice he can weigh instead of a surprise he
-      // meets two minutes later wearing an elite.
+      card.style.setProperty('--rarity', rar ? rarityColor[rar] : o.doctrine ? doctrines[o.doctrine].color : o.catalyst ? catalysts[o.catalyst].color : '#7c94a4');
       if (o.marked) card.classList.add('marked');
-      card.innerHTML = `${o.marked ? '<div class="claimtag">ЭТО ЗАБЕРУТ ЭЛИТЫ, ЕСЛИ ОСТАВИШЬ</div>' : ''}<div class="tag">${rar ? esc(rarityName[rar]) + ' · ' : ''}${offerKind(o)}</div><h3>${esc(o.title)}</h3><div class="sub">${esc(o.subtitle)}</div><p>${esc(o.description)}</p>${o.before && o.after ? `<div class="beforeafter">${esc(o.before)} → <b>${esc(o.after)}</b></div>` : ''}`;
+      card.innerHTML = `${o.marked ? '<div class="claimtag">ЭТО ЗАБЕРУТ ЭЛИТЫ, ЕСЛИ ОСТАВИШЬ</div>' : ''}<span class="choice-key">${i + 1}</span><div class="card-head"><div class="choice-icon">${offerIcon(o)}</div><div><div class="tag">${categoryLabel(cat)}${rar ? ' · ' + esc(rarityName[rar]) : ''}</div><h3>${esc(o.title)}</h3></div></div><div class="sub">${esc(o.subtitle)}</div><div class="promise">${esc(shortPromise(o.description))}</div>${o.before && o.after ? `<div class="beforeafter">${esc(o.before)} → <b>${esc(o.after)}</b></div>` : ''}<details><summary>Подробнее</summary><p>${esc(o.description)}</p></details>`;
       const choose = () => finishChoiceAction(`reward:${i}:${o.id}`, () => sim.chooseReward(i));
       card.addEventListener('click', choose);
       card.addEventListener('keydown', (e) => {
@@ -1449,7 +1493,7 @@ function frame(now: number) {
 async function start() {
   if (debugEnabled) $('debugPanel').classList.remove('debug-hidden');
   dbg('START', {
-    version: '0.10-core-rebuild',
+    version: '0.11-core-redesign',
     mode: runMode,
     startingSkill,
     seed,
@@ -1471,7 +1515,7 @@ async function start() {
     $('gpuName').textContent = renderer.rendererName;
     $('loading').classList.add('hidden');
     pushLog(
-      'v0.10 sandbox: Phenomena и Catalysts больше не имеют персональных уровней; XP растит Core Rank и глобальные оси.'
+      'v0.11: XP развивает Doctrines; Phenomena, Catalysts, Items и Mutation Core приходят из отдельных каналов.'
     );
     pushLog(
       runMode === 'clean'

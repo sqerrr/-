@@ -1,57 +1,40 @@
-// Proves the effect-owner split introduced in step 2: the same phenomenon can be cast by a
-// rival instead of the hero, in which case it resolves against the player and leaves the
-// enemy roster untouched. Reaches into private state on purpose - this is a harness, and the
-// alternative is widening the production surface for the sake of a test.
+// v0.11 contract: a refused player Phenomenon is NEVER dispatched through the player's cast.
+// It becomes an authored Elite Echo with a visible tell, a separate active phase and recovery.
 import { Simulation } from '../core/simulation.js';
-function assert(c, m) {
-    if (!c)
-        throw new Error('rival cast regression: ' + m);
-}
+function assert(c, m) { if (!c)
+    throw new Error('elite echo regression: ' + m); }
 const sim = new Simulation({ seed: 4242, hz: 60, mode: 'clean', benchmark: true });
 sim.configureBenchmarkLoadout({ slots: ['cleaver'], catalysts: [] });
-for (let i = 0; i < 240; i++)
+for (let i = 0; i < 120; i++)
     sim.step({ moveX: 0, moveZ: 0, aimX: 1, aimZ: 0 });
-const hpBefore = sim.snapshot().player.hp;
-const entsBefore = sim.ents.map((e) => ({ id: e.id, hp: e.hp }));
-assert(entsBefore.length > 0, 'expected a populated roster to prove faction separation');
-// A rival standing on top of the player, swinging straight at them.
-const rivalOwner = sim.ents[0];
-rivalOwner.x = sim.px + 0.6;
-rivalOwner.z = sim.pz;
-const rivalSrc = {
-    faction: 'rival',
-    owner: rivalOwner,
-    x: rivalOwner.x,
-    z: rivalOwner.z,
-    aimX: -1,
-    aimZ: 0,
-    vx: 0,
-    vz: 0
-};
-const heroTargets = sim.targetsFor({ ...rivalSrc, faction: 'hero', owner: null });
-assert(heroTargets === sim.ents, 'a hero cast must sweep the live enemy roster');
-const rivalTargets = sim.targetsFor(rivalSrc);
-assert(rivalTargets.length === 1, 'a rival cast must resolve against exactly one target');
-assert(rivalTargets[0].kind === 'hero', 'the sole rival target must be the hero combatant');
-assert(rivalTargets[0].x === sim.px && rivalTargets[0].z === sim.pz, 'the hero combatant must track live player position');
-assert(!sim.ents.includes(sim.hero), 'the hero combatant must never enter the enemy roster');
-const blade = sim.newSkill('cleaver');
-sim.castCleaver(blade, 0, rivalSrc);
-const hpAfter = sim.snapshot().player.hp;
-assert(hpAfter < hpBefore, `a rival cast must damage the player (${hpBefore} -> ${hpAfter})`);
-for (const before of entsBefore) {
-    const now = sim.ents.find((e) => e.id === before.id);
-    assert(!now || now.hp === before.hp, `rival cast must not damage enemy ${before.id}`);
-}
-// Mitigation still belongs to the player: armour must reduce an identical blow.
-const hpMidpoint = sim.snapshot().player.hp;
-sim.armor = 400;
-sim.castCleaver(blade, 0, rivalSrc);
-const armouredLoss = hpMidpoint - sim.snapshot().player.hp;
-const rawLoss = hpBefore - hpAfter;
-assert(armouredLoss < rawLoss, `player mitigation must apply to rival casts (${rawLoss} -> ${armouredLoss})`);
-console.log('rival-cast-regression OK', {
-    rawLoss: +rawLoss.toFixed(2),
-    armouredLoss: +armouredLoss.toFixed(2),
-    rosterUntouched: entsBefore.length
-});
+const owner = sim.ents[0];
+assert(owner, 'expected an enemy actor');
+sim.ents = [owner];
+owner.hp = owner.maxHp = 1e9;
+owner.contactDps = 0;
+owner.x = sim.px - 8;
+owner.z = sim.pz;
+sim.events = [];
+const card = { serial: 777, kind: 'skill', title: 'Рельсовое копьё', icon: '', skill: 'rail_spear', heldBy: owner.id };
+const hp0 = sim.php;
+sim.startEliteEcho(owner, card);
+const tell = sim.events.find((e) => e.type === 'EliteEchoPhase' && e.phase === 'tell');
+assert(tell, 'Echo did not emit tell phase');
+assert(sim.events.some((e) => e.type === 'CombatShape' && String(e.source).includes('echo_rail_spear_tell')), 'Rail Echo has no visible telegraph');
+assert(sim.php === hp0, 'Rail Echo damaged player during tell');
+assert(!sim.events.some((e) => e.type === 'SkillActivated'), 'Elite Echo leaked through player SkillActivated/dispatch path');
+const q = sim.eliteEchoes.get(owner.id);
+assert(q, 'Echo state missing');
+sim.events = [];
+sim.tick = Math.ceil(q.until * sim.hz);
+sim.updateEliteEchoes();
+assert(sim.events.some((e) => e.type === 'EliteEchoPhase' && e.phase === 'active'), 'Echo did not enter active phase');
+assert(sim.events.some((e) => e.type === 'RivalCast' && e.skill === 'rail_spear'), 'RivalCast accounting missing');
+assert(sim.php < hp0, 'telegraphed Rail Echo failed to damage player on locked line');
+assert(!sim.events.some((e) => e.type === 'SkillActivated'), 'active Echo invoked player cast dispatcher');
+const q2 = sim.eliteEchoes.get(owner.id);
+sim.events = [];
+sim.tick = Math.ceil(q2.until * sim.hz);
+sim.updateEliteEchoes();
+assert(sim.events.some((e) => e.type === 'EliteEchoPhase' && e.phase === 'recovery'), 'Echo has no recovery phase');
+console.log('rival-cast-regression OK', { tell: true, active: true, recovery: true, loss: +(hp0 - sim.php).toFixed(2) });
