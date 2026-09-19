@@ -11,4 +11,5 @@ node_modules/
 id_rsa*
 id_ed25519*
 
-# Keep the packaged dist/ files: they belong to the unchanged v0.10 baseline.
+# Generated browser build. run.ps1 / npm run build recreates it.
+prototype/current/dist/
