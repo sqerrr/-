@@ -76,6 +76,10 @@ for(const seed of seeds){
         eliteKilled:s.metrics.eliteKilled,
         eliteSpawned:s.metrics.eliteSpawned,
         eliteActions,
+        eliteRelicsTaken:s.metrics.relicsTakenByElites,
+        enemyItemHistory:sim.eliteLegacyItems.length,
+        maxLivingEliteItems:Math.max(0,...sim.ents.filter((e:any)=>e.kind==='elite'&&e.hp>0).map((e:any)=>(e.relicItems??[]).length)),
+        maxLivingEliteRepertoire:Math.max(0,...sim.ents.filter((e:any)=>e.kind==='elite'&&e.hp>0).map((e:any)=>e.repertoire.length)),
         worldHp:+sim.worldScale().toFixed(2),
         worldDamage:+sim.damageScale().toFixed(2),
         spawnPressure:+sim.spawnPressure().toFixed(2)
@@ -90,6 +94,10 @@ for(const seed of seeds){
     phenomena:end.chain.slots.filter(Boolean).length+end.chain.skillReserve.filter(Boolean).length,
     catalysts:end.chain.catalysts.filter(Boolean).length+end.chain.catalystReserve.filter(Boolean).length,
     mutations:end.metrics.mutations,items:end.heldItems.length,eliteKilled:end.metrics.eliteKilled,
-    eliteSpawned:end.metrics.eliteSpawned,eliteActions
+    eliteSpawned:end.metrics.eliteSpawned,eliteActions,
+    eliteRelicsTaken:end.metrics.relicsTakenByElites,
+    enemyItemHistory:sim.eliteLegacyItems.length,
+    maxLivingEliteItems:Math.max(0,...sim.ents.filter((e:any)=>e.kind==='elite'&&e.hp>0).map((e:any)=>(e.relicItems??[]).length)),
+    maxLivingEliteRepertoire:Math.max(0,...sim.ents.filter((e:any)=>e.kind==='elite'&&e.hp>0).map((e:any)=>e.repertoire.length))
   }},null,2));
 }
