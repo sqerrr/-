@@ -97,13 +97,34 @@ An elite that sees a nearby relic can deliberately route toward it instead of co
 Captured items:
 
 - are stored on that elite;
-- are added to `eliteLegacyItems`, the run’s enemy-side item history;
+- are added to `eliteLegacyItems`, the run’s physical enemy-side item history;
 - can be inherited in a sample by later elites;
 - are independent from the refusal pool.
 
 All 20 current items now have explicit elite-side effects rather than collapsing into five generic category buffs. Examples include durability, mitigation, movement, faster chassis actions, stronger Echoes, crit, siphon, longer item-seeking range and additional learned refusal knowledge.
 
 Durability bonuses are explicitly allowed. The previous rule forbidding item-driven elite HP because an old TTK target had already been calibrated is rejected.
+
+### Autonomous elite evolution is independent of player choices
+
+Elites are **not limited to cards the player refused or objects they happened to pick up**.
+
+After the opening teaching window, ordinary elite spawns also roll several autonomous evolution modules from the complete 20-item enemy-effect catalogue:
+
+- before 120 s: none — early fights teach chassis/affix first;
+- after 120 s: the number grows with run depth;
+- uplifted and legendary elites receive additional growth budget;
+- the current per-elite autonomous budget is capped for readability/performance, not because the player removed something from a pool.
+
+These modules are stored separately as `evolutionItems` and contribute to the run-wide `eliteEvolutionHistory`.
+
+Therefore current elite identity has three independent progression sources:
+
+1. **learned refusals / Elite Echoes** — recognisable consequences of player choices;
+2. **contested ground items** — positional competition during the run;
+3. **autonomous evolution** — full-pool enemy growth that does not depend on what the player left behind.
+
+The three channels may overlap mechanically, but must remain separately attributable in telemetry/UI so later balancing can change one without silently changing the others.
 
 ## 6. Elite power curve
 
@@ -125,8 +146,10 @@ v0.11.4 direction:
 - starts at legendary tier;
 - base durability is deliberately above a comparable late legendary elite;
 - inherits a late-size refusal repertoire;
-- inherits **all distinct item effects that elites captured during the run**;
-- its baseline durability also grows modestly with the amount of enemy item history;
+- preserves the complete physical relic history elites captured during the run, including repeated finds;
+- applies each distinct captured mechanical rule once so duplicate streaks do not become exponential multipliers;
+- inherits the distinct autonomous evolution rules accumulated by the enemy ecosystem;
+- its baseline durability grows modestly with the combined mass of captured-item and autonomous-evolution history;
 - uses three phases (100–66%, 66–33%, <33%);
 - later phases accelerate its own patterns;
 - final phase adds local support pressure;
@@ -170,14 +193,87 @@ Do **not** reject a build because:
 
 The balance problem is “does this choice trivialise the whole run too reliably and too cheaply?”, not “did damage rise too much in a synthetic duel?”
 
-## 10. Current simulations
+## 10. Current simulations — green CI snapshot
 
-Two complementary suites are used:
+The full GitHub Prototype CI is green on the current branch after the changes above. Validation now combines several views instead of forcing one TTK target.
 
-1. isolated elite lab — a *viability/stall* detector, no longer an equality test;
-2. `crowd_ecosystem_matrix` — four deliberately different build families against an 84-enemy crowd + elite and against a late Warden carrying enemy-history items/refusals.
+### Isolated elite viability lab
 
-Natural `progression_probe` and all-11-start opening safety remain part of CI. Exact v0.11.4 matrix numbers are recorded after the final green CI run rather than frozen here before the code settles.
+The old cross-archetype equality guard was removed. Current median TTK against the same isolated 4000 HP mid-run Hunter is approximately:
+
+| Build | normal | shielded |
+| --- | ---: | ---: |
+| melee | 7.4 s | 7.8 s |
+| ranged / Quantity | 2.9 s | 4.1 s |
+| control | 7.1 s | 7.8 s |
+
+The ranged jackpot being much faster is **not itself a failure**. This lab now catches dead/stalling archetypes rather than enforcing equal power.
+
+### Crowd + elite matrix
+
+Four intentionally different late builds were tested against **84 trash + one 14.5k uplifted elite**.
+
+| Build | clear time | elite |
+| --- | ---: | --- |
+| Quantity battery | 6.42 s | killed |
+| area / route | 4.43 s | killed |
+| melee harvest | 16.62 s | killed |
+| rolling network | 7.05 s | killed |
+
+The difference is intentionally preserved for playtesting. In particular melee harvest is currently much slower at clearing this synthetic formation; this is a balance/design signal, not a reason to normalize every build immediately.
+
+### Late Warden matrix
+
+With a representative late enemy history, the Warden started at about **158k HP** in the matrix. In 24 seconds:
+
+| Build | Warden HP removed | reached |
+| --- | ---: | --- |
+| Quantity battery | 51.5% | phase 2 |
+| area / route | 28.3% | phase 1 |
+| melee harvest | 13.8% | phase 1 |
+| rolling network | 51.7% | phase 2 |
+
+None killed it in the 24 s window.
+
+A separate 240 HP / 30 Armor danger probe with automatic dash-on-readable-danger produced:
+
+- Quantity battery: 36.3 raw pressure, survived;
+- area / route: 252.9 pressure, died at 19.35 s;
+- melee harvest: 74 raw pressure across 27 hit events, but current defensive layers absorbed all HP loss;
+- rolling network: 213.2 pressure, survived with 27 HP.
+
+This shows that Warden danger currently varies strongly with build/defence. Do not infer “no threat” from zero final HP loss when Barrier/Guard absorbed real hit events.
+
+### Seeded random-build fuzz
+
+`random_build_fuzz` generates 14 deterministic but random structurally valid builds:
+
+- four different active Phenomena;
+- three random Catalysts;
+- full root → continuation → Apotheosis mutation paths;
+- different Doctrine distributions.
+
+It runs them through a dense crowd + uplifted elite scenario. It does **not** fail merely because a combination is mediocre; it fails for invalid/non-functional combat output and reports weak combinations separately.
+
+Current run: **weak list = empty**. No sampled build had dead/zero combat behaviour.
+
+### Natural run progression
+
+Three deterministic route-aware 8-minute probes now show meaningful enemy-side growth rather than a static late game:
+
+- seed 12345 died at ~200.5 s after 9/10 elites; by death the enemy had captured 3 ground items and accumulated 8 autonomous evolution events;
+- seed 24680 finished alive at ~453.4 s with 27/27 elites killed, 8 captured items and 56 autonomous evolution events;
+- seed 97531 finished alive at ~477.2 s with 27/27 elites killed, 10 captured items and 63 autonomous evolution events.
+
+In seed 97531 at 470 s, a living elite could carry up to 10 captured/inherited items, 18 recorded autonomous evolution entries in its visible capability history and a 12-card refusal repertoire. This is intentionally a stress/readability case to inspect manually, not a target count that every elite must reach.
+
+### Opening safety
+
+Every one of the 11 active starting Phenomena survives the first 100 s in the automated opening route and reaches four Phenomena + two Catalysts.
+
+Some starts still fail to kill an elite by 100 s (currently Frostfront, Chain Arc, Toxic Mist and Mass Driver in this probe). Cleaver survives at only 4 HP despite killing 2/4 spawned elites. These are **manual-play/balance signals**, not automatic reasons to add generic damage: the owner previously flagged Cleaver as potentially too strong once its build comes online.
+
+The first natural elite is therefore deliberately a readable teaching encounter: common, no affix, no refusals/evolution inheritance, with reduced clean-mode HP. Until 85 s an uncleared first elite also blocks a second simultaneous elite. This protects weak openings without removing frequent elites once the player can actually clear them.
 
 ## 11. Next design work
 
