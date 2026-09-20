@@ -85,6 +85,8 @@ legacy.eliteLegacyItems=['plating','quickened','beacon','keen_edge'];
 legacy.spawnElite();
 const le=legacy.ents.filter((e:any)=>e.kind==='elite').at(-1);
 assert((le.relicItems?.length??0)>=3,`late elite inherited too little captured-item history: ${le.relicItems?.length??0}`);
+assert((le.evolutionItems?.length??0)>=3,`late elite did not gain autonomous full-pool growth: ${le.evolutionItems?.length??0}`);
+assert(legacy.eliteEvolutionHistory.length>=3,'autonomous elite growth did not enter ecosystem history');
 assert(le.maxHp>840*legacy.worldScale(),'durability relics are still suppressed on elites');
 
 // Elites actively route toward nearby contested power instead of only taking accidental overlaps.
@@ -98,6 +100,7 @@ assert(sought&&after<before,'elite did not deliberately move toward a nearby rel
 const boss:any=new Simulation({seed:91009,hz:60,benchmark:true,mode:'clean'});
 boss.tick=Math.floor(420*60);
 boss.eliteLegacyItems=['plating','vitality','quickened','beacon','reprisal','unravel','plating'];
+boss.eliteEvolutionHistory=['hollow_point','siphon','lodestone','hollow_point'];
 boss.refusalStore=[
  {serial:1,kind:'skill',title:'Копьё',icon:'R',skill:'rail_spear',heldBy:0},
  {serial:2,kind:'skill',title:'Туман',icon:'T',skill:'toxic_mist',heldBy:0},
@@ -108,6 +111,7 @@ const be=boss.ents.find((e:any)=>e.boss);
 assert(be&&be.rarity==='legendary','Warden is not treated as apex rarity');
 assert(be.maxHp>80000,`Warden durability is still below late-elite scale: ${be.maxHp}`);
 assert((be.relicItems?.length??0)===7,`Warden did not preserve complete elite relic history including repeats: ${be.relicItems?.length??0}`);
+assert((be.evolutionItems?.length??0)===3,`Warden did not inherit distinct autonomous evolution history: ${be.evolutionItems?.length??0}`);
 assert(be.repertoire.length===3,'Warden did not inherit late elite refusal repertoire');
 
 // A full relic board cannot bank many overdue instant spawns.
@@ -123,5 +127,6 @@ console.log('crowd-build-elite-regression OK',{
   orbit:{count:`${ob.count}->${og.count}`,interval:`${ob.hitInterval.toFixed(3)}->${og.hitInterval.toFixed(3)}`},
   sentry:{ttl:+sentry.constructs[0].ttl.toFixed(2),power:+sentry.constructs[0].power.toFixed(2)},
   lateEliteItems:le.relicItems?.length??0,
-  boss:{hp:Math.round(be.maxHp),items:be.relicItems?.length??0,repertoire:be.repertoire.length}
+  lateEliteEvolution:le.evolutionItems?.length??0,
+  boss:{hp:Math.round(be.maxHp),items:be.relicItems?.length??0,evolution:be.evolutionItems?.length??0,repertoire:be.repertoire.length}
 });
