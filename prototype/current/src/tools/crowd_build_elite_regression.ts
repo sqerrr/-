@@ -97,7 +97,7 @@ assert(sought&&after<before,'elite did not deliberately move toward a nearby rel
 // Final Warden is above late ordinary elites and inherits the full distinct captured-item history.
 const boss:any=new Simulation({seed:91009,hz:60,benchmark:true,mode:'clean'});
 boss.tick=Math.floor(420*60);
-boss.eliteLegacyItems=['plating','vitality','quickened','beacon','reprisal','unravel'];
+boss.eliteLegacyItems=['plating','vitality','quickened','beacon','reprisal','unravel','plating'];
 boss.refusalStore=[
  {serial:1,kind:'skill',title:'Копьё',icon:'R',skill:'rail_spear',heldBy:0},
  {serial:2,kind:'skill',title:'Туман',icon:'T',skill:'toxic_mist',heldBy:0},
@@ -107,7 +107,7 @@ boss.spawnBoss();
 const be=boss.ents.find((e:any)=>e.boss);
 assert(be&&be.rarity==='legendary','Warden is not treated as apex rarity');
 assert(be.maxHp>80000,`Warden durability is still below late-elite scale: ${be.maxHp}`);
-assert((be.relicItems?.length??0)===6,`Warden did not inherit all distinct elite relic history: ${be.relicItems?.length??0}`);
+assert((be.relicItems?.length??0)===7,`Warden did not preserve complete elite relic history including repeats: ${be.relicItems?.length??0}`);
 assert(be.repertoire.length===3,'Warden did not inherit late elite refusal repertoire');
 
 // A full relic board cannot bank many overdue instant spawns.
