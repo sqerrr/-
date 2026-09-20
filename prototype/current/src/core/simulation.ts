@@ -132,6 +132,12 @@ type Ent = {
   groundRelicCastMul?: number;
   relicGapMul?: number;
   relicReachMul?: number;
+  /** Ground/legacy items are an independent elite progression channel, not refusal-store cards. */
+  relicItems?: ItemId[];
+  relicDamageTakenMul?: number;
+  relicCritChance?: number;
+  relicSiphon?: number;
+  relicSeekMul?: number;
 };
 
 const HERO_HIT_RADIUS = 0.45;
@@ -528,6 +534,11 @@ export class Simulation {
   private relics: Relic[] = [];
   private relicAcc = 0;
   private relicRng!: Rng;
+  /**
+   * Items physically captured by elites become knowledge of the enemy ecosystem.
+   * Later elites inherit a sample; the final Warden inherits the whole history.
+   */
+  private eliteLegacyItems: ItemId[] = [];
   /** Everything the hero has picked up, in the order it was taken. No slots, by D14. */
   heldItems: ItemId[] = [];
   private itemDamageMul = 1;
@@ -1786,32 +1797,29 @@ export class Simulation {
    * are claimed rather than copied, so no two elites wield the same refusal and D11 can
    * hand them back to the store when this one dies.
    */
+  private eliteRepertoireCapacity(e: Ent) {
+    const t = Math.max(0, Math.min(1, this.time / this.runDuration));
+    const base = ELITE_RARITY_CAPACITY[e.rarity];
+    const growth = e.rarity === 'legendary' ? Math.floor(t * 3) : Math.floor(t * 2);
+    return Math.min(9, base + growth);
+  }
   private claimRepertoire(e: Ent) {
-    const free = this.refusalStore.filter((c) => c.heldBy === 0);
-    for (let i = free.length - 1; i > 0; i--) {
+    // Refusals are ecosystem knowledge, not a scarce inventory lock. heldBy still records
+    // the first visible carrier, but another elite may learn the same refusal concurrently.
+    const pool = [...this.refusalStore];
+    for (let i = pool.length - 1; i > 0; i--) {
       const j = this.rng.int(i + 1);
-      const tmp = free[i];
-      free[i] = free[j];
-      free[j] = tmp;
+      [pool[i], pool[j]] = [pool[j], pool[i]];
     }
-    // Roughly half the store is growth directions, and of the phenomena only some can be
-    // fielded yet, so a purely random draw can leave an elite with nothing to show: the
-    // telemetry measured 0.29 casts per ordinary fight, meaning the hero almost never sees
-    // refusal link used to disappear. Lead with one active weapon Echo when the tier can carry it, then
-    // fill the rest at random, so an elite that could demonstrate the link does.
-    const armed = free.findIndex((c) => !!c.skill);
-    // Higher tiers have enough capacity to guarantee a readable cast. Common elites have
-    // one slot only (D9), so forcing a weapon every time would make refused growth directions impossible
-    // to mirror. All v0.11 discovery Phenomena have authored Echo profiles; leave one common in four unbiased.
-    const forceReadableWeapon = e.rarity !== 'common' || e.id % 4 !== 0;
-    if (forceReadableWeapon && armed > 0) {
-      const lead = free[armed];
-      free.splice(armed, 1);
-      free.unshift(lead);
+    const armed = pool.findIndex((q) => !!q.skill);
+    if (armed > 0) {
+      const lead = pool[armed];
+      pool.splice(armed, 1);
+      pool.unshift(lead);
     }
-    for (const c of free.slice(0, ELITE_RARITY_CAPACITY[e.rarity])) {
-      c.heldBy = e.id;
-      e.repertoire.push(c.serial);
+    for (const card of pool.slice(0, this.eliteRepertoireCapacity(e))) {
+      if (card.heldBy === 0) card.heldBy = e.id;
+      e.repertoire.push(card.serial);
     }
     this.applyRefusedAxes(e);
   }
@@ -2005,7 +2013,7 @@ export class Simulation {
       } else {
         this.eliteEchoes.delete(id);
         const rawGap=Math.max(2.25,this.rng.range(3.4,5.0)-e.repertoire.length*0.22);
-        const gap=this.elitePatternCooldown(rawGap,e)*Math.pow(0.86,this.rivalAxisCount(e,'tempo'))*(e.relicGapMul??1);
+        const gap=this.elitePatternCooldown(rawGap,e)*Math.pow(0.86,this.rivalAxisCount(e,'tempo'));
         this.rivalCastAt.set(e.id,this.time+gap);
       }
     }
@@ -2152,6 +2160,7 @@ export class Simulation {
       repertoire: []
     };
     this.claimRepertoire(e);
+    this.inheritEliteLegacy(e);
     this.noteEliteSpawn(e);
     this.ents.push(e);
     this.metrics.spawned++;
@@ -2280,6 +2289,21 @@ export class Simulation {
       e.squadTask = task;
       e.squadUntil = e.orderUntil;
     }
+  }
+
+  private steerEliteToRelic(e: Ent, speed: number, playerDistance: number) {
+    if (e.state !== 'normal' || e.eliteAction || this.eliteEchoes.has(e.id)) return false;
+    const seek = 14 * (e.relicSeekMul ?? 1);
+    let best: Relic | null = null, bestD = seek;
+    for (const relic of this.relics) {
+      const d = Math.hypot(relic.x - e.x, relic.z - e.z);
+      if (d < bestD) { best = relic; bestD = d; }
+    }
+    if (!best || bestD <= Simulation.RELIC_ELITE_REACH) return false;
+    // Do not abandon immediate melee just to loot; otherwise a visible nearby relic is a real objective.
+    if (playerDistance < 3.2 && bestD > playerDistance * 0.8) return false;
+    this.steerTo(e, best.x, best.z, speed, 1.24);
+    return true;
   }
 
   private updateEnemyAI() {
@@ -2540,6 +2564,8 @@ export class Simulation {
           tx = this.px - nz * side * 3.5,
           tz = this.pz + nx * side * 3.5;
         this.steerTo(e, tx, tz, speed, 1.08);
+      } else if (e.kind === 'elite' && !e.boss && this.steerEliteToRelic(e, speed, d)) {
+        // Looting is a temporary tactical job. Contact damage below still applies if the hero intercepts it.
       } else if (e.kind === 'elite') {
         if (e.boss) this.updateBossAI(e, speed, d, nx, nz);
         else this.updateEliteAI(e, speed, d, nx, nz);
@@ -2557,7 +2583,7 @@ export class Simulation {
   private elitePatternCooldown(base: number, e: Ent) {
     const t = Math.min(1, this.time / this.runDuration),
       rarity = e.rarity === 'legendary' ? 0.72 : e.rarity === 'uplifted' ? 0.86 : 1;
-    return Math.max(1.65, base * (1 - 0.22 * t) * rarity);
+    return Math.max(1.2, base * (1 - 0.22 * t) * rarity * (e.relicGapMul ?? 1));
   }
 
   private beginElitePattern(
@@ -3100,8 +3126,9 @@ export class Simulation {
       }
       let claimed = false;
       for (const e of this.ents) {
-        if (e.kind !== 'elite' || e.boss) continue;
-        if (Math.hypot(e.x - r.x, e.z - r.z) < Simulation.RELIC_ELITE_REACH) {
+        if (e.kind !== 'elite') continue;
+        const reach = Simulation.RELIC_ELITE_REACH * Math.min(1.8, e.relicSeekMul ?? 1);
+        if (Math.hypot(e.x - r.x, e.z - r.z) < reach) {
           this.giveEliteRelic(e, r);
           claimed = true;
           break;
@@ -3190,31 +3217,120 @@ export class Simulation {
    * run before. `allowClaim` is false when the mirror is applied to a card the elite is
    * merely holding, because claiming more cards from inside the claim would recurse.
    */
+  private scaleEliteDurability(e: Ent, mul: number) {
+    if (mul <= 0 || Math.abs(mul - 1) < 1e-6) return;
+    e.maxHp *= mul;
+    e.hp *= mul;
+  }
+
   private applyEliteItem(e: Ent, id: ItemId, allowClaim: boolean) {
-    switch (items[id].category) {
-      case 'guard':
-        e.contactDps *= 1.14;
+    // Enemy-side items are intentionally not five category aliases. Each pickup changes a
+    // different pressure axis so item combinations produce different elites over the run.
+    switch (id) {
+      case 'plating':
+        this.scaleEliteDurability(e, 1.16);
         break;
-      case 'edge':
-        e.relicCastMul = (e.relicCastMul ?? 1) * 1.2;
-        if (allowClaim) e.groundRelicCastMul = (e.groundRelicCastMul ?? 1) * 1.2;
+      case 'vitality':
+        this.scaleEliteDurability(e, 1.22);
         break;
-      case 'pace':
-        e.speed *= 1.1;
+      case 'aegis_core':
+        e.relicDamageTakenMul = (e.relicDamageTakenMul ?? 1) * 0.88;
+        break;
+      case 'ablation':
+        e.relicDamageTakenMul = (e.relicDamageTakenMul ?? 1) * 0.9;
+        break;
+      case 'keen_edge':
+        e.relicCastMul = (e.relicCastMul ?? 1) * 1.16;
+        e.contactDps *= 1.08;
+        if (allowClaim) e.groundRelicCastMul = (e.groundRelicCastMul ?? 1) * 1.16;
+        break;
+      case 'hollow_point':
+        e.relicCritChance = (e.relicCritChance ?? 0) + 0.12;
+        break;
+      case 'siphon':
+        e.relicSiphon = (e.relicSiphon ?? 0) + 0.035;
+        break;
+      case 'bane':
+        e.relicCastMul = (e.relicCastMul ?? 1) * 1.18;
+        e.relicReachMul = (e.relicReachMul ?? 1) * 1.08;
+        if (allowClaim) e.groundRelicCastMul = (e.groundRelicCastMul ?? 1) * 1.18;
+        break;
+      case 'light_step':
+        e.speed *= 1.12;
+        break;
+      case 'quickened':
+        e.relicGapMul = (e.relicGapMul ?? 1) * 0.82;
+        break;
+      case 'short_cord':
         e.relicGapMul = (e.relicGapMul ?? 1) * 0.9;
+        e.speed *= 1.05;
         break;
-      case 'finding':
+      case 'afterimage':
+        e.relicDamageTakenMul = (e.relicDamageTakenMul ?? 1) * 0.92;
+        e.speed *= 1.04;
+        break;
+      case 'lodestone':
+        e.relicSeekMul = (e.relicSeekMul ?? 1) * 1.55;
+        break;
+      case 'keen_eye':
+        e.relicSeekMul = (e.relicSeekMul ?? 1) * 1.25;
         if (allowClaim) this.claimOneMoreRefusal(e);
-        else e.relicGapMul = (e.relicGapMul ?? 1) * 0.92;
         break;
-      case 'elite':
-        e.relicReachMul = (e.relicReachMul ?? 1) * 1.35;
+      case 'scavenger':
+        this.scaleEliteDurability(e, 1.08);
+        e.relicCastMul = (e.relicCastMul ?? 1) * 1.06;
+        break;
+      case 'beacon':
+        e.relicSeekMul = (e.relicSeekMul ?? 1) * 1.75;
+        e.relicGapMul = (e.relicGapMul ?? 1) * 0.94;
+        break;
+      case 'spoils':
+        // Turns the carrier into a local pack leader instead of a numerical loot bonus.
+        e.affixPulse = Math.min(e.affixPulse, 1.5);
+        e.buffUntil = Math.max(e.buffUntil, this.time + 1.8);
+        break;
+      case 'unravel':
+        e.relicDamageTakenMul = (e.relicDamageTakenMul ?? 1) * 0.88;
+        break;
+      case 'tribute':
+        this.scaleEliteDurability(e, 1.15);
+        e.contactDps *= 1.08;
+        break;
+      case 'reprisal':
+        e.relicCastMul = (e.relicCastMul ?? 1) * 1.2;
+        e.relicGapMul = (e.relicGapMul ?? 1) * 0.92;
+        if (allowClaim) e.groundRelicCastMul = (e.groundRelicCastMul ?? 1) * 1.2;
         break;
     }
   }
+
+  private eliteInheritanceBudget(e: Ent) {
+    const t = Math.max(0, Math.min(1, this.time / this.runDuration));
+    const base = e.rarity === 'legendary' ? 2 : e.rarity === 'uplifted' ? 1 : 0;
+    return Math.min(6, base + Math.floor(t * 4));
+  }
+
+  private inheritEliteLegacy(e: Ent, all = false) {
+    if (!this.eliteLegacyItems.length) return;
+    const pool = [...this.eliteLegacyItems];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = this.relicRng.int(i + 1);
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const inherited = all ? pool : pool.slice(0, this.eliteInheritanceBudget(e));
+    e.relicItems ??= [];
+    for (const id of inherited) {
+      e.relicItems.push(id);
+      this.applyEliteItem(e, id, false);
+    }
+  }
+
   private giveEliteRelic(e: Ent, r: Relic) {
     const def = items[r.item];
     this.metrics.relicsTakenByElites++;
+    e.relicItems ??= [];
+    e.relicItems.push(r.item);
+    this.eliteLegacyItems.push(r.item);
     this.applyEliteItem(e, r.item, true);
     const record = this.eliteLogById.get(e.id);
     if (record) record.itemsTaken.push(r.item);
@@ -3230,11 +3346,12 @@ export class Simulation {
     });
   }
   private claimOneMoreRefusal(e: Ent) {
-    const free = this.refusalStore.filter((c) => c.heldBy === 0);
-    if (!free.length) return;
-    const c = free[this.relicRng.int(free.length)];
-    c.heldBy = e.id;
-    e.repertoire.push(c.serial);
+    const pool = this.refusalStore.filter((card) => !e.repertoire.includes(card.serial));
+    if (!pool.length) return;
+    const card = pool[this.relicRng.int(pool.length)];
+    if (card.heldBy === 0) card.heldBy = e.id;
+    e.repertoire.push(card.serial);
+    this.applyRefusedAxes(e);
   }
 
   private updateConstructs() {
@@ -4556,6 +4673,7 @@ export class Simulation {
     if (e.kind === 'elite') amount *= this.itemEliteDamageMul;
     if (e.hp <= 0) return false;
     let actual = amount;
+    if (e.kind === 'elite') actual *= e.relicDamageTakenMul ?? 1;
     const skill = this.skillsRuntime.get(source as SkillId);
     if (skill) {
       if (e.kind === 'elite') actual *= 1 + skill.eliteDamage;
@@ -4761,6 +4879,8 @@ export class Simulation {
     if (attacker) {
       amount *= concentration;
       amount *= this.itemRefusalDamageMul;
+      if ((attacker.relicCritChance ?? 0) > 0 && this.rng.float() < Math.min(0.65, attacker.relicCritChance ?? 0))
+        amount *= 1.6;
       amount *= Math.pow(1.3, this.rivalAxisCount(attacker, 'precision'));
       amount *= Math.pow(1.16, this.rivalAxisCount(attacker, 'multiplicity'));
       const allItemMul = attacker.relicCastMul ?? 1;
@@ -4777,6 +4897,8 @@ export class Simulation {
     }
     if (this.php <= 0) return false;
     this.hitPlayer(amount, attacker, source);
+    if (attacker && (attacker.relicSiphon ?? 0) > 0)
+      attacker.hp = Math.min(attacker.maxHp, attacker.hp + amount * (attacker.relicSiphon ?? 0));
     this.damageToHeroBySource.set(source, (this.damageToHeroBySource.get(source) ?? 0) + amount);
     return this.php <= 0;
   }
