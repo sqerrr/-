@@ -1751,11 +1751,11 @@ export class Simulation {
     if (this.bossSpawned) return;
     this.eliteAcc += this.dt;
     const active = this.ents.filter((e) => e.kind === 'elite' && e.hp > 0 && !e.boss).length;
-    const cap = this.time < 180 ? 2 : 3;
+    const cap = this.time < 85 ? 1 : this.time < 180 ? 2 : 3;
     if (!this.firstElite && this.time >= 22) {
       this.firstElite = true;
       this.eliteAcc = 0;
-      this.spawnElite();
+      this.spawnElite(true);
       return;
     }
     const interval = this.time < 160 ? 20 : this.time < 320 ? 16 : 12;
@@ -1795,15 +1795,18 @@ export class Simulation {
     return pool[this.rng.int(pool.length)];
   }
   /**
-   * D10: an elite fields as much of the hero's declined history as its tier allows. Cards
-   * are claimed rather than copied, so no two elites wield the same refusal and D11 can
-   * hand them back to the store when this one dies.
+   * Refusal repertoire is learned ecosystem knowledge. Early encounters are intentionally
+   * narrow for readability; later elites can carry a much broader selection.
    */
   private eliteRepertoireCapacity(e: Ent) {
     const t = Math.max(0, Math.min(1, this.time / this.runDuration));
     const base = ELITE_RARITY_CAPACITY[e.rarity];
-    const growth = e.rarity === 'legendary' ? Math.floor(t * 3) : Math.floor(t * 2);
-    return Math.min(9, base + growth);
+    // Early elites teach chassis first. After that the ecosystem is intentionally allowed
+    // to accumulate a broad vocabulary instead of freezing at the old 1/3/6 inventory caps.
+    if (this.time < 60) return Math.min(1, base);
+    if (this.time < 120) return Math.min(3, base + 1);
+    const growth = e.rarity === 'legendary' ? Math.floor(t * 7) : Math.floor(t * 6);
+    return Math.min(12, base + growth);
   }
   private claimRepertoire(e: Ent) {
     // Refusals are ecosystem knowledge, not a scarce inventory lock. heldBy still records
@@ -1856,7 +1859,7 @@ export class Simulation {
     const quick = this.rivalAxisCount(e, 'mobility');
     if (quick) e.speed *= Math.pow(1.12, quick);
   }
-  /** D11: the cards of a fallen elite go back to the store for the next one to pick up. */
+  /** heldBy is first-carrier bookkeeping; death clears that marker, not ecosystem knowledge. */
   private releaseRepertoire(e: Ent) {
     this.rivalCastAt.delete(e.id);
     this.eliteEchoes.delete(e.id);
@@ -2082,7 +2085,7 @@ export class Simulation {
     return this.eliteLog;
   }
 
-  private spawnElite() {
+  private spawnElite(opening = false) {
     const pool: EliteChassis[] = [
       'hunter',
       'architect',
@@ -2092,18 +2095,13 @@ export class Simulation {
       'shepherd'
     ];
     const chassis = pool[this.rng.int(pool.length)];
-    const rarity = this.rollEliteRarity(),
-      affix = this.rollEliteAffix(rarity);
+    const rarity: EliteRarity = opening ? 'common' : this.rollEliteRarity(),
+      affix = opening ? 'none' : this.rollEliteAffix(rarity);
     const q = this.pointAroundPlayer(15, 18.5),
       scale = this.worldScale();
     let hp = eliteHp[chassis] * scale * ELITE_RARITY_HP[rarity],
       speed = eliteSpeed[chassis];
-    if (
-      this.mode === 'clean' &&
-      this.metrics.eliteSpawned === 0 &&
-      this.allOwnedCatalysts().length === 0
-    )
-      hp *= 0.76;
+    if (opening && this.mode === 'clean') hp *= 0.8;
     const e: Ent = {
       id: this.nextId++,
       kind: 'elite',
@@ -2161,8 +2159,10 @@ export class Simulation {
       rarity,
       repertoire: []
     };
-    this.claimRepertoire(e);
-    this.inheritEliteLegacy(e);
+    if (!opening) {
+      this.claimRepertoire(e);
+      this.inheritEliteLegacy(e);
+    }
     this.noteEliteSpawn(e);
     this.ents.push(e);
     this.metrics.spawned++;
@@ -2295,7 +2295,7 @@ export class Simulation {
 
   private steerEliteToRelic(e: Ent, speed: number, playerDistance: number) {
     if (e.state !== 'normal' || e.eliteAction || this.eliteEchoes.has(e.id)) return false;
-    const seek = 14 * (e.relicSeekMul ?? 1);
+    const seek = Math.min(46, 24 * (e.relicSeekMul ?? 1));
     let best: Relic | null = null, bestD = seek;
     for (const relic of this.relics) {
       const d = Math.hypot(relic.x - e.x, relic.z - e.z);
@@ -3222,17 +3222,8 @@ export class Simulation {
     });
   }
   /**
-   * D15 says every gain the hero can make needs a counterpart, and D51 named the two
-   * categories that had none. The counterpart is by category rather than by copying the
-   * effect, because a relic that hands an elite the literal player-side bonus would be
-   * exactly the mechanical mirror D41 rules out.
-   */
-  /**
-   * The counterpart an elite gets from an item, by category and never by copy (D15,
-   * D41, D51). Durability is deliberately absent from every branch: it is the number
-   * the D49 fight length is calibrated through, and stacking onto it has collapsed a
-   * run before. `allowClaim` is false when the mirror is applied to a card the elite is
-   * merely holding, because claiming more cards from inside the claim would recurse.
+   * Enemy-side item effects are authored per item. `allowClaim` is false when an item
+   * effect is inherited through a refusal card so "learn one more refusal" cannot recurse.
    */
   private scaleEliteDurability(e: Ent, mul: number) {
     if (mul <= 0 || Math.abs(mul - 1) < 1e-6) return;
@@ -3324,7 +3315,8 @@ export class Simulation {
   private eliteInheritanceBudget(e: Ent) {
     const t = Math.max(0, Math.min(1, this.time / this.runDuration));
     const base = e.rarity === 'legendary' ? 2 : e.rarity === 'uplifted' ? 1 : 0;
-    return Math.min(6, base + Math.floor(t * 4));
+    if (this.time < 90) return Math.min(base, 1);
+    return Math.min(10, base + Math.floor(t * 7));
   }
 
   private inheritEliteLegacy(e: Ent, all = false) {
