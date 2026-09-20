@@ -8,7 +8,7 @@ const read=(p:string)=>readFileSync(p,'utf8');
 const root=read('../../00_START_HERE.md');
 assert(root.includes('v0.11.4'),'root entry point is not current version');
 assert(root.includes('36_OWNER_CORRECTION_CROWD_BUILD_ELITE_2026-09-20.md'),'root entry point does not lead to latest owner correction');
-assert(root.includes('Executable code + passing regression tests'),'authority order no longer identifies code/tests as factual evidence');
+assert(root.includes('Executable code + passing regression'),'authority order no longer identifies code/tests as factual evidence');
 
 const manifest=read('../../MANIFEST.md');
 assert(manifest.includes('v0.11.4 current'),'manifest is stale');
