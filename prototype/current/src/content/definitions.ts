@@ -300,9 +300,9 @@ export const skills: Record<SkillId, SkillDef> = {
       {
         id: 'cleaver_deep',
         parent: 'cleaver_guillotine',
-        name: 'Глубокий порез',
-        tag: 'длительный урон',
-        description: 'Меньше прямого урона, но сильнее кровоточащая рана.'
+        name: 'Рассекающий клин',
+        tag: 'пробой',
+        description: 'Гильотина бьёт тяжелее и проталкивает задетых врагов дальше по линии удара.'
       },
       {
         id: 'cleaver_chainhook',
@@ -339,9 +339,9 @@ export const skills: Record<SkillId, SkillDef> = {
       },
       {
         id: 'arc_capacitive',
-        name: 'Ёмкостная дуга',
-        tag: 'связка',
-        description: 'Неиспользованные прыжки цепи копят заряд.'
+        name: 'Обратная дуга',
+        tag: 'фокус',
+        description: 'Если целей не хватило на все прыжки, остаток сразу возвращается быстрыми импульсами в первую цель.'
       },
       {
         id: 'arc_ground',
@@ -359,9 +359,9 @@ export const skills: Record<SkillId, SkillDef> = {
       {
         id: 'arc_relay',
         parent: 'arc_capacitive',
-        name: 'Статический ретранслятор',
-        tag: 'дальность',
-        description: 'Заметно увеличивает дальность следующего прыжка цепи.'
+        name: 'Обратный резонатор',
+        tag: 'фокус',
+        description: 'Возвратные импульсы становятся шире и сильнее, а сама цепь прыгает дальше.'
       },
       {
         id: 'arc_groundloop',
@@ -418,9 +418,9 @@ export const skills: Record<SkillId, SkillDef> = {
       {
         id: 'orbit_blood',
         parent: 'orbit_saw',
-        name: 'Кровавая орбита',
-        tag: 'масштаб',
-        description: 'Раненые враги рядом ускоряют и расширяют орбиту.'
+        name: 'Жатвенная орбита',
+        tag: 'толпа',
+        description: 'Чем плотнее враги вокруг героя, тем шире и сильнее становится орбита.'
       },
       {
         id: 'orbit_comet',
@@ -598,7 +598,7 @@ export const skills: Record<SkillId, SkillDef> = {
         parent: 'toxic_corrosive',
         name: 'Реактивный растворитель',
         tag: 'связка',
-        description: 'Кровотечение и горение превращаются в дополнительный взрыв.'
+        description: 'Враг под уже действующим контролем или горением сразу вызывает дополнительный химический всплеск.'
       },
       {
         id: 'toxic_still',
@@ -716,8 +716,8 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'mass_terminal',
         parent: 'mass_rail',
         name: 'Предельная скорость',
-        tag: 'связка',
-        description: 'Накопленный заряд превращается в скорость и урон.'
+        tag: 'пробой',
+        description: 'Рельсовая масса сразу становится быстрее и тяжелее, без накопления скрытого ресурса.'
       },
       {
         id: 'mass_counterthrust',
@@ -1167,7 +1167,7 @@ const v011Apotheoses: Partial<Record<SkillId, MutationDef[]>> = {
   ],
   cleaver: [
     { id:'cleaver_harvest_dance', parent:'cleaver_rhythm', name:'Танец жатвы', tag:'АПОФЕОЗ · цепь', description:'Убийство в ближнем бою запускает самостоятельный круговой добивающий взмах и наращивает темп жатвы.', apotheosis:true },
-    { id:'cleaver_rupture', parent:'cleaver_deep', name:'Разрыв плоти', tag:'АПОФЕОЗ · рана', description:'Глубокая кровоточащая рана на элите накапливается и затем взрывается большим разрывом вместо обычного периодического урона.', apotheosis:true },
+    { id:'cleaver_rupture', parent:'cleaver_deep', name:'Разрыв строя', tag:'АПОФЕОЗ · толпа', description:'Первые задетые тяжёлым взмахом враги сразу выпускают вокруг себя режущие разрывы, прорезая соседей без накопления стаков.', apotheosis:true },
     { id:'cleaver_rift_hook', parent:'cleaver_chainhook', name:'Крюк разлома', tag:'АПОФЕОЗ · разлом', description:'Стянутые цели сходятся в точке удара, после чего наружу проходит большой режущий разлом.', apotheosis:true }
   ],
   chain_arc: [
@@ -1177,7 +1177,7 @@ const v011Apotheoses: Partial<Record<SkillId, MutationDef[]>> = {
   ],
   orbit_blades: [
     { id:'orbit_aegis_crown', parent:'orbit_guard', name:'Корона эгиды', tag:'АПОФЕОЗ · защита', description:'Перехват вражеского снаряда заряжает барьер; полный заряд выпускает защитную ударную волну.', apotheosis:true },
-    { id:'orbit_sanguine_crown', parent:'orbit_blood', name:'Кровавая корона', tag:'АПОФЕОЗ · кровь', description:'Раненые цели раздвигают орбиту и возвращают часть ближнего урона в виде барьера.', apotheosis:true },
+    { id:'orbit_sanguine_crown', parent:'orbit_blood', name:'Корона толпы', tag:'АПОФЕОЗ · давление', description:'Плотная толпа ещё сильнее расширяет орбиту; попадания внутри давки понемногу возвращают барьер.', apotheosis:true },
     { id:'orbit_phoenix', parent:'orbit_comet', name:'Фениксовый вылет', tag:'АПОФЕОЗ · возврат', description:'Часть лезвий физически вылетает к цели с меткой или элите и возвращается, прорезая цели дважды.', apotheosis:true }
   ],
   mortar_bloom: [
@@ -1192,7 +1192,7 @@ const v011Apotheoses: Partial<Record<SkillId, MutationDef[]>> = {
   ],
   toxic_mist: [
     { id:'toxic_plague_road', parent:'toxic_plume', name:'Чумная дорога', tag:'АПОФЕОЗ · след', description:'Движение постоянно оставляет цепочку заражённых пятен; смерть переносит инфекцию дальше.', apotheosis:true },
-    { id:'toxic_septic_bloom', parent:'toxic_reactive', name:'Септический цветок', tag:'АПОФЕОЗ · детонация', description:'Поглощённое кровотечение или горение взрывает яд вокруг цели и запускает цепную реакцию.', apotheosis:true },
+    { id:'toxic_septic_bloom', parent:'toxic_reactive', name:'Септический цветок', tag:'АПОФЕОЗ · детонация', description:'Цели под контролем или горением немедленно рассыпают вокруг себя новые ядовитые очаги и могут запустить цепную реакцию в толпе.', apotheosis:true },
     { id:'toxic_pestilent_host', parent:'toxic_still', name:'Носитель мора', tag:'АПОФЕОЗ · сущность', description:'Плотное облако отделяется от героя и медленно преследует ближайшую элиту как самостоятельный объект.', apotheosis:true }
   ],
   mass_driver: [
