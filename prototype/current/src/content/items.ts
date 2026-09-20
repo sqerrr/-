@@ -35,13 +35,10 @@ export interface ItemDef {
 }
 
 /**
- * The five categories owner decision D35 asked for. The category is not decoration: it decides
- * what the item does to an elite that reaches it first, because D14 makes relics a source both
- * sides draw from and D15 requires every gain the hero can make to have a counterpart.
- *
- * No category touches elite durability. That is deliberate and it cost a rollback to learn:
- * fight length under D49 is calibrated through exactly that number, so a second multiplier on
- * top of it collapses the run. The counterparts work on reach, bite, cadence and company.
+ * Categories organise player-facing loot. Enemy-side effects are deliberately item-specific:
+ * a captured relic should change the elite's behaviour or pressure axis instead of collapsing
+ * twenty objects into five generic category buffs. Durability is allowed to grow; balance is
+ * measured against the player's actual crowd-build growth rather than frozen by an old TTK dial.
  */
 export const itemCategoryName: Record<ItemCategory, string> = {
   guard: 'Защита',
@@ -52,11 +49,34 @@ export const itemCategoryName: Record<ItemCategory, string> = {
 };
 
 export const itemCategoryRival: Record<ItemCategory, string> = {
-  guard: 'Касание элиты становится больнее',
-  edge: 'Отвергнутые приёмы элиты бьют сильнее',
-  pace: 'Элита быстрее и применяет отказы чаще',
-  finding: 'Элита уносит со склада на одну карту больше',
-  elite: 'Элита выходит с прикрытием отряда'
+  guard: 'Живучесть и защита элиты',
+  edge: 'Опасность атак и отражений',
+  pace: 'Скорость движения и приёмов',
+  finding: 'Борьба за новые находки',
+  elite: 'Усиление элитной экосистемы'
+};
+
+export const itemRivalEffect: Record<ItemId, string> = {
+  plating: 'Корпус становится прочнее: запас здоровья увеличен.',
+  vitality: 'Элита получает заметно больший запас здоровья.',
+  aegis_core: 'Получаемый элитой урон снижен.',
+  ablation: 'Часть входящего урона гасится.',
+  keen_edge: 'Контакт и отражённые атаки становятся сильнее.',
+  hollow_point: 'Атаки элиты могут нанести усиленный критический удар.',
+  siphon: 'Нанесённый герою урон частично лечит элиту.',
+  bane: 'Отражённые атаки сильнее и достают дальше.',
+  light_step: 'Элита быстрее перемещается по полю.',
+  quickened: 'Собственные приёмы и отражения элиты происходят чаще.',
+  short_cord: 'Элита немного быстрее и чаще входит в активные приёмы.',
+  afterimage: 'Элита быстрее и получает меньше урона.',
+  lodestone: 'Элита замечает предметы издалека и чаще уходит за ними.',
+  keen_eye: 'Элита лучше ищет предметы и осваивает ещё один известный отказ.',
+  scavenger: 'Собранный мусор усиливает живучесть и атаки элиты.',
+  beacon: 'Элита активно охотится за предметами по большой области.',
+  spoils: 'Носитель временно усиливает окружающую его угрозу.',
+  unravel: 'Элита заметно лучше переносит входящий урон.',
+  tribute: 'Элита получает больше здоровья и опаснее в ближнем контакте.',
+  reprisal: 'Отражения сильнее и применяются чаще.'
 };
 
 export const items: Record<ItemId, ItemDef> = {
