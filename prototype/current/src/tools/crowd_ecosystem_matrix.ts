@@ -103,7 +103,7 @@ function bossThreatRun(b:Build){
   let survived=24;
   for(let i=0;i<24*hz && sim.php>0;i++){
     const s=sim.snapshot(), cmd=steer(s,b,i);
-    const threat=s.entities.find(e=>e.boss);
+    const threat=s.entities.find((e:any)=>e.boss);
     const danger=!!threat && (!!threat.eliteAction || threat.echoPhase==='tell' || threat.echoPhase==='active' || threat.telegraph>0);
     sim.step({...cmd,dash:danger&&s.player.dashReady});
     if(sim.php<=0){survived=(i+1)/hz;break;}
