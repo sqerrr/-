@@ -25,6 +25,7 @@ Key facts:
 - Sentry repeats as short-lived Chain deployments and inherits run power;
 - active Cleaver/Arc branches avoid wound-stack/hidden-charge bookkeeping;
 - elites contest relics and keep/inherit enemy-side item history;
+- after 120 s elites also gain autonomous modules from the full 20-item pool, independent of player refusals;
 - refusals can be learned concurrently by multiple elites and repertoire grows with run depth;
 - 20 explicit elite-side item effects;
 - Warden inherits enemy ecosystem history and uses three escalating phases;
