@@ -123,10 +123,8 @@ type Ent = {
   rarity: EliteRarity;
   /** Serials of the refused cards this entity has claimed from the store. */
   repertoire: number[];
-  // Gains an elite takes from relics. Optional so the five existing Ent literals are
-  // untouched, and deliberately none of them is durability: fight length under D49 is
-  // calibrated through elite health, and stacking a second multiplier there collapsed
-  // the run when it was tried for the endurance axis.
+  // Gains an elite takes from relics. Optional fields keep old replay/entity literals compatible;
+  // current enemy progression is allowed to alter durability as well as behaviour.
   relicCastMul?: number;
   /** Subset of relicCastMul coming from ground relics, for D52 attribution. */
   groundRelicCastMul?: number;
@@ -3585,33 +3583,33 @@ export class Simulation {
     else if (st.mutation === 'orbit_saw') { count = Math.max(2, count - 1); damageMul *= 1.4; }
     count = Math.max(2, Math.min(12, count));
     let radius = this.skillRadius(st, skills.orbit_blades.baseRadius),
-      wounded = 0;
+      crowd = 0;
     if (this.mutationIs(st,'orbit_blood')) {
-      wounded=this.ents.filter(e=>e.woundUntil>this.time&&Math.hypot(e.x-this.px,e.z-this.pz)<6).length;
-      if(this.mutationIs(st,'orbit_sanguine_crown')) radius*=1+Math.min(0.42,wounded*0.045);
+      crowd=this.ents.filter(e=>e.hp>0&&Math.hypot(e.x-this.px,e.z-this.pz)<6).length;
+      radius*=1+Math.min(0.34,crowd*0.017);
+      damageMul*=1+Math.min(0.48,crowd*0.024);
+      if(this.mutationIs(st,'orbit_sanguine_crown')) radius*=1+Math.min(0.22,crowd*0.01);
     }
     // Quantity is allowed to be a genuine power axis in a horde game. Twice as many blades
     // can approach twice the contact rate; spacing around the orbit is the natural limiter.
     const hitInterval=Math.max(0.085,Math.min(0.5,0.38*(3/count)));
-    return { count, radius, damageMul, wounded, hitInterval };
+    return { count, radius, damageMul, crowd, hitInterval };
   }
 
   private updateOrbitBlades() {
     const st=this.skillsRuntime.get('orbit_blades');if(!st||!this.isActiveSkill('orbit_blades'))return;
     this.orbitAcc+=this.dt;if(this.orbitAcc<0.13)return;this.orbitAcc-=0.13;
     const mut=st.mutation, profile=this.orbitProfile(st);
-    let dmg=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36*profile.damageMul,
-      blood=1;
-    if(this.mutationIs(st,'orbit_blood')) blood=1+Math.min(0.7,profile.wounded*0.07);
+    const dmg=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36*profile.damageMul;
     for(const e of this.ents){
       if(e.hp<=0||this.time-e.orbitHitAt<profile.hitInterval)continue;
       const d=Math.hypot(e.x-this.px,e.z-this.pz);
       if(Math.abs(d-profile.radius)<0.62){
-        e.orbitHitAt=this.time;let m=dmg*blood;
+        e.orbitHitAt=this.time;let m=dmg;
         if(mut==='orbit_saw'&&e.kind==='elite')m*=1.9;
         this.damage(e,m,'orbit_blades',false,this.px,this.pz,this.slots.indexOf('orbit_blades'));
         this.closeDamage+=m;
-        if(this.mutationIs(st,'orbit_sanguine_crown')&&e.woundUntil>this.time)this.grantBarrier(Math.min(4,m*0.025));
+        if(this.mutationIs(st,'orbit_sanguine_crown')&&profile.crowd>=5)this.grantBarrier(Math.min(3.2,m*0.02));
       }
     }
     if(this.mutationIs(st,'orbit_aegis_crown')&&this.aegisCharge>=6){this.aegisCharge=0;this.grantBarrier(16);const rr=profile.radius+1.8;this.combatShape('orbit_aegis_crown',{kind:'circle',x:this.px,z:this.pz,radius:rr},'control');for(const e of this.ents){const dx=e.x-this.px,dz=e.z-this.pz,d=Math.hypot(dx,dz)||1;if(d<rr+e.radius){this.damage(e,22*this.powerBucket(st),'orbit_blades',false);e.x+=dx/d*0.75;e.z+=dz/d*0.75;}}this.events.push({type:'RareEvent',tick:this.tick,title:'КОРОНА ЭГИДЫ',detail:'Перехваты выпущены ударной волной',x:this.px,z:this.pz});}
@@ -4488,13 +4486,12 @@ export class Simulation {
   }
   private castFrost(st: SkillRuntime, slot: number, src: CastSource) {
     const mut=st.mutation,r=this.skillRadius(st,skills.frost_ring.baseRadius,slot);
-    const capacitive=(()=>{const arc=this.skillsRuntime.get('chain_arc');return !!arc&&this.mutationIs(arc,'arc_capacitive')&&this.charge>0?1+Math.min(0.4,this.charge*0.08):1;})();
     this.combatShape('frost_ring',{kind:'circle',x:src.x,z:src.z,radius:r},'control');
     let shattered=0; let firstShatter:Ent|null=null;
     for(const e of this.targetsFor(src)){
       const d=Math.hypot(e.x-src.x,e.z-src.z); if(d>r+e.radius)continue;
       const wasChilled=e.chillUntil>this.time, wasFrozen=(e.frozenUntil??0)>this.time;
-      let dmg=skills.frost_ring.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e)*capacitive;
+      let dmg=skills.frost_ring.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e);
       if(mut==='frost_rim')dmg*=d>r*0.62?2:0.48;
       const ignited=e.igniteUntil>this.time;
       if(ignited){e.igniteUntil=0;dmg*=1.18;this.metrics.reactions++;this.events.push({type:'Reaction',tick:this.tick,reaction:'thermal_shock',x:e.x,z:e.z,amount:dmg*0.42});}
@@ -4522,7 +4519,6 @@ export class Simulation {
       this.spawnProjectile({x:src.x,z:src.z,vx:src.aimX*2.25,vz:src.aimZ*2.25,radius:r*0.62,ttl:7.0,damage:9*this.powerBucket(st),coverDamage:25,faction:src.faction,ownerId:src.owner?.id??0,source:'frost_ring',sourceSlot:slot,mutation:st.mutation,apotheosis:st.mutationApotheosis,rivalConcentration:1,behavior:'roller',phase:0,hitIds:[],growth:0.035});
       this.events.push({type:'RareEvent',tick:this.tick,title:'БЕЛЫЙ ШТОРМ',detail:'Ледяной фронт движется через арену',x:src.x,z:src.z});
     }
-    if(capacitive>1)this.charge=0;
   }
 
   private castRail(st: SkillRuntime, slot: number, src: CastSource) {
@@ -4540,10 +4536,11 @@ export class Simulation {
   }
 
   private castCleaver(st: SkillRuntime, slot: number, src: CastSource, repeat = false) {
-    const mut=st.mutation,r=this.skillRadius(st,skills.cleaver.baseRadius,slot);let half=mut==='cleaver_guillotine'?0.65:1.12;if(mut==='cleaver_roundhouse')half=Math.PI;this.combatShape('cleaver',{kind:'sector',x:src.x,z:src.z,radius:r,aimX:src.aimX,aimZ:src.aimZ,halfAngle:half});let kills=0,hookX=0,hookZ=0,hookN=0;
-    for(const e of this.targetsFor(src)){const dx=e.x-src.x,dz=e.z-src.z,d=Math.hypot(dx,dz);if(d>r+e.radius||d<0.01)continue;const dot=dx/d*src.aimX+dz/d*src.aimZ;if(Math.acos(Math.max(-1,Math.min(1,dot)))>half)continue;let dmg=skills.cleaver.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e)*(repeat?0.65:1);if(mut==='cleaver_guillotine'&&e.hp/e.maxHp<0.25)dmg*=2;if(this.mutationIs(st,'cleaver_deep'))dmg*=0.72;const killed=this.damage(e,dmg,'cleaver',true,src.x,src.z,slot);this.closeDamage+=dmg;if(killed)kills++;e.woundUntil=Math.max(e.woundUntil,this.time+(this.mutationIs(st,'cleaver_deep')?4.8:2.6)*(1+st.statusPotency)*this.memoryFactor());e.woundDps=Math.max(e.woundDps,(this.mutationIs(st,'cleaver_deep')?11:4.5)*this.powerBucket(st));this.noteState('wound');
+    const mut=st.mutation,r=this.skillRadius(st,skills.cleaver.baseRadius,slot);let half=mut==='cleaver_guillotine'?0.65:1.12;if(mut==='cleaver_roundhouse')half=Math.PI;this.combatShape('cleaver',{kind:'sector',x:src.x,z:src.z,radius:r,aimX:src.aimX,aimZ:src.aimZ,halfAngle:half});let kills=0,hookX=0,hookZ=0,hookN=0,ruptures=0;
+    for(const e of this.targetsFor(src)){const dx=e.x-src.x,dz=e.z-src.z,d=Math.hypot(dx,dz);if(d>r+e.radius||d<0.01)continue;const dot=dx/d*src.aimX+dz/d*src.aimZ;if(Math.acos(Math.max(-1,Math.min(1,dot)))>half)continue;let dmg=skills.cleaver.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e)*(repeat?0.65:1);if(mut==='cleaver_guillotine'&&e.hp/e.maxHp<0.25)dmg*=2;if(this.mutationIs(st,'cleaver_deep'))dmg*=1.22;const killed=this.damage(e,dmg,'cleaver',true,src.x,src.z,slot);this.closeDamage+=dmg;if(killed)kills++;
+      if(this.mutationIs(st,'cleaver_deep')){const push=e.kind==='elite'?0.22:0.62;e.x+=dx/d*push;e.z+=dz/d*push;e.displacedUntil=Math.max(e.displacedUntil,this.time+0.45);this.noteState('displaced');}
       if(mut==='cleaver_hook'||this.mutationIs(st,'cleaver_chainhook')){const tx=src.x-e.x,tz=src.z-e.z,td=Math.hypot(tx,tz)||1,pull=this.mutationIs(st,'cleaver_chainhook')?1.05:0.65;e.x+=tx/td*pull*(1+st.control);e.z+=tz/td*pull*(1+st.control);hookX+=e.x;hookZ+=e.z;hookN++;}
-      if(this.mutationIs(st,'cleaver_rupture')){e.woundStacks=(e.woundStacks??0)+1;const need=e.kind==='elite'?3:2;if((e.woundStacks??0)>=need){e.woundStacks=0;const burst=42*this.powerBucket(st);this.combatShape('cleaver_rupture',{kind:'circle',x:e.x,z:e.z,radius:1.8});for(const o of this.targetsFor(src))if(o.hp>0&&Math.hypot(o.x-e.x,o.z-e.z)<1.8+o.radius)this.damage(o,burst,'cleaver',false,e.x,e.z,slot);}}
+      if(this.mutationIs(st,'cleaver_rupture')&&ruptures<6){ruptures++;const burst=skills.cleaver.baseDamage*this.powerBucket(st)*0.48,rr=1.55;this.combatShape('cleaver_rupture',{kind:'circle',x:e.x,z:e.z,radius:rr});for(const o of this.targetsFor(src))if(o.hp>0&&o.id!==e.id&&Math.hypot(o.x-e.x,o.z-e.z)<rr+o.radius)this.damage(o,burst,'cleaver',false,e.x,e.z,slot);}
     }
     if(this.mutationIs(st,'cleaver_rift_hook')&&hookN){const x=hookX/hookN,z=hookZ/hookN;this.scheduleStrike({at:this.time+0.24,x,z,radius:2.1,damage:skills.cleaver.baseDamage*this.powerBucket(st)*0.72,faction:src.faction,ownerId:src.owner?.id??0,source:'cleaver',sourceSlot:slot,intent:'control',telegraph:'cleaver_rift_tell'});}
     if(this.mutationIs(st,'cleaver_rhythm')&&kills>0&&!repeat){this.butcherStacks=Math.min(6,this.butcherStacks+kills);if(this.mutationIs(st,'cleaver_harvest_dance')||this.rng.float()<Math.min(0.65,this.butcherStacks*0.16)){const ax=src.aimX,az=src.aimZ;src.aimX=-az;src.aimZ=ax;this.combatShape('cleaver_harvest_dance',{kind:'circle',x:src.x,z:src.z,radius:r*1.18});this.castCleaver(st,slot,src,true);src.aimX=ax;src.aimZ=az;if(this.mutationIs(st,'cleaver_harvest_dance'))this.grantBarrier(3.5*kills);this.butcherStacks=0;}}
@@ -4560,7 +4557,10 @@ export class Simulation {
     let current:Ent|undefined;const embedded=available.filter(e=>e.embedded>0);if(embedded.length)current=embedded.sort((a,b)=>b.embedded-a.embedded)[0];if(mut==='arc_ground')current=available.filter(e=>e.markUntil>this.time||e.embedded>0).sort((a,b)=>Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];if(!current)current=available.sort((a,b)=>Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];if(!current)return;
     const hit=new Set<number>(),path:Ent[]=[];let jumps=0,prevX=src.x,prevZ=src.z;
     while(current&&jumps<maxJumps){hit.add(current.id);path.push(current);let dmg=skills.chain_arc.baseDamage*this.powerBucket(st)*this.slotAmp(slot,current)*Math.pow(mut==='arc_forked'?0.93:0.88,jumps);if(mut==='arc_ground'&&(current.markUntil>this.time||current.embedded>0))dmg*=1.45;if(current.embedded>0){dmg*=1.28;current.embedded--;this.metrics.reactions++;}this.combatShape('chain_arc',{kind:'ray',x:prevX,z:prevZ,aimX:(current.x-prevX)/(Math.hypot(current.x-prevX,current.z-prevZ)||1),aimZ:(current.z-prevZ)/(Math.hypot(current.x-prevX,current.z-prevZ)||1),range:Math.hypot(current.x-prevX,current.z-prevZ),halfWidth:0.08});this.damage(current,dmg,'chain_arc',false,prevX,prevZ,slot);this.noteState('charge');if(this.mutationIs(st,'arc_cage')&&this.time-current.lastArcAt<2.2)this.fields.push({id:this.nextId++,x:current.x,z:current.z,radius:1.25,ttl:1.7*(1+st.duration),kind:'arc',dps:13*this.powerBucket(st),tickAcc:0,faction:src.faction,ownerId:src.owner?.id??0,source:st.id,sourceSlot:slot,mutation:st.mutation,rivalConcentration:effectGrammar[st.id].rivalConcentration});current.lastArcAt=this.time;prevX=current.x;prevZ=current.z;jumps++;let next:Ent|undefined,best=999;for(const e of this.targetsFor(src)){if(e.hp<=0||hit.has(e.id))continue;const dd=Math.hypot(e.x-prevX,e.z-prevZ);if(dd<jumpRange&&dd<best){best=dd;next=e;}}current=next;}
-    if(mut==='arc_capacitive'&&jumps<maxJumps)this.charge=Math.min(5,this.charge+(maxJumps-jumps));
+    if(this.mutationIs(st,'arc_capacitive')&&path.length&&jumps<maxJumps){
+      const unused=Math.min(4,maxJumps-jumps), target=path[0], relay=this.mutationIs(st,'arc_relay');
+      for(let i=0;i<unused;i++)this.scheduleStrike({at:this.time+0.07*(i+1),x:target.x,z:target.z,radius:relay?0.72:0.46,damage:skills.chain_arc.baseDamage*this.powerBucket(st)*(relay?0.68:0.52),faction:src.faction,ownerId:src.owner?.id??0,source:'chain_arc',sourceSlot:slot,intent:'damage',telegraph:'arc_return_pulse',fieldKind:relay?'arc':undefined,fieldDuration:relay?0.7:0,fieldDps:relay?4*this.powerBucket(st):0});
+    }
     if(this.mutationIs(st,'arc_closed_loop')&&path.length>1){const first=path[0],last=path[path.length-1],d=Math.hypot(first.x-last.x,first.z-last.z)||1;this.combatShape('arc_closed_loop',{kind:'ray',x:last.x,z:last.z,aimX:(first.x-last.x)/d,aimZ:(first.z-last.z)/d,range:d,halfWidth:0.14});this.damage(first,skills.chain_arc.baseDamage*this.powerBucket(st)*1.55,'chain_arc',false,last.x,last.z,slot);}
     if(this.mutationIs(st,'arc_hunting_storm')){const extra=this.targetsFor(src).filter(e=>e.hp>0&&!hit.has(e.id)&&path.some(h=>Math.hypot(e.x-h.x,e.z-h.z)<jumpRange*1.2)).slice(0,3);for(const e of extra)this.scheduleStrike({at:this.time+0.18,x:e.x,z:e.z,radius:0.72,damage:skills.chain_arc.baseDamage*this.powerBucket(st)*0.82,faction:src.faction,ownerId:src.owner?.id??0,source:'chain_arc',sourceSlot:slot,intent:'damage',telegraph:'arc_hunting_node',fieldKind:'arc',fieldDuration:1.25,fieldDps:7*this.powerBucket(st)});}
     if(this.mutationIs(st,'arc_living_circuit')&&src.faction==='hero'){for(const c of this.constructs.filter(q=>q.faction==='hero').slice(0,4)){const target=this.ents.filter(e=>e.hp>0&&Math.hypot(e.x-c.x,e.z-c.z)<c.range).sort((a,b)=>Math.hypot(a.x-c.x,a.z-c.z)-Math.hypot(b.x-c.x,b.z-c.z))[0];if(!target)continue;const dx=target.x-c.x,dz=target.z-c.z,d=Math.hypot(dx,dz)||1;this.combatShape('arc_living_circuit',{kind:'ray',x:c.x,z:c.z,aimX:dx/d,aimZ:dz/d,range:d,halfWidth:0.1});this.damage(target,skills.chain_arc.baseDamage*this.powerBucket(st)*0.65,'chain_arc',false,c.x,c.z,slot);}}
@@ -4613,7 +4613,7 @@ export class Simulation {
 
   private castToxic(st: SkillRuntime, slot: number, src: CastSource) {
     let r=this.skillRadius(st,skills.toxic_mist.baseRadius,slot),dps=skills.toxic_mist.baseDamage*this.powerBucket(st)*this.slotAmp(slot);if(st.mutation==='toxic_distilled'){r*=0.58;dps*=1.85;}const x=this.mutationIs(st,'toxic_plume')?src.x-src.vx*0.55:src.x,z=this.mutationIs(st,'toxic_plume')?src.z-src.vz*0.55:src.z;
-    const reactiveTargets:Ent[]=[];if(this.mutationIs(st,'toxic_reactive'))for(const e of this.targetsFor(src)){if(e.hp<=0||Math.hypot(e.x-x,e.z-z)>r+e.radius)continue;const reactive=e.woundUntil>this.time||e.igniteUntil>this.time;if(reactive){if(e.woundUntil>this.time){e.woundUntil=0;e.woundDps=0;}else e.igniteUntil=0;this.damage(e,dps*1.25,'septic_cut',false,x,z,slot);this.metrics.reactions++;reactiveTargets.push(e);}}
+    const reactiveTargets:Ent[]=[];if(this.mutationIs(st,'toxic_reactive'))for(const e of this.targetsFor(src)){if(e.hp<=0||Math.hypot(e.x-x,e.z-z)>r+e.radius)continue;const reactive=e.igniteUntil>this.time||e.chillUntil>this.time||(e.frozenUntil??0)>this.time||e.exposedUntil>this.time||e.displacedUntil>this.time;if(reactive){this.damage(e,dps*1.25,'septic_cut',false,x,z,slot);this.metrics.reactions++;reactiveTargets.push(e);}}
     const pushField=(fx:number,fz:number,fr:number,ttl:number,behavior?:'host')=>this.fields.push({id:this.nextId++,x:fx,z:fz,radius:fr,ttl,kind:'toxic',dps,tickAcc:0,faction:src.faction,ownerId:src.owner?.id??0,source:st.id,sourceSlot:slot,mutation:st.mutation,rivalConcentration:effectGrammar[st.id].rivalConcentration,behavior});
     this.combatShape('toxic_mist',{kind:'circle',x,z,radius:r},'field');pushField(x,z,r,this.persistentDuration(st,4.2,slot),this.mutationIs(st,'toxic_pestilent_host')?'host':undefined);
     if(this.mutationIs(st,'toxic_plague_road')){const m=Math.hypot(src.vx,src.vz)||1,dx=src.vx/m,dz=src.vz/m;for(let i=1;i<=3;i++)pushField(x-dx*i*1.3,z-dz*i*1.3,r*0.55,2.4);}
@@ -4671,7 +4671,7 @@ export class Simulation {
     if(mut==='mass_snowball'){speed=3.25;radius*=1.08;}
     let cargo=0;
     if(this.mutationIs(st,'mass_cargo')){for(const c of this.constructs){const dx=c.x-src.x,dz=c.z-src.z,t=dx*src.aimX+dz*src.aimZ,lat=Math.abs(dx*src.aimZ-dz*src.aimX);if(t>0&&t<range&&lat<1.5)cargo++;}for(const q of this.pickups){const dx=q.x-src.x,dz=q.z-src.z,t=dx*src.aimX+dz*src.aimZ,lat=Math.abs(dx*src.aimZ-dz*src.aimX);if(t>0&&t<range&&lat<1.1)cargo++;}damage*=1+Math.min(0.9,cargo*0.14);radius*=1+Math.min(0.35,cargo*0.04);}
-    if(this.mutationIs(st,'mass_terminal')){damage*=1+Math.min(1.0,this.charge*0.12+(this.capacitorCharge+this.overflowCharge)/300);this.charge=0;}
+    if(this.mutationIs(st,'mass_terminal')){speed*=1.38;damage*=1.42;radius*=0.9;}
     if(mut==='mass_recoil'||this.mutationIs(st,'mass_counterthrust')){const kick=this.mutationIs(st,'mass_comet_recoil')?1.8:1.05;this.displaceSource(src,-src.aimX*kick,-src.aimZ*kick);if(!src.owner&&this.mutationIs(st,'mass_comet_recoil'))this.dashIFramesUntil=Math.max(this.dashIFramesUntil,this.time+0.16);}
     if(this.mutationIs(st,'mass_comet_recoil')){speed*=1.35;damage*=1.28;radius*=1.18;}
     this.combatShape('mass_driver',{kind:'ray',x:src.x,z:src.z,aimX:src.aimX,aimZ:src.aimZ,range,halfWidth:radius},'control');
