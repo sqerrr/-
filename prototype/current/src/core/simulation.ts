@@ -3370,7 +3370,11 @@ export class Simulation {
     const card = pool[this.relicRng.int(pool.length)];
     if (card.heldBy === 0) card.heldBy = e.id;
     e.repertoire.push(card.serial);
-    this.applyRefusedAxes(e);
+    // Apply only the new card. Re-running applyRefusedAxes would compound every old
+    // mobility/item modifier each time an elite learns one more refusal.
+    if (card.kind === 'item' && card.item) this.applyEliteItem(e, card.item, false);
+    else if (card.kind === 'axis' && card.resonance === 'conductivity') e.contactDps *= 1.12;
+    else if (card.kind === 'axis' && card.resonance === 'mobility') e.speed *= 1.12;
   }
 
   private updateConstructs() {
