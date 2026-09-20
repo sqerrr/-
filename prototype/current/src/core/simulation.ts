@@ -3321,14 +3321,22 @@ export class Simulation {
 
   private inheritEliteLegacy(e: Ent, all = false) {
     if (!this.eliteLegacyItems.length) return;
-    const pool = all ? [...new Set(this.eliteLegacyItems)] : [...this.eliteLegacyItems];
+    e.relicItems ??= [];
+    if (all) {
+      // The Warden visibly carries the complete captured history, including repeated finds.
+      // Repeats already increase its global legacy mass through boss HP scaling; applying the
+      // same multiplicative item effect over and over would turn a lucky duplicate streak into
+      // exponential noise, so each distinct mechanical rule is applied once.
+      e.relicItems.push(...this.eliteLegacyItems);
+      for (const id of new Set(this.eliteLegacyItems)) this.applyEliteItem(e, id, false);
+      return;
+    }
+    const pool = [...this.eliteLegacyItems];
     for (let i = pool.length - 1; i > 0; i--) {
       const j = this.relicRng.int(i + 1);
       [pool[i], pool[j]] = [pool[j], pool[i]];
     }
-    const inherited = all ? pool : pool.slice(0, this.eliteInheritanceBudget(e));
-    e.relicItems ??= [];
-    for (const id of inherited) {
+    for (const id of pool.slice(0, this.eliteInheritanceBudget(e))) {
       e.relicItems.push(id);
       this.applyEliteItem(e, id, false);
     }
