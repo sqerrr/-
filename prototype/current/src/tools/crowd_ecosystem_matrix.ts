@@ -62,15 +62,21 @@ function spawnCrowd(sim:any){
     sim.spawnEnemyAt(i%5===0?'bookmark':i%3===0?'marginwalker':'footnote',Math.cos(a)*ring,Math.sin(a)*ring,1);
   }
   sim.spawnElite();
-  const elite=sim.ents.find((e:any)=>e.kind==='elite'); elite.x=7;elite.z=0;elite.rarity='uplifted';elite.maxHp=elite.hp=14500;elite.repertoire=[];
+  const elite=sim.ents.find((e:any)=>e.kind==='elite'); elite.x=7;elite.z=0;elite.rarity='uplifted';elite.affix='none';elite.maxHp=elite.hp=14500;elite.repertoire=[];
   return elite;
 }
 function crowdRun(b:Build){
   const sim:any=new Simulation({seed:77000+builds.indexOf(b),hz,runDuration:480,benchmark:true,mode:'clean'});apply(sim,b);quiet(sim,300);
-  const elite=spawnCrowd(sim), initial=sim.ents.length;
-  for(let i=0;i<20*hz;i++)sim.step(steer(sim.snapshot(),b,i));
-  const alive=sim.ents.filter((e:any)=>e.hp>0).length;
-  return {killed:initial-alive, eliteKilled:elite.hp<=0, eliteHp:+Math.max(0,elite.hp/elite.maxHp).toFixed(3), damage:Math.round(sim.metrics.damage)};
+  const elite=spawnCrowd(sim), packIds=sim.ents.map((e:any)=>e.id), initial=packIds.length;
+  let clearTime=20;
+  for(let i=0;i<20*hz;i++){
+    sim.step(steer(sim.snapshot(),b,i));
+    if(packIds.every((id:number)=>!sim.ents.some((e:any)=>e.id===id&&e.hp>0))){
+      clearTime=(i+1)/hz; break;
+    }
+  }
+  const alive=packIds.filter((id:number)=>sim.ents.some((e:any)=>e.id===id&&e.hp>0)).length;
+  return {killed:initial-alive, clearTime:+clearTime.toFixed(2), eliteKilled:elite.hp<=0, eliteHp:+Math.max(0,elite.hp/elite.maxHp).toFixed(3), damage:Math.round(sim.metrics.damage)};
 }
 function bossRun(b:Build){
   const sim:any=new Simulation({seed:88000+builds.indexOf(b),hz,runDuration:480,benchmark:true,mode:'clean'});apply(sim,b);quiet(sim,420);
