@@ -81,7 +81,9 @@ for(let n=0;n<builds;n++){
   const elite=spawnPack(sim),range=desiredRange(slots),initial=sim.ents.length;
   for(let i=0;i<14*hz;i++)sim.step(steer(sim.snapshot(),range,i));
   const alive=sim.ents.filter((e:any)=>e.hp>0).length, killed=initial-alive;
-  const top=[...(sim.damageBySource as Map<string,number>).entries()].sort((a,b)=>b[1]-a[1]).slice(0,5).map(([id,v])=>[id,Math.round(v)]);
+  const telemetry=sim.telemetry();
+  const top=Object.entries(telemetry.damageBySource as Record<string,number>)
+    .sort((a,b)=>b[1]-a[1]).slice(0,5).map(([id,v])=>[id,Math.round(v)]);
   const row={
     n,slots,catalysts,branches,doctrines:{...sim.doctrines},range,
     killed,eliteHp:+Math.max(0,elite.hp/elite.maxHp).toFixed(3),
