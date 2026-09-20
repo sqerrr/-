@@ -31,6 +31,7 @@ Documents 34/35 and their reports are research/defect evidence, **not design aut
 - Active Cleaver wound stacking and Arc hidden-charge loop are replaced by immediate crowd mechanics.
 - Sentry is a **short-lived repeated Chain deployment**, not a permanent emplacement, and now inherits run power.
 - Elites deliberately contest ground relics, learn refusals non-exclusively, and inherit samples of enemy-side item history later in the run.
+- After 120 s elites also roll autonomous evolution modules from the full 20-item enemy-effect pool, independent of what the player refused or left behind.
 - All 20 current items have explicit enemy-side consequences.
 - The final Warden is legendary, inherits the run’s distinct captured elite items/refusals, and has a three-phase escalation.
 - Renderer remains downstream of simulation-authored geometry/count/effect state.
