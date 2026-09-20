@@ -132,6 +132,8 @@ type Ent = {
   relicReachMul?: number;
   /** Ground/legacy items are an independent elite progression channel, not refusal-store cards. */
   relicItems?: ItemId[];
+  /** Autonomous elite growth modules rolled from the full item catalogue, independent of player refusals. */
+  evolutionItems?: ItemId[];
   relicDamageTakenMul?: number;
   relicCritChance?: number;
   relicSiphon?: number;
@@ -537,6 +539,8 @@ export class Simulation {
    * Later elites inherit a sample; the final Warden inherits the whole history.
    */
   private eliteLegacyItems: ItemId[] = [];
+  /** Autonomous enemy growth is a separate history from physically contested relic captures. */
+  private eliteEvolutionHistory: ItemId[] = [];
   /** Everything the hero has picked up, in the order it was taken. No slots, by D14. */
   heldItems: ItemId[] = [];
   private itemDamageMul = 1;
@@ -1384,6 +1388,7 @@ export class Simulation {
     // distinct relic effect elites managed to capture during the run.
     this.claimRepertoire(e);
     this.inheritEliteLegacy(e, true);
+    this.inheritEliteEvolution(e);
     this.ents.push(e);
     this.metrics.spawned++;
     this.metrics.eliteSpawned++;
@@ -2162,6 +2167,7 @@ export class Simulation {
     if (!opening) {
       this.claimRepertoire(e);
       this.inheritEliteLegacy(e);
+      this.grantNativeEliteGrowth(e);
     }
     this.noteEliteSpawn(e);
     this.ents.push(e);
@@ -3317,6 +3323,40 @@ export class Simulation {
     const base = e.rarity === 'legendary' ? 2 : e.rarity === 'uplifted' ? 1 : 0;
     if (this.time < 90) return Math.min(base, 1);
     return Math.min(10, base + Math.floor(t * 7));
+  }
+
+  private nativeEliteGrowthBudget(e: Ent) {
+    if (this.time < 120) return 0;
+    const depth = 1 + Math.floor((this.time - 120) / 90);
+    const rarity = e.rarity === 'legendary' ? 2 : e.rarity === 'uplifted' ? 1 : 0;
+    return Math.min(6, depth + rarity);
+  }
+
+  private grantNativeEliteGrowth(e: Ent) {
+    const budget = this.nativeEliteGrowthBudget(e);
+    if (!budget) return;
+    const owned = new Set<ItemId>([...(e.relicItems ?? []), ...(e.evolutionItems ?? [])]);
+    const pool = itemOrder.filter((id) => !owned.has(id));
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = this.rng.int(i + 1);
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    e.evolutionItems ??= [];
+    for (const id of pool.slice(0, budget)) {
+      e.evolutionItems.push(id);
+      this.eliteEvolutionHistory.push(id);
+      this.applyEliteItem(e, id, true);
+    }
+  }
+
+  private inheritEliteEvolution(e: Ent) {
+    if (!this.eliteEvolutionHistory.length) return;
+    e.evolutionItems ??= [];
+    const captured = new Set(e.relicItems ?? []);
+    for (const id of new Set(this.eliteEvolutionHistory)) {
+      e.evolutionItems.push(id);
+      if (!captured.has(id)) this.applyEliteItem(e, id, false);
+    }
   }
 
   private inheritEliteLegacy(e: Ent, all = false) {
@@ -5909,20 +5949,23 @@ export class Simulation {
             .map((s: number) => this.refusalStore.find((card) => card.serial === s))
             .filter((card): card is RefusedCard => !!card)
             .map((card) => card.title),
-          ...(e.relicItems ?? []).map((id) => items[id].name)
+          ...(e.relicItems ?? []).map((id) => items[id].name),
+          ...(e.evolutionItems ?? []).map((id) => `Эволюция: ${items[id].name}`)
         ],
         refusalKinds: [
           ...e.repertoire
             .map((s: number) => this.refusalStore.find((card) => card.serial === s))
             .filter((card): card is RefusedCard => !!card)
             .map((card) => card.kind as string),
-          ...(e.relicItems ?? []).map(() => 'item')
+          ...(e.relicItems ?? []).map(() => 'item'),
+          ...(e.evolutionItems ?? []).map(() => 'evolution')
         ],
         refusalIcons: [
           ...e.repertoire
             .map((s) => this.refusalStore.find((card) => card.serial === s)?.icon ?? '')
             .filter((s) => !!s),
-          ...(e.relicItems ?? []).map((id) => items[id].short)
+          ...(e.relicItems ?? []).map((id) => items[id].short),
+          ...(e.evolutionItems ?? []).map((id) => items[id].short)
         ],
         bossPhase: e.bossPhase,
         bossPattern: e.bossPattern,
@@ -6143,7 +6186,8 @@ export class Simulation {
         e.displacedUntil,
         e.embedded,
         e.orderUntil,
-        (e.relicItems ?? []).join(',')
+        (e.relicItems ?? []).join(','),
+        (e.evolutionItems ?? []).join(',')
       );
 
     const m = this.metrics;
@@ -6154,6 +6198,7 @@ export class Simulation {
     put('metrics.survival', m.damageTaken, m.healingReceived, m.barrierGenerated, m.healsPicked);
     put('relics', this.relics.length, this.heldItems.length, this.heldItems.join(','));
     put('eliteLegacyItems', this.eliteLegacyItems.join(','));
+    put('eliteEvolutionHistory', this.eliteEvolutionHistory.join(','));
 
     return parts;
   }
