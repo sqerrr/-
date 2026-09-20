@@ -22,7 +22,7 @@ import {
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
 import { Rng } from './rng.js';
-import { items, itemOrder, itemCategoryName } from '../content/items.js';
+import { items, itemOrder, itemCategoryName, itemRivalEffect } from '../content/items.js';
 import type {
   ItemId,
   DoctrineId,
@@ -3358,7 +3358,7 @@ export class Simulation {
       tick: this.tick,
       item: r.item,
       name: def.name,
-      description: def.description,
+      description: itemRivalEffect[r.item],
       byHero: false,
       x: r.x,
       z: r.z
