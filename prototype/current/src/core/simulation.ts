@@ -1328,7 +1328,8 @@ export class Simulation {
     this.bossSpawned = true;
     const x = this.px < 0 ? 34 : -34,
       z = this.pz < 0 ? 24 : -24,
-      hp = eliteHp.warden * this.worldScale() * (4.15 + Math.min(1.35, this.eliteLegacyItems.length * 0.045));
+      const ecosystemMass = this.eliteLegacyItems.length + this.eliteEvolutionHistory.length;
+      hp = eliteHp.warden * this.worldScale() * (4.15 + Math.min(1.55, ecosystemMass * 0.035));
     const e: Ent = {
       id: this.nextId++,
       kind: 'elite',
