@@ -58,17 +58,26 @@ for (const [cat, n] of byCategory) assert(n >= 2, `category ${cat} has only ${n}
     elite = sim.ents.find((e: any) => e.kind === 'elite');
   }
   assert(!!elite, 'no elite appeared in ninety seconds');
-  const dpsBefore = elite.contactDps;
+  const hpBefore = elite.maxHp;
   sim.giveEliteRelic(elite, { id: 9, x: elite.x, z: elite.z, item: 'plating', bornAt: 0 });
-  assert(elite.contactDps > dpsBefore, 'a guard relic gave the elite nothing');
-  const reachBefore = elite.relicReachMul ?? 1;
-  sim.giveEliteRelic(elite, { id: 10, x: elite.x, z: elite.z, item: 'spoils', bornAt: 0 });
-  assert((elite.relicReachMul ?? 1) > reachBefore, 'a hunt relic gave the elite nothing');
-  // None of the counterparts may touch durability: fight length under D49 is tuned through it.
-  const hp = elite.maxHp;
-  for (const id of itemOrder)
+  assert(elite.maxHp > hpBefore, 'plating did not increase elite durability');
+  const seekBefore = elite.relicSeekMul ?? 1;
+  sim.giveEliteRelic(elite, { id: 10, x: elite.x, z: elite.z, item: 'beacon', bornAt: 0 });
+  assert((elite.relicSeekMul ?? 1) > seekBefore, 'beacon did not make the elite hunt relics harder');
+
+  // Every catalogue item must have a concrete enemy-side consequence. Categories are only
+  // organisation; they no longer collapse twenty relics into five generic rival buffs.
+  const sig = () => JSON.stringify({
+    hp:elite.maxHp, taken:elite.relicDamageTakenMul??1, cast:elite.relicCastMul??1,
+    crit:elite.relicCritChance??0, siphon:elite.relicSiphon??0, speed:elite.speed,
+    gap:elite.relicGapMul??1, seek:elite.relicSeekMul??1, contact:elite.contactDps,
+    buff:elite.buffUntil, repertoire:elite.repertoire.length
+  });
+  for (const id of itemOrder) {
+    const before=sig();
     sim.giveEliteRelic(elite, { id: 11, x: elite.x, z: elite.z, item: id, bornAt: 0 });
-  assert(elite.maxHp === hp, 'a relic counterpart moved elite durability, which D49 is tuned on');
+    assert(sig() !== before, id + ' gave the elite no mechanical consequence');
+  }
 }
 
 // --- they appear, they stay put, and they are reachable -------------------

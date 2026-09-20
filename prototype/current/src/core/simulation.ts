@@ -22,7 +22,7 @@ import {
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
 import { Rng } from './rng.js';
-import { items, itemOrder, itemCategoryName } from '../content/items.js';
+import { items, itemOrder, itemCategoryName, itemRivalEffect } from '../content/items.js';
 import type {
   ItemId,
   DoctrineId,
@@ -123,23 +123,29 @@ type Ent = {
   rarity: EliteRarity;
   /** Serials of the refused cards this entity has claimed from the store. */
   repertoire: number[];
-  // Gains an elite takes from relics. Optional so the five existing Ent literals are
-  // untouched, and deliberately none of them is durability: fight length under D49 is
-  // calibrated through elite health, and stacking a second multiplier there collapsed
-  // the run when it was tried for the endurance axis.
+  // Gains an elite takes from relics. Optional fields keep old replay/entity literals compatible;
+  // current enemy progression is allowed to alter durability as well as behaviour.
   relicCastMul?: number;
   /** Subset of relicCastMul coming from ground relics, for D52 attribution. */
   groundRelicCastMul?: number;
   relicGapMul?: number;
   relicReachMul?: number;
+  /** Ground/legacy items are an independent elite progression channel, not refusal-store cards. */
+  relicItems?: ItemId[];
+  /** Autonomous elite growth modules rolled from the full item catalogue, independent of player refusals. */
+  evolutionItems?: ItemId[];
+  relicDamageTakenMul?: number;
+  relicCritChance?: number;
+  relicSiphon?: number;
+  relicSeekMul?: number;
 };
 
 const HERO_HIT_RADIUS = 0.45;
 // Tier tables. D49 fixes the target fight lengths (8-12 / 15-25 / 30-45 s); each tier is a
 // step up in durability, payout and repertoire.
 const ELITE_RARITY_CAPACITY: Record<EliteRarity, number> = {
-  common: 1,
-  uplifted: 3,
+  common: 2,
+  uplifted: 4,
   legendary: 6
 };
 /**
@@ -528,6 +534,13 @@ export class Simulation {
   private relics: Relic[] = [];
   private relicAcc = 0;
   private relicRng!: Rng;
+  /**
+   * Items physically captured by elites become knowledge of the enemy ecosystem.
+   * Later elites inherit a sample; the final Warden inherits the whole history.
+   */
+  private eliteLegacyItems: ItemId[] = [];
+  /** Autonomous enemy growth is a separate history from physically contested relic captures. */
+  private eliteEvolutionHistory: ItemId[] = [];
   /** Everything the hero has picked up, in the order it was taken. No slots, by D14. */
   heldItems: ItemId[] = [];
   private itemDamageMul = 1;
@@ -651,8 +664,6 @@ export class Simulation {
   private pendingMutationTarget = false;
   private activationCountBonus = 0;
   private activationDerived = false;
-  private reservoirCharge = 0;
-  private vaultCharge = 0;
   private topologyGuard = false;
   private feedbackCountBonus = new Map<number, number>();
   private damageSamples: { t: number; source: string; amount: number; derived: boolean }[] = [];
@@ -1317,7 +1328,8 @@ export class Simulation {
     this.bossSpawned = true;
     const x = this.px < 0 ? 34 : -34,
       z = this.pz < 0 ? 24 : -24,
-      hp = eliteHp.warden * this.worldScale();
+      ecosystemMass = this.eliteLegacyItems.length + this.eliteEvolutionHistory.length,
+      hp = eliteHp.warden * this.worldScale() * (4.15 + Math.min(1.55, ecosystemMass * 0.035));
     const e: Ent = {
       id: this.nextId++,
       kind: 'elite',
@@ -1327,7 +1339,7 @@ export class Simulation {
       maxHp: hp,
       radius: 1.42,
       speed: eliteSpeed.warden,
-      contactDps: eliteDps.warden * this.damageScale(),
+      contactDps: eliteDps.warden * this.damageScale() * 1.22,
       facingX: 0,
       facingZ: 1,
       state: 'normal',
@@ -1370,9 +1382,14 @@ export class Simulation {
       embedded: 0,
       lastArcAt: -99,
       sentryTouchedUntil: -99,
-      rarity: 'common',
+      rarity: 'legendary',
       repertoire: []
     };
+    // The finale is the enemy ecosystem's payoff: a late legendary repertoire plus every
+    // distinct relic effect elites managed to capture during the run.
+    this.claimRepertoire(e);
+    this.inheritEliteLegacy(e, true);
+    this.inheritEliteEvolution(e);
     this.ents.push(e);
     this.metrics.spawned++;
     this.metrics.eliteSpawned++;
@@ -1740,11 +1757,11 @@ export class Simulation {
     if (this.bossSpawned) return;
     this.eliteAcc += this.dt;
     const active = this.ents.filter((e) => e.kind === 'elite' && e.hp > 0 && !e.boss).length;
-    const cap = this.time < 180 ? 2 : 3;
+    const cap = this.time < 85 ? 1 : this.time < 180 ? 2 : 3;
     if (!this.firstElite && this.time >= 22) {
       this.firstElite = true;
       this.eliteAcc = 0;
-      this.spawnElite();
+      this.spawnElite(true);
       return;
     }
     const interval = this.time < 160 ? 20 : this.time < 320 ? 16 : 12;
@@ -1784,36 +1801,36 @@ export class Simulation {
     return pool[this.rng.int(pool.length)];
   }
   /**
-   * D10: an elite fields as much of the hero's declined history as its tier allows. Cards
-   * are claimed rather than copied, so no two elites wield the same refusal and D11 can
-   * hand them back to the store when this one dies.
+   * Refusal repertoire is learned ecosystem knowledge. Early encounters are intentionally
+   * narrow for readability; later elites can carry a much broader selection.
    */
+  private eliteRepertoireCapacity(e: Ent) {
+    const t = Math.max(0, Math.min(1, this.time / this.runDuration));
+    const base = ELITE_RARITY_CAPACITY[e.rarity];
+    // Early elites teach chassis first. After that the ecosystem is intentionally allowed
+    // to accumulate a broad vocabulary instead of freezing at the old 1/3/6 inventory caps.
+    if (this.time < 60) return Math.min(1, base);
+    if (this.time < 120) return Math.min(3, base + 1);
+    const growth = e.rarity === 'legendary' ? Math.floor(t * 7) : Math.floor(t * 6);
+    return Math.min(12, base + growth);
+  }
   private claimRepertoire(e: Ent) {
-    const free = this.refusalStore.filter((c) => c.heldBy === 0);
-    for (let i = free.length - 1; i > 0; i--) {
+    // Refusals are ecosystem knowledge, not a scarce inventory lock. heldBy still records
+    // the first visible carrier, but another elite may learn the same refusal concurrently.
+    const pool = [...this.refusalStore];
+    for (let i = pool.length - 1; i > 0; i--) {
       const j = this.rng.int(i + 1);
-      const tmp = free[i];
-      free[i] = free[j];
-      free[j] = tmp;
+      [pool[i], pool[j]] = [pool[j], pool[i]];
     }
-    // Roughly half the store is growth directions, and of the phenomena only some can be
-    // fielded yet, so a purely random draw can leave an elite with nothing to show: the
-    // telemetry measured 0.29 casts per ordinary fight, meaning the hero almost never sees
-    // refusal link used to disappear. Lead with one active weapon Echo when the tier can carry it, then
-    // fill the rest at random, so an elite that could demonstrate the link does.
-    const armed = free.findIndex((c) => !!c.skill);
-    // Higher tiers have enough capacity to guarantee a readable cast. Common elites have
-    // one slot only (D9), so forcing a weapon every time would make refused growth directions impossible
-    // to mirror. All v0.11 discovery Phenomena have authored Echo profiles; leave one common in four unbiased.
-    const forceReadableWeapon = e.rarity !== 'common' || e.id % 4 !== 0;
-    if (forceReadableWeapon && armed > 0) {
-      const lead = free[armed];
-      free.splice(armed, 1);
-      free.unshift(lead);
+    const armed = pool.findIndex((q) => !!q.skill);
+    if (armed > 0) {
+      const lead = pool[armed];
+      pool.splice(armed, 1);
+      pool.unshift(lead);
     }
-    for (const c of free.slice(0, ELITE_RARITY_CAPACITY[e.rarity])) {
-      c.heldBy = e.id;
-      e.repertoire.push(c.serial);
+    for (const card of pool.slice(0, this.eliteRepertoireCapacity(e))) {
+      if (card.heldBy === 0) card.heldBy = e.id;
+      e.repertoire.push(card.serial);
     }
     this.applyRefusedAxes(e);
   }
@@ -1848,7 +1865,7 @@ export class Simulation {
     const quick = this.rivalAxisCount(e, 'mobility');
     if (quick) e.speed *= Math.pow(1.12, quick);
   }
-  /** D11: the cards of a fallen elite go back to the store for the next one to pick up. */
+  /** heldBy is first-carrier bookkeeping; death clears that marker, not ecosystem knowledge. */
   private releaseRepertoire(e: Ent) {
     this.rivalCastAt.delete(e.id);
     this.eliteEchoes.delete(e.id);
@@ -2007,7 +2024,7 @@ export class Simulation {
       } else {
         this.eliteEchoes.delete(id);
         const rawGap=Math.max(2.25,this.rng.range(3.4,5.0)-e.repertoire.length*0.22);
-        const gap=this.elitePatternCooldown(rawGap,e)*Math.pow(0.86,this.rivalAxisCount(e,'tempo'))*(e.relicGapMul??1);
+        const gap=this.elitePatternCooldown(rawGap,e)*Math.pow(0.86,this.rivalAxisCount(e,'tempo'));
         this.rivalCastAt.set(e.id,this.time+gap);
       }
     }
@@ -2074,7 +2091,7 @@ export class Simulation {
     return this.eliteLog;
   }
 
-  private spawnElite() {
+  private spawnElite(opening = false) {
     const pool: EliteChassis[] = [
       'hunter',
       'architect',
@@ -2084,18 +2101,13 @@ export class Simulation {
       'shepherd'
     ];
     const chassis = pool[this.rng.int(pool.length)];
-    const rarity = this.rollEliteRarity(),
-      affix = this.rollEliteAffix(rarity);
+    const rarity: EliteRarity = opening ? 'common' : this.rollEliteRarity(),
+      affix = opening ? 'none' : this.rollEliteAffix(rarity);
     const q = this.pointAroundPlayer(15, 18.5),
       scale = this.worldScale();
     let hp = eliteHp[chassis] * scale * ELITE_RARITY_HP[rarity],
       speed = eliteSpeed[chassis];
-    if (
-      this.mode === 'clean' &&
-      this.metrics.eliteSpawned === 0 &&
-      this.allOwnedCatalysts().length === 0
-    )
-      hp *= 0.76;
+    if (opening && this.mode === 'clean') hp *= 0.8;
     const e: Ent = {
       id: this.nextId++,
       kind: 'elite',
@@ -2153,7 +2165,11 @@ export class Simulation {
       rarity,
       repertoire: []
     };
-    this.claimRepertoire(e);
+    if (!opening) {
+      this.claimRepertoire(e);
+      this.inheritEliteLegacy(e);
+      this.grantNativeEliteGrowth(e);
+    }
     this.noteEliteSpawn(e);
     this.ents.push(e);
     this.metrics.spawned++;
@@ -2282,6 +2298,21 @@ export class Simulation {
       e.squadTask = task;
       e.squadUntil = e.orderUntil;
     }
+  }
+
+  private steerEliteToRelic(e: Ent, speed: number, playerDistance: number) {
+    if (e.state !== 'normal' || e.eliteAction || this.eliteEchoes.has(e.id)) return false;
+    const seek = Math.min(46, 24 * (e.relicSeekMul ?? 1));
+    let best: Relic | null = null, bestD = seek;
+    for (const relic of this.relics) {
+      const d = Math.hypot(relic.x - e.x, relic.z - e.z);
+      if (d < bestD) { best = relic; bestD = d; }
+    }
+    if (!best || bestD <= Simulation.RELIC_ELITE_REACH) return false;
+    // Do not abandon immediate melee just to loot; otherwise a visible nearby relic is a real objective.
+    if (playerDistance < 3.2 && bestD > playerDistance * 0.8) return false;
+    this.steerTo(e, best.x, best.z, speed, 1.24);
+    return true;
   }
 
   private updateEnemyAI() {
@@ -2542,6 +2573,8 @@ export class Simulation {
           tx = this.px - nz * side * 3.5,
           tz = this.pz + nx * side * 3.5;
         this.steerTo(e, tx, tz, speed, 1.08);
+      } else if (e.kind === 'elite' && !e.boss && this.steerEliteToRelic(e, speed, d)) {
+        // Looting is a temporary tactical job. Contact damage below still applies if the hero intercepts it.
       } else if (e.kind === 'elite') {
         if (e.boss) this.updateBossAI(e, speed, d, nx, nz);
         else this.updateEliteAI(e, speed, d, nx, nz);
@@ -2559,7 +2592,7 @@ export class Simulation {
   private elitePatternCooldown(base: number, e: Ent) {
     const t = Math.min(1, this.time / this.runDuration),
       rarity = e.rarity === 'legendary' ? 0.72 : e.rarity === 'uplifted' ? 0.86 : 1;
-    return Math.max(1.65, base * (1 - 0.22 * t) * rarity);
+    return Math.max(1.2, base * (1 - 0.22 * t) * rarity * (e.relicGapMul ?? 1));
   }
 
   private beginElitePattern(
@@ -2792,27 +2825,42 @@ export class Simulation {
     return t >= 0 && t <= range && lat <= halfWidth;
   }
   private updateBossAI(e: Ent, speed: number, d: number, nx: number, nz: number) {
-    if (e.bossPhase === 1 && e.hp <= e.maxHp * 0.5) {
-      e.bossPhase = 2;
-      e.adaptCooldown = 0.5;
-      e.buffUntil = this.time + 1.0;
+    const nextPhase =
+      e.bossPhase === 1 && e.hp <= e.maxHp * 0.66 ? 2 :
+      e.bossPhase === 2 && e.hp <= e.maxHp * 0.33 ? 3 : 0;
+    if (nextPhase) {
+      e.bossPhase = nextPhase;
+      e.adaptCooldown = nextPhase === 3 ? 0.15 : 0.45;
+      e.buffUntil = this.time + 1.1;
       this.events.push({
         type: 'BossPhase',
         tick: this.tick,
         entity: e.id,
-        phase: 2,
+        phase: nextPhase,
         x: e.x,
         z: e.z
       });
+      if (nextPhase === 3) {
+        for (let i=0;i<4;i++) {
+          const a=i*Math.PI/2+0.35;
+          this.spawnEnemyAt(i%2?'bookmark':'marginwalker',e.x+Math.cos(a)*2.6,e.z+Math.sin(a)*2.6,2.0);
+        }
+      }
+    }
+    // Between Warden patterns the boss can field the same authored Echo language as elites.
+    // This reuses collected run history without copying the player's dispatcher.
+    if (e.adaptStage === 0 && !e.eliteAction && !this.eliteEchoes.has(e.id) && e.repertoire.length) {
+      this.fieldRefusals(e, d);
+      if (this.eliteEchoes.has(e.id)) return;
     }
     if (e.adaptStage === 2 && e.bossPattern === 'charge') {
-      e.x += e.lockedX * (e.bossPhase === 2 ? 13.5 : 11.5) * this.dt;
-      e.z += e.lockedZ * (e.bossPhase === 2 ? 13.5 : 11.5) * this.dt;
+      e.x += e.lockedX * (e.bossPhase >= 3 ? 15.2 : e.bossPhase >= 2 ? 13.5 : 11.5) * this.dt;
+      e.z += e.lockedZ * (e.bossPhase >= 3 ? 15.2 : e.bossPhase >= 2 ? 13.5 : 11.5) * this.dt;
       e.x = Math.max(this.world.minX + 1, Math.min(this.world.maxX - 1, e.x));
       e.z = Math.max(this.world.minZ + 1, Math.min(this.world.maxZ - 1, e.z));
       if (e.stateTimer <= 0) {
         e.adaptStage = 0;
-        e.adaptCooldown = e.bossPhase === 2 ? 2.25 : 3.2;
+        e.adaptCooldown = e.bossPhase >= 3 ? 1.65 : e.bossPhase >= 2 ? 2.25 : 3.2;
         e.exposedUntil = this.time + 1.25;
       }
       return;
@@ -2820,14 +2868,14 @@ export class Simulation {
     if (e.adaptStage === 1 && e.stateTimer <= 0) {
       if (
         e.bossPattern === 'sweep' &&
-        this.playerInSector(e.x, e.z, e.lockedX, e.lockedZ, 7.8, e.bossPhase === 2 ? 0.92 : 0.78)
+        this.playerInSector(e.x, e.z, e.lockedX, e.lockedZ, 7.8, e.bossPhase >= 2 ? 0.92 : 0.78)
       )
-        this.hitPlayer((e.bossPhase === 2 ? 48 : 39) * this.damageScale());
+        this.hitPlayer((e.bossPhase >= 3 ? 61 : e.bossPhase >= 2 ? 48 : 39) * this.damageScale(), e, 'warden_sweep');
       else if (
         e.bossPattern === 'rupture' &&
-        this.playerInRay(e.x, e.z, e.lockedX, e.lockedZ, 16, e.bossPhase === 2 ? 1.85 : 1.55)
+        this.playerInRay(e.x, e.z, e.lockedX, e.lockedZ, 16, e.bossPhase >= 2 ? 1.85 : 1.55)
       ) {
-        this.hitPlayer((e.bossPhase === 2 ? 43 : 35) * this.damageScale());
+        this.hitPlayer((e.bossPhase >= 3 ? 55 : e.bossPhase >= 2 ? 43 : 35) * this.damageScale(), e, 'warden_rupture');
         this.fields.push({
           id: this.nextId++,
           x: this.px,
@@ -2840,16 +2888,16 @@ export class Simulation {
         });
       } else if (e.bossPattern === 'charge') {
         e.adaptStage = 2;
-        e.stateTimer = e.bossPhase === 2 ? 0.64 : 0.58;
+        e.stateTimer = e.bossPhase >= 2 ? 0.64 : 0.58;
         return;
       }
       e.adaptStage = 0;
-      e.adaptCooldown = e.bossPhase === 2 ? 2.25 : 3.2;
+      e.adaptCooldown = e.bossPhase >= 3 ? 1.65 : e.bossPhase >= 2 ? 2.25 : 3.2;
       e.exposedUntil = this.time + 0.7;
       return;
     }
     if (e.adaptStage === 0) {
-      if (d > 6.0) this.steerTo(e, this.px, this.pz, speed, e.bossPhase === 2 ? 1.22 : 1);
+      if (d > 6.0) this.steerTo(e, this.px, this.pz, speed, e.bossPhase >= 2 ? 1.22 : 1);
       else if (d < 3.2) {
         e.x -= nx * speed * 0.5 * this.dt;
         e.z -= nz * speed * 0.5 * this.dt;
@@ -2876,7 +2924,7 @@ export class Simulation {
                 aimX: e.lockedX,
                 aimZ: e.lockedZ,
                 radius: 7.8,
-                halfAngle: e.bossPhase === 2 ? 0.92 : 0.78
+                halfAngle: e.bossPhase >= 2 ? 0.92 : 0.78
               }
             : {
                 kind: 'ray',
@@ -2885,7 +2933,7 @@ export class Simulation {
                 aimX: e.lockedX,
                 aimZ: e.lockedZ,
                 range: pattern === 'rupture' ? 16 : 15,
-                halfWidth: pattern === 'rupture' ? (e.bossPhase === 2 ? 1.85 : 1.55) : 1.05
+                halfWidth: pattern === 'rupture' ? (e.bossPhase >= 2 ? 1.85 : 1.55) : 1.05
               };
         this.events.push({
           type: 'CombatShape',
@@ -2902,7 +2950,7 @@ export class Simulation {
           x: e.x,
           z: e.z
         });
-        if (e.bossPhase === 2 && this.rng.float() < 0.55) {
+        if (e.bossPhase >= 2 && this.rng.float() < 0.55) {
           for (let i = 0; i < 3; i++) {
             const a = this.rng.range(0, Math.PI * 2);
             this.spawnEnemyAt(
@@ -3089,7 +3137,8 @@ export class Simulation {
   private updateRelics() {
     this.relicAcc += this.dt;
     const interval = Simulation.RELIC_INTERVAL * this.itemRelicRateMul;
-    if (this.relicAcc >= interval && this.relics.length < 8) {
+    if (this.relics.length >= 8) this.relicAcc = Math.min(this.relicAcc, interval);
+    else if (this.relicAcc >= interval) {
       this.relicAcc -= interval;
       this.spawnRelic();
     }
@@ -3101,8 +3150,9 @@ export class Simulation {
       }
       let claimed = false;
       for (const e of this.ents) {
-        if (e.kind !== 'elite' || e.boss) continue;
-        if (Math.hypot(e.x - r.x, e.z - r.z) < Simulation.RELIC_ELITE_REACH) {
+        if (e.kind !== 'elite') continue;
+        const reach = Simulation.RELIC_ELITE_REACH * Math.min(1.8, e.relicSeekMul ?? 1);
+        if (Math.hypot(e.x - r.x, e.z - r.z) < reach) {
           this.giveEliteRelic(e, r);
           claimed = true;
           break;
@@ -3179,43 +3229,166 @@ export class Simulation {
     });
   }
   /**
-   * D15 says every gain the hero can make needs a counterpart, and D51 named the two
-   * categories that had none. The counterpart is by category rather than by copying the
-   * effect, because a relic that hands an elite the literal player-side bonus would be
-   * exactly the mechanical mirror D41 rules out.
+   * Enemy-side item effects are authored per item. `allowClaim` is false when an item
+   * effect is inherited through a refusal card so "learn one more refusal" cannot recurse.
    */
-  /**
-   * The counterpart an elite gets from an item, by category and never by copy (D15,
-   * D41, D51). Durability is deliberately absent from every branch: it is the number
-   * the D49 fight length is calibrated through, and stacking onto it has collapsed a
-   * run before. `allowClaim` is false when the mirror is applied to a card the elite is
-   * merely holding, because claiming more cards from inside the claim would recurse.
-   */
+  private scaleEliteDurability(e: Ent, mul: number) {
+    if (mul <= 0 || Math.abs(mul - 1) < 1e-6) return;
+    e.maxHp *= mul;
+    e.hp *= mul;
+  }
+
   private applyEliteItem(e: Ent, id: ItemId, allowClaim: boolean) {
-    switch (items[id].category) {
-      case 'guard':
-        e.contactDps *= 1.14;
+    // Enemy-side items are intentionally not five category aliases. Each pickup changes a
+    // different pressure axis so item combinations produce different elites over the run.
+    switch (id) {
+      case 'plating':
+        this.scaleEliteDurability(e, 1.16);
         break;
-      case 'edge':
-        e.relicCastMul = (e.relicCastMul ?? 1) * 1.2;
-        if (allowClaim) e.groundRelicCastMul = (e.groundRelicCastMul ?? 1) * 1.2;
+      case 'vitality':
+        this.scaleEliteDurability(e, 1.22);
         break;
-      case 'pace':
-        e.speed *= 1.1;
+      case 'aegis_core':
+        e.relicDamageTakenMul = (e.relicDamageTakenMul ?? 1) * 0.88;
+        break;
+      case 'ablation':
+        e.relicDamageTakenMul = (e.relicDamageTakenMul ?? 1) * 0.9;
+        break;
+      case 'keen_edge':
+        e.relicCastMul = (e.relicCastMul ?? 1) * 1.16;
+        e.contactDps *= 1.08;
+        if (allowClaim) e.groundRelicCastMul = (e.groundRelicCastMul ?? 1) * 1.16;
+        break;
+      case 'hollow_point':
+        e.relicCritChance = (e.relicCritChance ?? 0) + 0.12;
+        break;
+      case 'siphon':
+        e.relicSiphon = (e.relicSiphon ?? 0) + 0.035;
+        break;
+      case 'bane':
+        e.relicCastMul = (e.relicCastMul ?? 1) * 1.18;
+        e.relicReachMul = (e.relicReachMul ?? 1) * 1.08;
+        if (allowClaim) e.groundRelicCastMul = (e.groundRelicCastMul ?? 1) * 1.18;
+        break;
+      case 'light_step':
+        e.speed *= 1.12;
+        break;
+      case 'quickened':
+        e.relicGapMul = (e.relicGapMul ?? 1) * 0.82;
+        break;
+      case 'short_cord':
         e.relicGapMul = (e.relicGapMul ?? 1) * 0.9;
+        e.speed *= 1.05;
         break;
-      case 'finding':
+      case 'afterimage':
+        e.relicDamageTakenMul = (e.relicDamageTakenMul ?? 1) * 0.92;
+        e.speed *= 1.04;
+        break;
+      case 'lodestone':
+        e.relicSeekMul = (e.relicSeekMul ?? 1) * 1.55;
+        break;
+      case 'keen_eye':
+        e.relicSeekMul = (e.relicSeekMul ?? 1) * 1.25;
         if (allowClaim) this.claimOneMoreRefusal(e);
-        else e.relicGapMul = (e.relicGapMul ?? 1) * 0.92;
         break;
-      case 'elite':
-        e.relicReachMul = (e.relicReachMul ?? 1) * 1.35;
+      case 'scavenger':
+        this.scaleEliteDurability(e, 1.08);
+        e.relicCastMul = (e.relicCastMul ?? 1) * 1.06;
+        break;
+      case 'beacon':
+        e.relicSeekMul = (e.relicSeekMul ?? 1) * 1.75;
+        e.relicGapMul = (e.relicGapMul ?? 1) * 0.94;
+        break;
+      case 'spoils':
+        // Turns the carrier into a local pack leader instead of a numerical loot bonus.
+        e.affixPulse = Math.min(e.affixPulse, 1.5);
+        e.buffUntil = Math.max(e.buffUntil, this.time + 1.8);
+        break;
+      case 'unravel':
+        e.relicDamageTakenMul = (e.relicDamageTakenMul ?? 1) * 0.88;
+        break;
+      case 'tribute':
+        this.scaleEliteDurability(e, 1.15);
+        e.contactDps *= 1.08;
+        break;
+      case 'reprisal':
+        e.relicCastMul = (e.relicCastMul ?? 1) * 1.2;
+        e.relicGapMul = (e.relicGapMul ?? 1) * 0.92;
+        if (allowClaim) e.groundRelicCastMul = (e.groundRelicCastMul ?? 1) * 1.2;
         break;
     }
   }
+
+  private eliteInheritanceBudget(e: Ent) {
+    const t = Math.max(0, Math.min(1, this.time / this.runDuration));
+    const base = e.rarity === 'legendary' ? 2 : e.rarity === 'uplifted' ? 1 : 0;
+    if (this.time < 90) return Math.min(base, 1);
+    return Math.min(10, base + Math.floor(t * 7));
+  }
+
+  private nativeEliteGrowthBudget(e: Ent) {
+    if (this.time < 120) return 0;
+    const depth = 1 + Math.floor((this.time - 120) / 90);
+    const rarity = e.rarity === 'legendary' ? 2 : e.rarity === 'uplifted' ? 1 : 0;
+    return Math.min(6, depth + rarity);
+  }
+
+  private grantNativeEliteGrowth(e: Ent) {
+    const budget = this.nativeEliteGrowthBudget(e);
+    if (!budget) return;
+    const owned = new Set<ItemId>([...(e.relicItems ?? []), ...(e.evolutionItems ?? [])]);
+    const pool = itemOrder.filter((id) => !owned.has(id));
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = this.rng.int(i + 1);
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    e.evolutionItems ??= [];
+    for (const id of pool.slice(0, budget)) {
+      e.evolutionItems.push(id);
+      this.eliteEvolutionHistory.push(id);
+      this.applyEliteItem(e, id, true);
+    }
+  }
+
+  private inheritEliteEvolution(e: Ent) {
+    if (!this.eliteEvolutionHistory.length) return;
+    e.evolutionItems ??= [];
+    const captured = new Set(e.relicItems ?? []);
+    for (const id of new Set(this.eliteEvolutionHistory)) {
+      e.evolutionItems.push(id);
+      if (!captured.has(id)) this.applyEliteItem(e, id, false);
+    }
+  }
+
+  private inheritEliteLegacy(e: Ent, all = false) {
+    if (!this.eliteLegacyItems.length) return;
+    e.relicItems ??= [];
+    if (all) {
+      // The Warden visibly carries the complete captured history, including repeated finds.
+      // Repeats already increase its global legacy mass through boss HP scaling; applying the
+      // same multiplicative item effect over and over would turn a lucky duplicate streak into
+      // exponential noise, so each distinct mechanical rule is applied once.
+      e.relicItems.push(...this.eliteLegacyItems);
+      for (const id of new Set(this.eliteLegacyItems)) this.applyEliteItem(e, id, false);
+      return;
+    }
+    const pool = [...this.eliteLegacyItems];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = this.relicRng.int(i + 1);
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    for (const id of pool.slice(0, this.eliteInheritanceBudget(e))) {
+      e.relicItems.push(id);
+      this.applyEliteItem(e, id, false);
+    }
+  }
+
   private giveEliteRelic(e: Ent, r: Relic) {
     const def = items[r.item];
     this.metrics.relicsTakenByElites++;
+    e.relicItems ??= [];
+    e.relicItems.push(r.item);
+    this.eliteLegacyItems.push(r.item);
     this.applyEliteItem(e, r.item, true);
     const record = this.eliteLogById.get(e.id);
     if (record) record.itemsTaken.push(r.item);
@@ -3224,18 +3397,23 @@ export class Simulation {
       tick: this.tick,
       item: r.item,
       name: def.name,
-      description: def.description,
+      description: itemRivalEffect[r.item],
       byHero: false,
       x: r.x,
       z: r.z
     });
   }
   private claimOneMoreRefusal(e: Ent) {
-    const free = this.refusalStore.filter((c) => c.heldBy === 0);
-    if (!free.length) return;
-    const c = free[this.relicRng.int(free.length)];
-    c.heldBy = e.id;
-    e.repertoire.push(c.serial);
+    const pool = this.refusalStore.filter((card) => !e.repertoire.includes(card.serial));
+    if (!pool.length) return;
+    const card = pool[this.relicRng.int(pool.length)];
+    if (card.heldBy === 0) card.heldBy = e.id;
+    e.repertoire.push(card.serial);
+    // Apply only the new card. Re-running applyRefusedAxes would compound every old
+    // mobility/item modifier each time an elite learns one more refusal.
+    if (card.kind === 'item' && card.item) this.applyEliteItem(e, card.item, false);
+    else if (card.kind === 'axis' && card.resonance === 'conductivity') e.contactDps *= 1.12;
+    else if (card.kind === 'axis' && card.resonance === 'mobility') e.speed *= 1.12;
   }
 
   private updateConstructs() {
@@ -3442,37 +3620,37 @@ export class Simulation {
       (this.supportsAxis(st.id, 'multiplicity') ? this.resonance.multiplicity : 0) +
       Math.min(3, Math.floor(this.doctrines.quantity / 2)),
       damageMul = 1;
-    if (st.mutation === 'orbit_many') { count += 3; damageMul *= 0.9; }
+    if (st.mutation === 'orbit_many') count += 3;
     else if (st.mutation === 'orbit_saw') { count = Math.max(2, count - 1); damageMul *= 1.4; }
     count = Math.max(2, Math.min(12, count));
     let radius = this.skillRadius(st, skills.orbit_blades.baseRadius),
-      wounded = 0;
+      crowd = 0;
     if (this.mutationIs(st,'orbit_blood')) {
-      wounded=this.ents.filter(e=>e.woundUntil>this.time&&Math.hypot(e.x-this.px,e.z-this.pz)<6).length;
-      if(this.mutationIs(st,'orbit_sanguine_crown')) radius*=1+Math.min(0.42,wounded*0.045);
+      crowd=this.ents.filter(e=>e.hp>0&&Math.hypot(e.x-this.px,e.z-this.pz)<6).length;
+      radius*=1+Math.min(0.34,crowd*0.017);
+      damageMul*=1+Math.min(0.48,crowd*0.024);
+      if(this.mutationIs(st,'orbit_sanguine_crown')) radius*=1+Math.min(0.22,crowd*0.01);
     }
-    // Count is real gameplay density, not only decoration. More blades shorten the interval
-    // moderately; the square-root curve avoids turning Quantity into a linear DPS multiplier.
-    const hitInterval=Math.max(0.22,Math.min(0.5,0.38*Math.sqrt(3/count)));
-    return { count, radius, damageMul, wounded, hitInterval };
+    // Quantity is allowed to be a genuine power axis in a horde game. Twice as many blades
+    // can approach twice the contact rate; spacing around the orbit is the natural limiter.
+    const hitInterval=Math.max(0.085,Math.min(0.5,0.38*(3/count)));
+    return { count, radius, damageMul, crowd, hitInterval };
   }
 
   private updateOrbitBlades() {
     const st=this.skillsRuntime.get('orbit_blades');if(!st||!this.isActiveSkill('orbit_blades'))return;
     this.orbitAcc+=this.dt;if(this.orbitAcc<0.13)return;this.orbitAcc-=0.13;
     const mut=st.mutation, profile=this.orbitProfile(st);
-    let dmg=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36*profile.damageMul,
-      blood=1;
-    if(this.mutationIs(st,'orbit_blood')) blood=1+Math.min(0.7,profile.wounded*0.07);
+    const dmg=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36*profile.damageMul;
     for(const e of this.ents){
       if(e.hp<=0||this.time-e.orbitHitAt<profile.hitInterval)continue;
       const d=Math.hypot(e.x-this.px,e.z-this.pz);
       if(Math.abs(d-profile.radius)<0.62){
-        e.orbitHitAt=this.time;let m=dmg*blood;
+        e.orbitHitAt=this.time;let m=dmg;
         if(mut==='orbit_saw'&&e.kind==='elite')m*=1.9;
         this.damage(e,m,'orbit_blades',false,this.px,this.pz,this.slots.indexOf('orbit_blades'));
         this.closeDamage+=m;
-        if(this.mutationIs(st,'orbit_sanguine_crown')&&e.woundUntil>this.time)this.grantBarrier(Math.min(4,m*0.025));
+        if(this.mutationIs(st,'orbit_sanguine_crown')&&profile.crowd>=5)this.grantBarrier(Math.min(3.2,m*0.02));
       }
     }
     if(this.mutationIs(st,'orbit_aegis_crown')&&this.aegisCharge>=6){this.aegisCharge=0;this.grantBarrier(16);const rr=profile.radius+1.8;this.combatShape('orbit_aegis_crown',{kind:'circle',x:this.px,z:this.pz,radius:rr},'control');for(const e of this.ents){const dx=e.x-this.px,dz=e.z-this.pz,d=Math.hypot(dx,dz)||1;if(d<rr+e.radius){this.damage(e,22*this.powerBucket(st),'orbit_blades',false);e.x+=dx/d*0.75;e.z+=dz/d*0.75;}}this.events.push({type:'RareEvent',tick:this.tick,title:'КОРОНА ЭГИДЫ',detail:'Перехваты выпущены ударной волной',x:this.px,z:this.pz});}
@@ -3722,7 +3900,7 @@ export class Simulation {
       let pulled=0;
       const candidates=this.targetsFor(src).filter(e=>e.hp>0&&Math.hypot(e.x-anchor.x,e.z-anchor.z)<=radius+e.radius).sort((a,b)=>Math.hypot(a.x-anchor.x,a.z-anchor.z)-Math.hypot(b.x-anchor.x,b.z-anchor.z));
       const cap=mut==='tether_hook'?2:mut==='tether_net'?10:6;
-      for(const e of candidates){if(pulled++>=cap)break;const dx=anchor.x-e.x,dz=anchor.z-e.z,d=Math.hypot(dx,dz)||1,pull=(mut==='tether_hook'?2.4:1.35)*(1+st.control*0.25);this.damage(e,skills.tether_drag.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e),'tether_drag',false,anchor.x,anchor.z,slot);e.x+=dx/d*Math.min(pull,d*0.62);e.z+=dz/d*Math.min(pull,d*0.62);e.displacedUntil=Math.max(e.displacedUntil,this.time+(this.mutationIs(st,'tether_lock')?1.55:0.65));this.currentActivationControl+=1.2+st.control;this.noteState('displaced');
+      for(const e of candidates){if(pulled++>=cap)break;const dx=anchor.x-e.x,dz=anchor.z-e.z,d=Math.hypot(dx,dz)||1,pull=(mut==='tether_hook'?2.4:1.35)*(1+st.control*0.25);this.damage(e,skills.tether_drag.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e),'tether_drag',false,anchor.x,anchor.z,slot);e.x+=dx/d*Math.min(pull,d*0.62);e.z+=dz/d*Math.min(pull,d*0.62);e.displacedUntil=Math.max(e.displacedUntil,this.time+(this.mutationIs(st,'tether_lock')?1.85:this.mutationIs(st,'tether_bind')?1.2:0.65));this.currentActivationControl+=1.2+st.control;this.noteState('displaced');
         if(this.mutationIs(st,'gravity_prison')&&e.kind==='elite'){e.exposedUntil=Math.max(e.exposedUntil,this.time+2.1);e.chillUntil=Math.max(e.chillUntil,this.time+1.2);if(e.affix==='shielded')e.shieldStability=Math.max(0,(e.shieldStability??100)-28);this.combatShape('gravity_prison',{kind:'circle',x:e.x,z:e.z,radius:e.radius+1.2},'control');}
       }
       if(this.mutationIs(st,'gravity_singularity')) this.scheduleStrike({at:this.time+0.65,x:anchor.x,z:anchor.z,radius:radius*0.72,damage:skills.tether_drag.baseDamage*this.powerBucket(st)*2.4,faction:src.faction,ownerId:src.owner?.id??0,source:'tether_drag',sourceSlot:slot,intent:'control',telegraph:'gravity_singularity_tell'});
@@ -3824,11 +4002,10 @@ export class Simulation {
       );
     }
     if (incoming === 'reservoir') {
-      this.reservoirCharge += this.lastContext.hitIds.length + this.lastContext.kills * 2;
-      const threshold = Math.max(7, 12 - this.resonance.conductivity);
-      if (this.reservoirCharge >= threshold) {
-        this.reservoirCharge -= threshold;
-        this.activationCountBonus += 2 + Math.min(1, this.resonance.conductivity);
+      const crowdMass = this.lastContext.hitIds.length + this.lastContext.kills * 2;
+      const threshold = Math.max(5, 9 - this.resonance.conductivity);
+      if (crowdMass >= threshold) {
+        this.activationCountBonus += 2 + Math.min(2, this.resonance.conductivity);
         this.metrics.reactions++;
       }
     }
@@ -3870,8 +4047,9 @@ export class Simulation {
       }
     }
     if (incoming === 'splinter') {
+      // Extra bodies are allowed to be real power. Balance the operator through opportunity
+      // cost and spatial distribution, not by silently shrinking every spawned manifestation.
       this.activationCountBonus += 2;
-      this.activationScale *= 0.72;
     }
     const feedback = this.feedbackCountBonus.get(slot) ?? 0;
     if (feedback) {
@@ -3990,13 +4168,10 @@ export class Simulation {
       this.healPlayer(Math.min(20, this.currentActivationKills * 4 * conduct));
       this.metrics.reactions++;
     }
-    if (incoming === 'vault') {
-      this.vaultCharge += this.currentActivationDamage;
-      if (this.vaultCharge >= 900) {
-        this.vaultCharge -= 900;
-        this.grantBarrier(30 * conduct);
-        this.metrics.reactions++;
-      }
+    if (incoming === 'vault' && this.currentHits.size >= 3) {
+      const gain = Math.min(36, (this.currentHits.size * 3.2 + this.currentActivationKills * 2.4) * conduct);
+      this.grantBarrier(gain);
+      this.metrics.reactions++;
     }
     if (incoming === 'handoff' && slot + 1 < this.slots.length && this.slots[slot + 1]) {
       this.feedbackCountBonus.set(slot + 1, 2);
@@ -4352,13 +4527,12 @@ export class Simulation {
   }
   private castFrost(st: SkillRuntime, slot: number, src: CastSource) {
     const mut=st.mutation,r=this.skillRadius(st,skills.frost_ring.baseRadius,slot);
-    const capacitive=(()=>{const arc=this.skillsRuntime.get('chain_arc');return !!arc&&this.mutationIs(arc,'arc_capacitive')&&this.charge>0?1+Math.min(0.4,this.charge*0.08):1;})();
     this.combatShape('frost_ring',{kind:'circle',x:src.x,z:src.z,radius:r},'control');
     let shattered=0; let firstShatter:Ent|null=null;
     for(const e of this.targetsFor(src)){
       const d=Math.hypot(e.x-src.x,e.z-src.z); if(d>r+e.radius)continue;
       const wasChilled=e.chillUntil>this.time, wasFrozen=(e.frozenUntil??0)>this.time;
-      let dmg=skills.frost_ring.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e)*capacitive;
+      let dmg=skills.frost_ring.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e);
       if(mut==='frost_rim')dmg*=d>r*0.62?2:0.48;
       const ignited=e.igniteUntil>this.time;
       if(ignited){e.igniteUntil=0;dmg*=1.18;this.metrics.reactions++;this.events.push({type:'Reaction',tick:this.tick,reaction:'thermal_shock',x:e.x,z:e.z,amount:dmg*0.42});}
@@ -4386,15 +4560,14 @@ export class Simulation {
       this.spawnProjectile({x:src.x,z:src.z,vx:src.aimX*2.25,vz:src.aimZ*2.25,radius:r*0.62,ttl:7.0,damage:9*this.powerBucket(st),coverDamage:25,faction:src.faction,ownerId:src.owner?.id??0,source:'frost_ring',sourceSlot:slot,mutation:st.mutation,apotheosis:st.mutationApotheosis,rivalConcentration:1,behavior:'roller',phase:0,hitIds:[],growth:0.035});
       this.events.push({type:'RareEvent',tick:this.tick,title:'БЕЛЫЙ ШТОРМ',detail:'Ледяной фронт движется через арену',x:src.x,z:src.z});
     }
-    if(capacitive>1)this.charge=0;
   }
 
   private castRail(st: SkillRuntime, slot: number, src: CastSource) {
     const mut=st.mutation;if(mut==='rail_gun'&&this.cycle%2===1)return;
     const requestedCount=this.projectileCount(st,slot), count=mut==='rail_gun'?1:requestedCount+(mut==='rail_fan'?2:0),rays:number[]=[];
-    for(let i=0;i<count;i++)rays.push((i-(count-1)/2)*(mut==='rail_fan'?0.11:0.055));
+    for(let i=0;i<count;i++)rays.push((i-(count-1)/2)*(mut==='rail_fan'?0.11:0.072));
     let latticePoint:{x:number;z:number}|null=null;
-    for(const ang of rays){const a=this.rotatedAim(src,ang);let base=skills.rail_spear.baseDamage*this.powerBucket(st)*(mut==='rail_gun'?2.35:mut==='rail_fan'?0.58:mut==='rail_rack'?0.78:count>1?0.8:1);const range=this.skillRange(st,mut==='rail_gun'?25:skills.rail_spear.baseRange),width=this.skillRadius(st,0.34,slot);this.combatShape('rail_spear',{kind:'ray',x:src.x,z:src.z,aimX:a.x,aimZ:a.z,range,halfWidth:width});const hits=this.rayHits(src,a.x,a.z,range,width,mut==='rail_gun'?14:mut==='rail_fan'?5:8);let first=true;
+    for(const ang of rays){const a=this.rotatedAim(src,ang);let base=skills.rail_spear.baseDamage*this.powerBucket(st)*(mut==='rail_gun'?2.35:mut==='rail_fan'?0.58:mut==='rail_rack'?0.78:1);const range=this.skillRange(st,mut==='rail_gun'?25:skills.rail_spear.baseRange),width=this.skillRadius(st,0.34,slot);this.combatShape('rail_spear',{kind:'ray',x:src.x,z:src.z,aimX:a.x,aimZ:a.z,range,halfWidth:width});const hits=this.rayHits(src,a.x,a.z,range,width,mut==='rail_gun'?14:mut==='rail_fan'?5:8);let first=true;
       for(const h of hits){let dmg=base*this.slotAmp(slot,h.e);if(this.mutationIs(st,'rail_spot')&&h.e.markUntil>this.time)dmg*=1.25;const hadMark=h.e.markUntil>this.time;this.damage(h.e,dmg,'rail_spear',true,src.x,src.z,slot);h.e.embedded=Math.min(8,h.e.embedded+(mut==='rail_rack'?2:1));this.noteState('embed');if((this.mutationIs(st,'rail_spot')||hadMark)&&hadMark)h.e.exposedUntil=this.time+3;if(this.mutationIs(st,'rail_harpoon')&&first&&h.e.kind==='elite'){const dx=src.x-h.e.x,dz=src.z-h.e.z,d=Math.hypot(dx,dz)||1;h.e.x+=dx/d*1.25;h.e.z+=dz/d*1.25;}
         if(this.mutationIs(st,'rail_execution_line')&&first&&h.e.kind==='elite')this.scheduleStrike({at:this.time+0.55,x:h.e.x,z:h.e.z,radius:0.85,damage:base*1.25,faction:src.faction,ownerId:src.owner?.id??0,source:'rail_spear',sourceSlot:slot,intent:'damage',telegraph:'rail_execution_beacon'});
         if(this.mutationIs(st,'rail_sky_lance')&&hadMark)this.scheduleStrike({at:this.time+0.72,x:h.e.x,z:h.e.z,radius:1.0,damage:base*1.7,faction:src.faction,ownerId:src.owner?.id??0,source:'rail_spear',sourceSlot:slot,intent:'damage',telegraph:'rail_sky_lance_beacon'});
@@ -4404,10 +4577,11 @@ export class Simulation {
   }
 
   private castCleaver(st: SkillRuntime, slot: number, src: CastSource, repeat = false) {
-    const mut=st.mutation,r=this.skillRadius(st,skills.cleaver.baseRadius,slot);let half=mut==='cleaver_guillotine'?0.65:1.12;if(mut==='cleaver_roundhouse')half=Math.PI;this.combatShape('cleaver',{kind:'sector',x:src.x,z:src.z,radius:r,aimX:src.aimX,aimZ:src.aimZ,halfAngle:half});let kills=0,hookX=0,hookZ=0,hookN=0;
-    for(const e of this.targetsFor(src)){const dx=e.x-src.x,dz=e.z-src.z,d=Math.hypot(dx,dz);if(d>r+e.radius||d<0.01)continue;const dot=dx/d*src.aimX+dz/d*src.aimZ;if(Math.acos(Math.max(-1,Math.min(1,dot)))>half)continue;let dmg=skills.cleaver.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e)*(repeat?0.65:1);if(mut==='cleaver_guillotine'&&e.hp/e.maxHp<0.25)dmg*=2;if(this.mutationIs(st,'cleaver_deep'))dmg*=0.72;const killed=this.damage(e,dmg,'cleaver',true,src.x,src.z,slot);this.closeDamage+=dmg;if(killed)kills++;e.woundUntil=Math.max(e.woundUntil,this.time+(this.mutationIs(st,'cleaver_deep')?4.8:2.6)*(1+st.statusPotency)*this.memoryFactor());e.woundDps=Math.max(e.woundDps,(this.mutationIs(st,'cleaver_deep')?11:4.5)*this.powerBucket(st));this.noteState('wound');
+    const mut=st.mutation,r=this.skillRadius(st,skills.cleaver.baseRadius,slot);let half=mut==='cleaver_guillotine'?0.65:1.12;if(mut==='cleaver_roundhouse')half=Math.PI;this.combatShape('cleaver',{kind:'sector',x:src.x,z:src.z,radius:r,aimX:src.aimX,aimZ:src.aimZ,halfAngle:half});let kills=0,hookX=0,hookZ=0,hookN=0,ruptures=0;
+    for(const e of this.targetsFor(src)){const dx=e.x-src.x,dz=e.z-src.z,d=Math.hypot(dx,dz);if(d>r+e.radius||d<0.01)continue;const dot=dx/d*src.aimX+dz/d*src.aimZ;if(Math.acos(Math.max(-1,Math.min(1,dot)))>half)continue;let dmg=skills.cleaver.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e)*(repeat?0.65:1);if(mut==='cleaver_guillotine'&&e.hp/e.maxHp<0.25)dmg*=2;if(this.mutationIs(st,'cleaver_deep'))dmg*=1.22;const killed=this.damage(e,dmg,'cleaver',true,src.x,src.z,slot);this.closeDamage+=dmg;if(killed)kills++;
+      if(this.mutationIs(st,'cleaver_deep')){const push=e.kind==='elite'?0.22:0.62;e.x+=dx/d*push;e.z+=dz/d*push;e.displacedUntil=Math.max(e.displacedUntil,this.time+0.45);this.noteState('displaced');}
       if(mut==='cleaver_hook'||this.mutationIs(st,'cleaver_chainhook')){const tx=src.x-e.x,tz=src.z-e.z,td=Math.hypot(tx,tz)||1,pull=this.mutationIs(st,'cleaver_chainhook')?1.05:0.65;e.x+=tx/td*pull*(1+st.control);e.z+=tz/td*pull*(1+st.control);hookX+=e.x;hookZ+=e.z;hookN++;}
-      if(this.mutationIs(st,'cleaver_rupture')){e.woundStacks=(e.woundStacks??0)+1;const need=e.kind==='elite'?3:2;if((e.woundStacks??0)>=need){e.woundStacks=0;const burst=42*this.powerBucket(st);this.combatShape('cleaver_rupture',{kind:'circle',x:e.x,z:e.z,radius:1.8});for(const o of this.targetsFor(src))if(o.hp>0&&Math.hypot(o.x-e.x,o.z-e.z)<1.8+o.radius)this.damage(o,burst,'cleaver',false,e.x,e.z,slot);}}
+      if(this.mutationIs(st,'cleaver_rupture')&&ruptures<6){ruptures++;const burst=skills.cleaver.baseDamage*this.powerBucket(st)*0.48,rr=1.55;this.combatShape('cleaver_rupture',{kind:'circle',x:e.x,z:e.z,radius:rr});for(const o of this.targetsFor(src))if(o.hp>0&&o.id!==e.id&&Math.hypot(o.x-e.x,o.z-e.z)<rr+o.radius)this.damage(o,burst,'cleaver',false,e.x,e.z,slot);}
     }
     if(this.mutationIs(st,'cleaver_rift_hook')&&hookN){const x=hookX/hookN,z=hookZ/hookN;this.scheduleStrike({at:this.time+0.24,x,z,radius:2.1,damage:skills.cleaver.baseDamage*this.powerBucket(st)*0.72,faction:src.faction,ownerId:src.owner?.id??0,source:'cleaver',sourceSlot:slot,intent:'control',telegraph:'cleaver_rift_tell'});}
     if(this.mutationIs(st,'cleaver_rhythm')&&kills>0&&!repeat){this.butcherStacks=Math.min(6,this.butcherStacks+kills);if(this.mutationIs(st,'cleaver_harvest_dance')||this.rng.float()<Math.min(0.65,this.butcherStacks*0.16)){const ax=src.aimX,az=src.aimZ;src.aimX=-az;src.aimZ=ax;this.combatShape('cleaver_harvest_dance',{kind:'circle',x:src.x,z:src.z,radius:r*1.18});this.castCleaver(st,slot,src,true);src.aimX=ax;src.aimZ=az;if(this.mutationIs(st,'cleaver_harvest_dance'))this.grantBarrier(3.5*kills);this.butcherStacks=0;}}
@@ -4424,7 +4598,10 @@ export class Simulation {
     let current:Ent|undefined;const embedded=available.filter(e=>e.embedded>0);if(embedded.length)current=embedded.sort((a,b)=>b.embedded-a.embedded)[0];if(mut==='arc_ground')current=available.filter(e=>e.markUntil>this.time||e.embedded>0).sort((a,b)=>Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];if(!current)current=available.sort((a,b)=>Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];if(!current)return;
     const hit=new Set<number>(),path:Ent[]=[];let jumps=0,prevX=src.x,prevZ=src.z;
     while(current&&jumps<maxJumps){hit.add(current.id);path.push(current);let dmg=skills.chain_arc.baseDamage*this.powerBucket(st)*this.slotAmp(slot,current)*Math.pow(mut==='arc_forked'?0.93:0.88,jumps);if(mut==='arc_ground'&&(current.markUntil>this.time||current.embedded>0))dmg*=1.45;if(current.embedded>0){dmg*=1.28;current.embedded--;this.metrics.reactions++;}this.combatShape('chain_arc',{kind:'ray',x:prevX,z:prevZ,aimX:(current.x-prevX)/(Math.hypot(current.x-prevX,current.z-prevZ)||1),aimZ:(current.z-prevZ)/(Math.hypot(current.x-prevX,current.z-prevZ)||1),range:Math.hypot(current.x-prevX,current.z-prevZ),halfWidth:0.08});this.damage(current,dmg,'chain_arc',false,prevX,prevZ,slot);this.noteState('charge');if(this.mutationIs(st,'arc_cage')&&this.time-current.lastArcAt<2.2)this.fields.push({id:this.nextId++,x:current.x,z:current.z,radius:1.25,ttl:1.7*(1+st.duration),kind:'arc',dps:13*this.powerBucket(st),tickAcc:0,faction:src.faction,ownerId:src.owner?.id??0,source:st.id,sourceSlot:slot,mutation:st.mutation,rivalConcentration:effectGrammar[st.id].rivalConcentration});current.lastArcAt=this.time;prevX=current.x;prevZ=current.z;jumps++;let next:Ent|undefined,best=999;for(const e of this.targetsFor(src)){if(e.hp<=0||hit.has(e.id))continue;const dd=Math.hypot(e.x-prevX,e.z-prevZ);if(dd<jumpRange&&dd<best){best=dd;next=e;}}current=next;}
-    if(mut==='arc_capacitive'&&jumps<maxJumps)this.charge=Math.min(5,this.charge+(maxJumps-jumps));
+    if(this.mutationIs(st,'arc_capacitive')&&path.length&&jumps<maxJumps){
+      const unused=Math.min(4,maxJumps-jumps), target=path[0], relay=this.mutationIs(st,'arc_relay');
+      for(let i=0;i<unused;i++)this.scheduleStrike({at:this.time+0.07*(i+1),x:target.x,z:target.z,radius:relay?0.72:0.46,damage:skills.chain_arc.baseDamage*this.powerBucket(st)*(relay?0.68:0.52),faction:src.faction,ownerId:src.owner?.id??0,source:'chain_arc',sourceSlot:slot,intent:'damage',telegraph:'arc_return_pulse',fieldKind:relay?'arc':undefined,fieldDuration:relay?0.7:0,fieldDps:relay?4*this.powerBucket(st):0});
+    }
     if(this.mutationIs(st,'arc_closed_loop')&&path.length>1){const first=path[0],last=path[path.length-1],d=Math.hypot(first.x-last.x,first.z-last.z)||1;this.combatShape('arc_closed_loop',{kind:'ray',x:last.x,z:last.z,aimX:(first.x-last.x)/d,aimZ:(first.z-last.z)/d,range:d,halfWidth:0.14});this.damage(first,skills.chain_arc.baseDamage*this.powerBucket(st)*1.55,'chain_arc',false,last.x,last.z,slot);}
     if(this.mutationIs(st,'arc_hunting_storm')){const extra=this.targetsFor(src).filter(e=>e.hp>0&&!hit.has(e.id)&&path.some(h=>Math.hypot(e.x-h.x,e.z-h.z)<jumpRange*1.2)).slice(0,3);for(const e of extra)this.scheduleStrike({at:this.time+0.18,x:e.x,z:e.z,radius:0.72,damage:skills.chain_arc.baseDamage*this.powerBucket(st)*0.82,faction:src.faction,ownerId:src.owner?.id??0,source:'chain_arc',sourceSlot:slot,intent:'damage',telegraph:'arc_hunting_node',fieldKind:'arc',fieldDuration:1.25,fieldDps:7*this.powerBucket(st)});}
     if(this.mutationIs(st,'arc_living_circuit')&&src.faction==='hero'){for(const c of this.constructs.filter(q=>q.faction==='hero').slice(0,4)){const target=this.ents.filter(e=>e.hp>0&&Math.hypot(e.x-c.x,e.z-c.z)<c.range).sort((a,b)=>Math.hypot(a.x-c.x,a.z-c.z)-Math.hypot(b.x-c.x,b.z-c.z))[0];if(!target)continue;const dx=target.x-c.x,dz=target.z-c.z,d=Math.hypot(dx,dz)||1;this.combatShape('arc_living_circuit',{kind:'ray',x:c.x,z:c.z,aimX:dx/d,aimZ:dz/d,range:d,halfWidth:0.1});this.damage(target,skills.chain_arc.baseDamage*this.powerBucket(st)*0.65,'chain_arc',false,c.x,c.z,slot);}}
@@ -4451,13 +4628,17 @@ export class Simulation {
     }
   }
   private castMortar(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut=st.mutation,range=this.skillRange(st,skills.mortar_bloom.baseRange),p=this.aimPoint(src,range);let r=this.skillRadius(st,skills.mortar_bloom.baseRadius,slot),mult=1;if(mut==='mortar_fuse'){r*=1.35;mult*=1.35;}if(this.mutationIs(st,'mortar_airburst')){r*=1.2;mult*=0.86;}
+    const mut=st.mutation,range=this.skillRange(st,skills.mortar_bloom.baseRange);let p=this.aimPoint(src,range);let r=this.skillRadius(st,skills.mortar_bloom.baseRadius,slot),mult=1;
+    if(this.mutationIs(st,'mortar_spotter')){
+      const marked=this.targetsFor(src).filter(e=>e.hp>0&&e.kind==='elite'&&e.markUntil>this.time&&Math.hypot(e.x-src.x,e.z-src.z)<=range+3).sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0];
+      if(marked)p={x:marked.x,z:marked.z};
+    }if(mut==='mortar_fuse'){r*=1.35;mult*=1.35;}if(this.mutationIs(st,'mortar_airburst')){r*=1.2;mult*=0.86;}
     const baseDamage=skills.mortar_bloom.baseDamage*this.powerBucket(st)*this.slotAmp(slot)*mult;
     let points:{x:number;z:number;delay:number}[]=[];
     if(this.mutationIs(st,'mortar_carpet')){for(let i=-2;i<=2;i++)points.push({x:p.x+src.aimX*i*1.7,z:p.z+src.aimZ*i*1.7,delay:0.25+(i+2)*0.13});}
     else if(this.mutationIs(st,'mortar_hunter_pass')){const elite=this.targetsFor(src).filter(e=>e.kind==='elite'&&e.hp>0).sort((a,b)=>Number(b.markUntil>this.time)-Number(a.markUntil>this.time)||Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];const t=elite??({x:p.x,z:p.z} as Ent);for(let i=0;i<3;i++){const a=i*Math.PI*2/3;points.push({x:t.x+Math.cos(a)*1.35,z:t.z+Math.sin(a)*1.35,delay:0.28+i*0.22});}}
     else {const n=mut==='mortar_cluster'?3:Math.max(1,Math.min(3,this.projectileCount(st,slot)));for(let i=0;i<n;i++){const a=i?this.rng.range(0,Math.PI*2):0,rr=i?this.rng.range(0.7,1.5):0;points.push({x:p.x+Math.cos(a)*rr,z:p.z+Math.sin(a)*rr,delay:0.38+i*0.12});}}
-    for(const q of points)this.scheduleStrike({at:this.time+q.delay,x:q.x,z:q.z,radius:r,damage:baseDamage*(points.length>1?0.86:1),faction:src.faction,ownerId:src.owner?.id??0,source:'mortar_bloom',sourceSlot:slot,intent:'damage',telegraph:'bombardier_marker',fieldKind:this.mutationIs(st,'mortar_gravity_field')?'arc':this.mutationIs(st,'mortar_crater')?'frost':undefined,fieldDuration:this.mutationIs(st,'mortar_gravity_field')?3.4:2.5,fieldDps:this.mutationIs(st,'mortar_gravity_field')?5*this.powerBucket(st):6*this.powerBucket(st)});
+    for(const q of points)this.scheduleStrike({at:this.time+q.delay,x:q.x,z:q.z,radius:r,damage:baseDamage,faction:src.faction,ownerId:src.owner?.id??0,source:'mortar_bloom',sourceSlot:slot,intent:'damage',telegraph:'bombardier_marker',fieldKind:this.mutationIs(st,'mortar_gravity_field')?'arc':this.mutationIs(st,'mortar_crater')?'frost':undefined,fieldDuration:this.mutationIs(st,'mortar_gravity_field')?3.4:2.5,fieldDps:this.mutationIs(st,'mortar_gravity_field')?5*this.powerBucket(st):6*this.powerBucket(st)});
     if(this.mutationIs(st,'mortar_gravity_field')){for(const e of this.targetsFor(src)){const dx=p.x-e.x,dz=p.z-e.z,d=Math.hypot(dx,dz)||1;if(d<r*2.2){e.x+=dx/d*0.55;e.z+=dz/d*0.55;e.displacedUntil=this.time+0.8;}}}
     this.noteState('field');
   }
@@ -4469,15 +4650,15 @@ export class Simulation {
     count=Math.max(1,Math.min(5,count));
     for(let i=0;i<count;i++){
       const a=i*Math.PI*2/count+this.cycle*0.7,r=1.2;
-      this.constructs.push({id:this.nextId++,x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r,ttl:this.persistentDuration(st,7.5,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
+      this.constructs.push({id:this.nextId++,x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r,ttl:this.persistentDuration(st,3.45,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.powerBucket(st)*this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
       this.events.push({type:'ConstructSpawned',tick:this.tick,skill:'sentry',x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r});
     }
-    while(this.constructs.length>7)this.constructs.shift();this.noteState('construct');
+    while(this.constructs.length>14)this.constructs.shift();this.noteState('construct');
   }
 
   private castToxic(st: SkillRuntime, slot: number, src: CastSource) {
     let r=this.skillRadius(st,skills.toxic_mist.baseRadius,slot),dps=skills.toxic_mist.baseDamage*this.powerBucket(st)*this.slotAmp(slot);if(st.mutation==='toxic_distilled'){r*=0.58;dps*=1.85;}const x=this.mutationIs(st,'toxic_plume')?src.x-src.vx*0.55:src.x,z=this.mutationIs(st,'toxic_plume')?src.z-src.vz*0.55:src.z;
-    const reactiveTargets:Ent[]=[];if(this.mutationIs(st,'toxic_reactive'))for(const e of this.targetsFor(src)){if(e.hp<=0||Math.hypot(e.x-x,e.z-z)>r+e.radius)continue;const reactive=e.woundUntil>this.time||e.igniteUntil>this.time;if(reactive){if(e.woundUntil>this.time){e.woundUntil=0;e.woundDps=0;}else e.igniteUntil=0;this.damage(e,dps*1.25,'septic_cut',false,x,z,slot);this.metrics.reactions++;reactiveTargets.push(e);}}
+    const reactiveTargets:Ent[]=[];if(this.mutationIs(st,'toxic_reactive'))for(const e of this.targetsFor(src)){if(e.hp<=0||Math.hypot(e.x-x,e.z-z)>r+e.radius)continue;const reactive=e.igniteUntil>this.time||e.chillUntil>this.time||(e.frozenUntil??0)>this.time||e.exposedUntil>this.time||e.displacedUntil>this.time;if(reactive){this.damage(e,dps*1.25,'septic_cut',false,x,z,slot);this.metrics.reactions++;reactiveTargets.push(e);}}
     const pushField=(fx:number,fz:number,fr:number,ttl:number,behavior?:'host')=>this.fields.push({id:this.nextId++,x:fx,z:fz,radius:fr,ttl,kind:'toxic',dps,tickAcc:0,faction:src.faction,ownerId:src.owner?.id??0,source:st.id,sourceSlot:slot,mutation:st.mutation,rivalConcentration:effectGrammar[st.id].rivalConcentration,behavior});
     this.combatShape('toxic_mist',{kind:'circle',x,z,radius:r},'field');pushField(x,z,r,this.persistentDuration(st,4.2,slot),this.mutationIs(st,'toxic_pestilent_host')?'host':undefined);
     if(this.mutationIs(st,'toxic_plague_road')){const m=Math.hypot(src.vx,src.vz)||1,dx=src.vx/m,dz=src.vz/m;for(let i=1;i<=3;i++)pushField(x-dx*i*1.3,z-dz*i*1.3,r*0.55,2.4);}
@@ -4535,7 +4716,7 @@ export class Simulation {
     if(mut==='mass_snowball'){speed=3.25;radius*=1.08;}
     let cargo=0;
     if(this.mutationIs(st,'mass_cargo')){for(const c of this.constructs){const dx=c.x-src.x,dz=c.z-src.z,t=dx*src.aimX+dz*src.aimZ,lat=Math.abs(dx*src.aimZ-dz*src.aimX);if(t>0&&t<range&&lat<1.5)cargo++;}for(const q of this.pickups){const dx=q.x-src.x,dz=q.z-src.z,t=dx*src.aimX+dz*src.aimZ,lat=Math.abs(dx*src.aimZ-dz*src.aimX);if(t>0&&t<range&&lat<1.1)cargo++;}damage*=1+Math.min(0.9,cargo*0.14);radius*=1+Math.min(0.35,cargo*0.04);}
-    if(this.mutationIs(st,'mass_terminal')){damage*=1+Math.min(1.0,this.charge*0.12+(this.capacitorCharge+this.overflowCharge)/300);this.charge=0;}
+    if(this.mutationIs(st,'mass_terminal')){speed*=1.38;damage*=1.42;radius*=0.9;}
     if(mut==='mass_recoil'||this.mutationIs(st,'mass_counterthrust')){const kick=this.mutationIs(st,'mass_comet_recoil')?1.8:1.05;this.displaceSource(src,-src.aimX*kick,-src.aimZ*kick);if(!src.owner&&this.mutationIs(st,'mass_comet_recoil'))this.dashIFramesUntil=Math.max(this.dashIFramesUntil,this.time+0.16);}
     if(this.mutationIs(st,'mass_comet_recoil')){speed*=1.35;damage*=1.28;radius*=1.18;}
     this.combatShape('mass_driver',{kind:'ray',x:src.x,z:src.z,aimX:src.aimX,aimZ:src.aimZ,range,halfWidth:radius},'control');
@@ -4558,16 +4739,16 @@ export class Simulation {
     // against the synthetic hero above and elite contact goes straight to hitPlayer.
     amount *= this.itemDamageMul;
     if (e.kind === 'elite') amount *= this.itemEliteDamageMul;
-    if (this.itemSiphon > 0) this.healPlayer(amount * this.itemSiphon);
     if (e.hp <= 0) return false;
     let actual = amount;
+    if (e.kind === 'elite') actual *= e.relicDamageTakenMul ?? 1;
     const skill = this.skillsRuntime.get(source as SkillId);
     if (skill) {
       if (e.kind === 'elite') actual *= 1 + skill.eliteDamage;
       const precision = this.supportsAxis(skill.id, 'precision')
         ? this.resonance.precision * 0.045
         : 0;
-      const critChance = skill.crit + precision + this.itemCrit;
+      const critChance = skill.crit + precision + this.itemCrit + this.doctrines.precision * 0.03;
       if (critChance > 0 && this.rng.float() < critChance) actual *= 1.75;
     }
     if (e.kind === 'elite' && !e.boss) {
@@ -4731,6 +4912,7 @@ export class Simulation {
       crit: !!skill && actual > amount * 1.55
     });
     const killed = before > 0 && e.hp <= 0;
+    if (this.itemSiphon > 0) this.healPlayer(Math.min(before, actual) * this.itemSiphon);
     if (killed) this.killsBySource.set(source, (this.killsBySource.get(source) ?? 0) + 1);
     if (killed && skill && this.currentSlot >= 0) {
       this.currentActivationKills++;
@@ -4765,6 +4947,8 @@ export class Simulation {
     if (attacker) {
       amount *= concentration;
       amount *= this.itemRefusalDamageMul;
+      if ((attacker.relicCritChance ?? 0) > 0 && this.rng.float() < Math.min(0.65, attacker.relicCritChance ?? 0))
+        amount *= 1.6;
       amount *= Math.pow(1.3, this.rivalAxisCount(attacker, 'precision'));
       amount *= Math.pow(1.16, this.rivalAxisCount(attacker, 'multiplicity'));
       const allItemMul = attacker.relicCastMul ?? 1;
@@ -4781,6 +4965,8 @@ export class Simulation {
     }
     if (this.php <= 0) return false;
     this.hitPlayer(amount, attacker, source);
+    if (attacker && (attacker.relicSiphon ?? 0) > 0)
+      attacker.hp = Math.min(attacker.maxHp, attacker.hp + amount * (attacker.relicSiphon ?? 0));
     this.damageToHeroBySource.set(source, (this.damageToHeroBySource.get(source) ?? 0) + amount);
     return this.php <= 0;
   }
@@ -5627,7 +5813,6 @@ export class Simulation {
     A[a] = bv;
     B[b] = av;
     this.previousHits.clear();
-    this.reservoirCharge = 0;
     return true;
   }
   swapCatalystLocations(za: 'active' | 'reserve', a: number, zb: 'active' | 'reserve', b: number) {
@@ -5760,17 +5945,29 @@ export class Simulation {
         squadTask: e.squadUntil && e.squadUntil > this.time ? (e.squadTask ?? 'none') : 'none',
         adaptationStage: e.adaptStage,
         eliteRarity: e.rarity,
-        refusalTitles: e.repertoire
-          .map((s: number) => this.refusalStore.find((c) => c.serial === s))
-          .filter((c): c is RefusedCard => !!c)
-          .map((c) => c.title),
-        refusalKinds: e.repertoire
-          .map((s: number) => this.refusalStore.find((c) => c.serial === s))
-          .filter((c): c is RefusedCard => !!c)
-          .map((c) => c.kind as string),
-        refusalIcons: e.repertoire
-          .map((s) => this.refusalStore.find((c) => c.serial === s)?.icon ?? '')
-          .filter((s) => !!s),
+        refusalTitles: [
+          ...e.repertoire
+            .map((s: number) => this.refusalStore.find((card) => card.serial === s))
+            .filter((card): card is RefusedCard => !!card)
+            .map((card) => card.title),
+          ...(e.relicItems ?? []).map((id) => items[id].name),
+          ...(e.evolutionItems ?? []).map((id) => `Эволюция: ${items[id].name}`)
+        ],
+        refusalKinds: [
+          ...e.repertoire
+            .map((s: number) => this.refusalStore.find((card) => card.serial === s))
+            .filter((card): card is RefusedCard => !!card)
+            .map((card) => card.kind as string),
+          ...(e.relicItems ?? []).map(() => 'item'),
+          ...(e.evolutionItems ?? []).map(() => 'evolution')
+        ],
+        refusalIcons: [
+          ...e.repertoire
+            .map((s) => this.refusalStore.find((card) => card.serial === s)?.icon ?? '')
+            .filter((s) => !!s),
+          ...(e.relicItems ?? []).map((id) => items[id].short),
+          ...(e.evolutionItems ?? []).map((id) => items[id].short)
+        ],
         bossPhase: e.bossPhase,
         bossPattern: e.bossPattern,
         status: {
@@ -5989,7 +6186,9 @@ export class Simulation {
         e.toxinUntil,
         e.displacedUntil,
         e.embedded,
-        e.orderUntil
+        e.orderUntil,
+        (e.relicItems ?? []).join(','),
+        (e.evolutionItems ?? []).join(',')
       );
 
     const m = this.metrics;
@@ -5999,6 +6198,8 @@ export class Simulation {
     put('metrics.progression', m.levels, m.mutations);
     put('metrics.survival', m.damageTaken, m.healingReceived, m.barrierGenerated, m.healsPicked);
     put('relics', this.relics.length, this.heldItems.length, this.heldItems.join(','));
+    put('eliteLegacyItems', this.eliteLegacyItems.join(','));
+    put('eliteEvolutionHistory', this.eliteEvolutionHistory.join(','));
 
     return parts;
   }

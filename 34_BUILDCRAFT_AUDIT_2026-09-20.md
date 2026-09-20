@@ -1,3 +1,5 @@
+> **OWNER CORRECTION 2026-09-20:** This file remains research/defect evidence, not current design authority. Its restrictions on Quantity scaling, archetype TTK convergence, elite progression limits, and RPG-like charge/wound mechanics are superseded where conflicting by `36_OWNER_CORRECTION_CROWD_BUILD_ELITE_2026-09-20.md`.
+
 # 34. Аудит билдостроения, 2026-09-20
 
 **Снимки:** полный поштучный разбор зафиксирован на `ecf4af4`, версия 0.11.2; перед завершением отдельно проверены изменения полученного коммита `4a74357`, версия 0.11.3. Основные выводы ниже учитывают обе сверки. Авторство обнаруженных проблем не устанавливается. Игровой код и сборка в рамках аудита не изменялись.

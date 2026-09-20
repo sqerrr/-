@@ -159,7 +159,14 @@ if(process.argv.includes('--assert')){
   if(!['melee','ranged','control'].every(n=>open.filter(x=>x.build===n).length===seeds.length)){
     console.error('one archetype cannot kill the isolated elite'); process.exit(1);
   }
-  // This is intentionally generous: it catches a return to “ranged is several times better” without forcing exact tuning.
-  const times=['melee','ranged','control'].map(med), ratio=Math.max(...times)/Math.max(0.01,Math.min(...times));
-  if(ratio>2.0){console.error(`archetype elite TTK spread too wide: ${ratio.toFixed(2)}x`);process.exit(1);}
+  // Survivors-like builds are allowed to spike. This lab protects viability and prevents a
+  // dead archetype; it deliberately does NOT normalize every successful build to the same TTK.
+  const openTimes=['melee','ranged','control'].map(med);
+  if(Math.max(...openTimes)>15){console.error(`an archetype is too weak against the isolated elite: ${Math.max(...openTimes).toFixed(2)}s`);process.exit(1);}
+  const shield=rows.filter(x=>x.affix==='shielded'&&x.killed);
+  if(!['melee','ranged','control'].every(n=>shield.filter(x=>x.build===n).length===seeds.length)){
+    console.error('one archetype cannot kill the shielded isolated elite'); process.exit(1);
+  }
+  const shieldTimes=['melee','ranged','control'].map(n=>median(shield.filter(x=>x.build===n).map(x=>x.seconds)));
+  if(Math.max(...shieldTimes)>18){console.error(`an archetype stalls on shielded elite: ${Math.max(...shieldTimes).toFixed(2)}s`);process.exit(1);}
 }

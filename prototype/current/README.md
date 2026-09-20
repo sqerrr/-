@@ -1,91 +1,88 @@
-# Black Archive web prototype — v0.11.3
+# Black Archive web prototype — v0.11.4
 
 `prototype/current/` is the current executable browser build.
 
-For project-wide context read root `00_START_HERE.md` first. The current technical audit is `33_ANIMATION_PRESENTATION_LEGACY_AUDIT_2026-09-20.md`.
+Read root `00_START_HERE.md` first. Current owner correction: `36_OWNER_CORRECTION_CROWD_BUILD_ELITE_2026-09-20.md`.
 
 ## Run
-
-Windows:
 
 ```powershell
 .\run.ps1
 ```
 
-Or:
+or:
 
 ```powershell
 npm run build
 npm run serve
 ```
 
-Useful URL examples:
+Examples:
 
 - `?mode=clean&start=rail_spear&seed=12345`
 - `?mode=clean&start=orbit_blades&seed=12345`
 - `?mode=showcase&seed=12345`
-- `?smoke=1` — technical launch check only.
+- `?smoke=1`
 
 ## Controls
 
 - WASD / arrows — movement;
-- mouse — facing for directional Phenomena;
+- mouse — facing;
 - Shift or right mouse — dash;
-- Tab — full Character/Build sheet; combat pauses, and Chain reordering lives inside this screen;
+- Tab — Character/Build sheet + Chain planning;
 - wheel — zoom;
 - Space / P — pause;
-- R — restart same seed/mode/start;
-- F8 — technical debug panel.
+- R — restart;
+- F8 — technical debug.
 
-## Current progression
+## Build/combat rules currently under test
 
-- XP → Doctrines;
-- world Phenomenon structures → new Phenomena;
-- Catalyst structures/caches → Catalysts;
-- serious Elites → Mutation Cores;
-- world/elite contested drops → Items;
-- Mutations → three-tier branches ending in Apotheosis.
+- XP → Doctrines; structural content comes from its own world/elite channels.
+- Up to four active Phenomena with Catalysts between them.
+- Quantity is allowed to be real throughput: extra rays/impacts/actors are not globally damage-normalised.
+- Position distributes that throughput: parallel lanes, nearby impacts, returning actors and repeated short-lived constructs should read differently.
+- Reservoir/Vault use immediate crowd results instead of hidden charge banks.
+- Sentry deploys again each Chain beat and old batteries expire quickly.
+- Active Cleaver/Arc branches no longer rely on wound stacks / hidden global charge.
+- Jackpot combinations are allowed; technical tests protect viability and broken contracts, not equal TTK.
 
-The active Chain contains up to four Phenomena with Catalysts between them. Reserve is deliberately small.
+## Elites and shared items
+
+Elites compose:
+
+`chassis + rarity + affix + authored action + learned refusals + captured/inherited items + optional Echo`
+
+- nearby elites can deliberately contest a ground relic;
+- refused cards are knowledge, not an exclusive one-owner inventory;
+- later elites can inherit a sample of items captured earlier by the enemy side;
+- from 120 s onward elites also gain autonomous full-pool evolution modules that do not depend on player refusals;
+- all 20 items have an explicit enemy-side effect;
+- durability growth from items is allowed;
+- immediate lethal tells remain the top visual layer.
+
+The final Warden is the enemy-side payoff: legendary, three phases, inherited refusal repertoire, and all distinct item effects captured by elites during the run.
 
 ## Active Phenomena
 
-Discovery currently uses exactly these 11:
+Discovery uses 11 active Phenomena:
 
-- Ледяной фронт (`frost_ring`);
-- Рельсовое копьё (`rail_spear`);
-- Секач (`cleaver`);
-- Цепная дуга (`chain_arc`);
-- Орбитальные лезвия (`orbit_blades`);
-- Бомбардир (`mortar_bloom`);
-- Турель (`sentry`);
-- Токсичный туман (`toxic_mist`);
-- Гравитационный каток (`mass_driver`);
-- Возвратные осколки (`shard_fan`);
-- Гравиякорь (`tether_drag`).
+- Ледяной фронт;
+- Рельсовое копьё;
+- Секач;
+- Цепная дуга;
+- Орбитальные лезвия;
+- Бомбардир;
+- Турель;
+- Токсичный туман;
+- Могильный вал;
+- Возвратные осколки;
+- Гравиякорь.
 
-Seven older definitions remain compatibility-only for old seeds/replays. They must not be used as examples of current gameplay or current regression fixtures.
+Seven older definitions remain compatibility-only.
 
 ## Presentation contract
 
-Simulation is authoritative for gameplay geometry and multiplicity.
-
-- `CombatShape` carries exact instantaneous ray/sector/circle geometry.
-- Snapshot projectiles/fields/constructs carry exact persistent/moving bodies and ownership.
-- Snapshot Orbit carries the real active blade count/radius.
-- `SkillActivated` is only an origin/body animation cue; renderer must not independently calculate attack count/range/radius.
-
-This is protected by `animation_contract_regression`.
-
-## Elites
-
-Normal elite identity is compositional:
-
-`chassis + rarity + affix + authored chassis action + optional Elite Echo + statuses`
-
-The current primary chassis are Hunter, Architect, Broodmaker, Prism/Bulwark, Null Weaver/Harvester and Metamorph/Shepherd. Their own recurring actions are separate from refused-card Elite Echoes.
-
-Immediate hostile danger uses the red telegraph language. Affix/chassis decoration deliberately uses other colours/shapes until the state becomes lethal.
+Simulation remains authoritative for count and geometry. Renderer does not invent a second combat model.
 
 ## Tests
 
@@ -94,6 +91,4 @@ npm test
 npm run test:builds
 ```
 
-`npm test` validates compilation, determinism, Chain/progression/content contracts, presentation, projectiles, elites, mutations, world/UI and animation state transfer. It is not a substitute for manual visual/game-feel QA.
-
-GitHub `Prototype CI` additionally runs full-run progression and every-start opening probes on pull requests.
+The suite includes isolated build viability, crowd/elite/Warden build matrix, progression and all-start probes. Manual play remains mandatory for readability and game feel.

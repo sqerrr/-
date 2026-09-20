@@ -121,7 +121,7 @@ function modalState() {
 }
 async function copyDebugLog() {
   const text = [
-    'Black Archive v0.11.3 · debug',
+    'Black Archive v0.11.4 · debug',
     navigator.userAgent,
     location.href,
     '',
@@ -1502,7 +1502,7 @@ function frame(now: number) {
 async function start() {
   if (debugEnabled) $('debugPanel').classList.remove('debug-hidden');
   dbg('START', {
-    version: '0.11.3-presentation-contract',
+    version: '0.11.4-crowd-elite',
     mode: runMode,
     startingSkill,
     seed,

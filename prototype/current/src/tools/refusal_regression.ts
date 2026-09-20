@@ -13,9 +13,6 @@ const assert = (ok: boolean, msg: string) => {
 const hz = 60;
 const sim = new Simulation({ seed: 12345, hz });
 
-// D10: an elite may never field more of the hero's history than its tier allows.
-const CAPACITY: Record<string, number> = { common: 1, uplifted: 3, legendary: 6 };
-
 let resolved = 0;
 let refusedEvents = 0;
 let maxRefusalsAfterResolve = 0;
@@ -26,7 +23,7 @@ const castSkills = new Set<string>();
 const tiers: Record<string, number> = { common: 0, uplifted: 0, legendary: 0 };
 const knownElites = new Set<number>();
 
-for (let i = 0; i < 3600; i++) {
+for (let i = 0; i < 6600; i++) {
   const snap: Snapshot = sim.snapshot();
   const a = i / (hz * 4.3),
     sx = Math.cos(a) * 0.65,
@@ -94,7 +91,8 @@ for (let i = 0; i < 3600; i++) {
       const card = live.refusals.find((c) => c.serial === ev.serial);
       assert(!!card, 'a rival cast referenced a serial that is not in the store');
       assert(card!.skill === ev.skill, 'a rival cast used a skill the card does not carry');
-      assert(card!.heldBy === ev.entity, 'an elite fielded a card claimed by someone else');
+      const carrier = (sim as any).ents.find((e: any) => e.id === ev.entity);
+      assert(!!carrier?.repertoire.includes(ev.serial), 'an elite fielded a refusal it had not learned');
     }
   }
 
@@ -104,10 +102,9 @@ for (let i = 0; i < 3600; i++) {
     elitesSeen++;
     tiers[e.eliteRarity] = (tiers[e.eliteRarity] ?? 0) + 1;
     if (e.refusalIcons.length) armedElites++;
-    assert(
-      e.refusalIcons.length <= CAPACITY[e.eliteRarity],
-      'a ' + e.eliteRarity + ' elite fields ' + e.refusalIcons.length + ' cards'
-    );
+    // Repertoire grows with run depth and ground items are rendered in the same capability row.
+    // Do not normalize it back to the old fixed 1/3/6 inventory gate.
+    assert(e.refusalIcons.length <= 24, 'elite capability row grew without a practical readability bound');
   }
 
   const now = sim.snapshot();
@@ -142,15 +139,10 @@ assert(
   'a conceded card carries no usable payload'
 );
 
-// No card may be claimed twice over: a held serial must map to exactly one elite.
-const claims = new Map<number, number>();
-for (const c of s.refusals) if (c.heldBy) claims.set(c.serial, c.heldBy);
-assert(
-  claims.size === s.refusals.filter((c) => c.heldBy !== 0).length,
-  'a serial was claimed twice'
-);
+// heldBy is only the first visible carrier for UI/history bookkeeping. The same refusal may
+// be learned by several living elites; the actual per-elite repertoire is authoritative.
 
-// The whole point of the slice: elites must actually end up carrying refusals and using
+// After the opening teaching elite, the live run must actually produce carriers and use
 // them. A silent store would make the whole draft invisible to the player.
 assert(elitesSeen > 0, 'the run produced no elites to arm');
 assert(armedElites > 0, 'no elite ever claimed a refused card');

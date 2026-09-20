@@ -1,3 +1,5 @@
+> **OWNER CORRECTION 2026-09-20:** This file remains research/defect evidence, not current design authority. Its restrictions on Quantity scaling, archetype TTK convergence, elite progression limits, and RPG-like charge/wound mechanics are superseded where conflicting by `36_OWNER_CORRECTION_CROWD_BUILD_ELITE_2026-09-20.md`.
+
 # 35. Хэндофф: аудит билдостроения
 
 Дата: 2026-09-20. Исполняемый проект: `prototype/current/`. Последний проверенный игровой коммит: **`4a74357`, v0.11.3**. Коммит с этим хэндоффом добавляет исследовательские документы, не меняет игровой код, баланс, сборку или версию приложения.
