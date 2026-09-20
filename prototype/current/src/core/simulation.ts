@@ -651,8 +651,6 @@ export class Simulation {
   private pendingMutationTarget = false;
   private activationCountBonus = 0;
   private activationDerived = false;
-  private reservoirCharge = 0;
-  private vaultCharge = 0;
   private topologyGuard = false;
   private feedbackCountBonus = new Map<number, number>();
   private damageSamples: { t: number; source: string; amount: number; derived: boolean }[] = [];
@@ -3089,7 +3087,8 @@ export class Simulation {
   private updateRelics() {
     this.relicAcc += this.dt;
     const interval = Simulation.RELIC_INTERVAL * this.itemRelicRateMul;
-    if (this.relicAcc >= interval && this.relics.length < 8) {
+    if (this.relics.length >= 8) this.relicAcc = Math.min(this.relicAcc, interval);
+    else if (this.relicAcc >= interval) {
       this.relicAcc -= interval;
       this.spawnRelic();
     }
@@ -3442,7 +3441,7 @@ export class Simulation {
       (this.supportsAxis(st.id, 'multiplicity') ? this.resonance.multiplicity : 0) +
       Math.min(3, Math.floor(this.doctrines.quantity / 2)),
       damageMul = 1;
-    if (st.mutation === 'orbit_many') { count += 3; damageMul *= 0.9; }
+    if (st.mutation === 'orbit_many') count += 3;
     else if (st.mutation === 'orbit_saw') { count = Math.max(2, count - 1); damageMul *= 1.4; }
     count = Math.max(2, Math.min(12, count));
     let radius = this.skillRadius(st, skills.orbit_blades.baseRadius),
@@ -3451,9 +3450,9 @@ export class Simulation {
       wounded=this.ents.filter(e=>e.woundUntil>this.time&&Math.hypot(e.x-this.px,e.z-this.pz)<6).length;
       if(this.mutationIs(st,'orbit_sanguine_crown')) radius*=1+Math.min(0.42,wounded*0.045);
     }
-    // Count is real gameplay density, not only decoration. More blades shorten the interval
-    // moderately; the square-root curve avoids turning Quantity into a linear DPS multiplier.
-    const hitInterval=Math.max(0.22,Math.min(0.5,0.38*Math.sqrt(3/count)));
+    // Quantity is allowed to be a genuine power axis in a horde game. Twice as many blades
+    // can approach twice the contact rate; spacing around the orbit is the natural limiter.
+    const hitInterval=Math.max(0.085,Math.min(0.5,0.38*(3/count)));
     return { count, radius, damageMul, wounded, hitInterval };
   }
 
@@ -3824,11 +3823,10 @@ export class Simulation {
       );
     }
     if (incoming === 'reservoir') {
-      this.reservoirCharge += this.lastContext.hitIds.length + this.lastContext.kills * 2;
-      const threshold = Math.max(7, 12 - this.resonance.conductivity);
-      if (this.reservoirCharge >= threshold) {
-        this.reservoirCharge -= threshold;
-        this.activationCountBonus += 2 + Math.min(1, this.resonance.conductivity);
+      const crowdMass = this.lastContext.hitIds.length + this.lastContext.kills * 2;
+      const threshold = Math.max(5, 9 - this.resonance.conductivity);
+      if (crowdMass >= threshold) {
+        this.activationCountBonus += 2 + Math.min(2, this.resonance.conductivity);
         this.metrics.reactions++;
       }
     }
@@ -3870,8 +3868,9 @@ export class Simulation {
       }
     }
     if (incoming === 'splinter') {
+      // Extra bodies are allowed to be real power. Balance the operator through opportunity
+      // cost and spatial distribution, not by silently shrinking every spawned manifestation.
       this.activationCountBonus += 2;
-      this.activationScale *= 0.72;
     }
     const feedback = this.feedbackCountBonus.get(slot) ?? 0;
     if (feedback) {
@@ -3990,13 +3989,10 @@ export class Simulation {
       this.healPlayer(Math.min(20, this.currentActivationKills * 4 * conduct));
       this.metrics.reactions++;
     }
-    if (incoming === 'vault') {
-      this.vaultCharge += this.currentActivationDamage;
-      if (this.vaultCharge >= 900) {
-        this.vaultCharge -= 900;
-        this.grantBarrier(30 * conduct);
-        this.metrics.reactions++;
-      }
+    if (incoming === 'vault' && this.currentHits.size >= 3) {
+      const gain = Math.min(36, (this.currentHits.size * 3.2 + this.currentActivationKills * 2.4) * conduct);
+      this.grantBarrier(gain);
+      this.metrics.reactions++;
     }
     if (incoming === 'handoff' && slot + 1 < this.slots.length && this.slots[slot + 1]) {
       this.feedbackCountBonus.set(slot + 1, 2);
@@ -4392,9 +4388,9 @@ export class Simulation {
   private castRail(st: SkillRuntime, slot: number, src: CastSource) {
     const mut=st.mutation;if(mut==='rail_gun'&&this.cycle%2===1)return;
     const requestedCount=this.projectileCount(st,slot), count=mut==='rail_gun'?1:requestedCount+(mut==='rail_fan'?2:0),rays:number[]=[];
-    for(let i=0;i<count;i++)rays.push((i-(count-1)/2)*(mut==='rail_fan'?0.11:0.055));
+    for(let i=0;i<count;i++)rays.push((i-(count-1)/2)*(mut==='rail_fan'?0.11:0.072));
     let latticePoint:{x:number;z:number}|null=null;
-    for(const ang of rays){const a=this.rotatedAim(src,ang);let base=skills.rail_spear.baseDamage*this.powerBucket(st)*(mut==='rail_gun'?2.35:mut==='rail_fan'?0.58:mut==='rail_rack'?0.78:count>1?0.8:1);const range=this.skillRange(st,mut==='rail_gun'?25:skills.rail_spear.baseRange),width=this.skillRadius(st,0.34,slot);this.combatShape('rail_spear',{kind:'ray',x:src.x,z:src.z,aimX:a.x,aimZ:a.z,range,halfWidth:width});const hits=this.rayHits(src,a.x,a.z,range,width,mut==='rail_gun'?14:mut==='rail_fan'?5:8);let first=true;
+    for(const ang of rays){const a=this.rotatedAim(src,ang);let base=skills.rail_spear.baseDamage*this.powerBucket(st)*(mut==='rail_gun'?2.35:mut==='rail_fan'?0.58:mut==='rail_rack'?0.78:1);const range=this.skillRange(st,mut==='rail_gun'?25:skills.rail_spear.baseRange),width=this.skillRadius(st,0.34,slot);this.combatShape('rail_spear',{kind:'ray',x:src.x,z:src.z,aimX:a.x,aimZ:a.z,range,halfWidth:width});const hits=this.rayHits(src,a.x,a.z,range,width,mut==='rail_gun'?14:mut==='rail_fan'?5:8);let first=true;
       for(const h of hits){let dmg=base*this.slotAmp(slot,h.e);if(this.mutationIs(st,'rail_spot')&&h.e.markUntil>this.time)dmg*=1.25;const hadMark=h.e.markUntil>this.time;this.damage(h.e,dmg,'rail_spear',true,src.x,src.z,slot);h.e.embedded=Math.min(8,h.e.embedded+(mut==='rail_rack'?2:1));this.noteState('embed');if((this.mutationIs(st,'rail_spot')||hadMark)&&hadMark)h.e.exposedUntil=this.time+3;if(this.mutationIs(st,'rail_harpoon')&&first&&h.e.kind==='elite'){const dx=src.x-h.e.x,dz=src.z-h.e.z,d=Math.hypot(dx,dz)||1;h.e.x+=dx/d*1.25;h.e.z+=dz/d*1.25;}
         if(this.mutationIs(st,'rail_execution_line')&&first&&h.e.kind==='elite')this.scheduleStrike({at:this.time+0.55,x:h.e.x,z:h.e.z,radius:0.85,damage:base*1.25,faction:src.faction,ownerId:src.owner?.id??0,source:'rail_spear',sourceSlot:slot,intent:'damage',telegraph:'rail_execution_beacon'});
         if(this.mutationIs(st,'rail_sky_lance')&&hadMark)this.scheduleStrike({at:this.time+0.72,x:h.e.x,z:h.e.z,radius:1.0,damage:base*1.7,faction:src.faction,ownerId:src.owner?.id??0,source:'rail_spear',sourceSlot:slot,intent:'damage',telegraph:'rail_sky_lance_beacon'});
@@ -4457,7 +4453,7 @@ export class Simulation {
     if(this.mutationIs(st,'mortar_carpet')){for(let i=-2;i<=2;i++)points.push({x:p.x+src.aimX*i*1.7,z:p.z+src.aimZ*i*1.7,delay:0.25+(i+2)*0.13});}
     else if(this.mutationIs(st,'mortar_hunter_pass')){const elite=this.targetsFor(src).filter(e=>e.kind==='elite'&&e.hp>0).sort((a,b)=>Number(b.markUntil>this.time)-Number(a.markUntil>this.time)||Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];const t=elite??({x:p.x,z:p.z} as Ent);for(let i=0;i<3;i++){const a=i*Math.PI*2/3;points.push({x:t.x+Math.cos(a)*1.35,z:t.z+Math.sin(a)*1.35,delay:0.28+i*0.22});}}
     else {const n=mut==='mortar_cluster'?3:Math.max(1,Math.min(3,this.projectileCount(st,slot)));for(let i=0;i<n;i++){const a=i?this.rng.range(0,Math.PI*2):0,rr=i?this.rng.range(0.7,1.5):0;points.push({x:p.x+Math.cos(a)*rr,z:p.z+Math.sin(a)*rr,delay:0.38+i*0.12});}}
-    for(const q of points)this.scheduleStrike({at:this.time+q.delay,x:q.x,z:q.z,radius:r,damage:baseDamage*(points.length>1?0.86:1),faction:src.faction,ownerId:src.owner?.id??0,source:'mortar_bloom',sourceSlot:slot,intent:'damage',telegraph:'bombardier_marker',fieldKind:this.mutationIs(st,'mortar_gravity_field')?'arc':this.mutationIs(st,'mortar_crater')?'frost':undefined,fieldDuration:this.mutationIs(st,'mortar_gravity_field')?3.4:2.5,fieldDps:this.mutationIs(st,'mortar_gravity_field')?5*this.powerBucket(st):6*this.powerBucket(st)});
+    for(const q of points)this.scheduleStrike({at:this.time+q.delay,x:q.x,z:q.z,radius:r,damage:baseDamage,faction:src.faction,ownerId:src.owner?.id??0,source:'mortar_bloom',sourceSlot:slot,intent:'damage',telegraph:'bombardier_marker',fieldKind:this.mutationIs(st,'mortar_gravity_field')?'arc':this.mutationIs(st,'mortar_crater')?'frost':undefined,fieldDuration:this.mutationIs(st,'mortar_gravity_field')?3.4:2.5,fieldDps:this.mutationIs(st,'mortar_gravity_field')?5*this.powerBucket(st):6*this.powerBucket(st)});
     if(this.mutationIs(st,'mortar_gravity_field')){for(const e of this.targetsFor(src)){const dx=p.x-e.x,dz=p.z-e.z,d=Math.hypot(dx,dz)||1;if(d<r*2.2){e.x+=dx/d*0.55;e.z+=dz/d*0.55;e.displacedUntil=this.time+0.8;}}}
     this.noteState('field');
   }
@@ -4469,10 +4465,10 @@ export class Simulation {
     count=Math.max(1,Math.min(5,count));
     for(let i=0;i<count;i++){
       const a=i*Math.PI*2/count+this.cycle*0.7,r=1.2;
-      this.constructs.push({id:this.nextId++,x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r,ttl:this.persistentDuration(st,7.5,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
+      this.constructs.push({id:this.nextId++,x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r,ttl:this.persistentDuration(st,3.45,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.powerBucket(st)*this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
       this.events.push({type:'ConstructSpawned',tick:this.tick,skill:'sentry',x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r});
     }
-    while(this.constructs.length>7)this.constructs.shift();this.noteState('construct');
+    while(this.constructs.length>14)this.constructs.shift();this.noteState('construct');
   }
 
   private castToxic(st: SkillRuntime, slot: number, src: CastSource) {
@@ -4558,7 +4554,6 @@ export class Simulation {
     // against the synthetic hero above and elite contact goes straight to hitPlayer.
     amount *= this.itemDamageMul;
     if (e.kind === 'elite') amount *= this.itemEliteDamageMul;
-    if (this.itemSiphon > 0) this.healPlayer(amount * this.itemSiphon);
     if (e.hp <= 0) return false;
     let actual = amount;
     const skill = this.skillsRuntime.get(source as SkillId);
@@ -4567,7 +4562,7 @@ export class Simulation {
       const precision = this.supportsAxis(skill.id, 'precision')
         ? this.resonance.precision * 0.045
         : 0;
-      const critChance = skill.crit + precision + this.itemCrit;
+      const critChance = skill.crit + precision + this.itemCrit + this.doctrines.precision * 0.03;
       if (critChance > 0 && this.rng.float() < critChance) actual *= 1.75;
     }
     if (e.kind === 'elite' && !e.boss) {
@@ -4731,6 +4726,7 @@ export class Simulation {
       crit: !!skill && actual > amount * 1.55
     });
     const killed = before > 0 && e.hp <= 0;
+    if (this.itemSiphon > 0) this.healPlayer(Math.min(before, actual) * this.itemSiphon);
     if (killed) this.killsBySource.set(source, (this.killsBySource.get(source) ?? 0) + 1);
     if (killed && skill && this.currentSlot >= 0) {
       this.currentActivationKills++;
@@ -5627,7 +5623,6 @@ export class Simulation {
     A[a] = bv;
     B[b] = av;
     this.previousHits.clear();
-    this.reservoirCharge = 0;
     return true;
   }
   swapCatalystLocations(za: 'active' | 'reserve', a: number, zb: 'active' | 'reserve', b: number) {
