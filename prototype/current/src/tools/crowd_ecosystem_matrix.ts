@@ -15,7 +15,7 @@ const builds:Build[]=[
   {
     name:'area-route', range:6.0,
     doctrines:{might:3,size:5,quantity:3,duration:5,mobility:2,guard:1,force:3,precision:1},
-    loadout:{slots:['mortar_bloom','toxic_mist','frost_ring','tether_drag'],catalysts:['router','reservoir','conduit'],level:9,globalPower:.62,tempo:.24,maxHp:100000,armor:30,
+    loadout:{slots:['mortar_bloom','toxic_mist','frost_ring','tether_drag'],catalysts:['anchor','reservoir','conduit'],level:9,globalPower:.62,tempo:.24,maxHp:100000,armor:30,
       mutations:{mortar_bloom:'mortar_cluster',toxic_mist:'toxic_corrosive',frost_ring:'frost_front',tether_drag:'tether_net'},
       mutationUpgrades:{mortar_bloom:'mortar_airburst',toxic_mist:'toxic_reactive',frost_ring:'frost_brittle',tether_drag:'tether_dragnet'},
       mutationApotheoses:{mortar_bloom:'mortar_carpet',toxic_mist:'toxic_septic_bloom',frost_ring:'frost_worldstorm',tether_drag:'gravity_dragnet'}}
