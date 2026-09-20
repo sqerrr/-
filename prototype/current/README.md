@@ -55,6 +55,7 @@ Elites compose:
 - nearby elites can deliberately contest a ground relic;
 - refused cards are knowledge, not an exclusive one-owner inventory;
 - later elites can inherit a sample of items captured earlier by the enemy side;
+- from 120 s onward elites also gain autonomous full-pool evolution modules that do not depend on player refusals;
 - all 20 items have an explicit enemy-side effect;
 - durability growth from items is allowed;
 - immediate lethal tells remain the top visual layer.
