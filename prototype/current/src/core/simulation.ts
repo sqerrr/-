@@ -3859,7 +3859,7 @@ export class Simulation {
       let pulled=0;
       const candidates=this.targetsFor(src).filter(e=>e.hp>0&&Math.hypot(e.x-anchor.x,e.z-anchor.z)<=radius+e.radius).sort((a,b)=>Math.hypot(a.x-anchor.x,a.z-anchor.z)-Math.hypot(b.x-anchor.x,b.z-anchor.z));
       const cap=mut==='tether_hook'?2:mut==='tether_net'?10:6;
-      for(const e of candidates){if(pulled++>=cap)break;const dx=anchor.x-e.x,dz=anchor.z-e.z,d=Math.hypot(dx,dz)||1,pull=(mut==='tether_hook'?2.4:1.35)*(1+st.control*0.25);this.damage(e,skills.tether_drag.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e),'tether_drag',false,anchor.x,anchor.z,slot);e.x+=dx/d*Math.min(pull,d*0.62);e.z+=dz/d*Math.min(pull,d*0.62);e.displacedUntil=Math.max(e.displacedUntil,this.time+(this.mutationIs(st,'tether_lock')?1.55:0.65));this.currentActivationControl+=1.2+st.control;this.noteState('displaced');
+      for(const e of candidates){if(pulled++>=cap)break;const dx=anchor.x-e.x,dz=anchor.z-e.z,d=Math.hypot(dx,dz)||1,pull=(mut==='tether_hook'?2.4:1.35)*(1+st.control*0.25);this.damage(e,skills.tether_drag.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e),'tether_drag',false,anchor.x,anchor.z,slot);e.x+=dx/d*Math.min(pull,d*0.62);e.z+=dz/d*Math.min(pull,d*0.62);e.displacedUntil=Math.max(e.displacedUntil,this.time+(this.mutationIs(st,'tether_lock')?1.85:this.mutationIs(st,'tether_bind')?1.2:0.65));this.currentActivationControl+=1.2+st.control;this.noteState('displaced');
         if(this.mutationIs(st,'gravity_prison')&&e.kind==='elite'){e.exposedUntil=Math.max(e.exposedUntil,this.time+2.1);e.chillUntil=Math.max(e.chillUntil,this.time+1.2);if(e.affix==='shielded')e.shieldStability=Math.max(0,(e.shieldStability??100)-28);this.combatShape('gravity_prison',{kind:'circle',x:e.x,z:e.z,radius:e.radius+1.2},'control');}
       }
       if(this.mutationIs(st,'gravity_singularity')) this.scheduleStrike({at:this.time+0.65,x:anchor.x,z:anchor.z,radius:radius*0.72,damage:skills.tether_drag.baseDamage*this.powerBucket(st)*2.4,faction:src.faction,ownerId:src.owner?.id??0,source:'tether_drag',sourceSlot:slot,intent:'control',telegraph:'gravity_singularity_tell'});
@@ -4587,7 +4587,11 @@ export class Simulation {
     }
   }
   private castMortar(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut=st.mutation,range=this.skillRange(st,skills.mortar_bloom.baseRange),p=this.aimPoint(src,range);let r=this.skillRadius(st,skills.mortar_bloom.baseRadius,slot),mult=1;if(mut==='mortar_fuse'){r*=1.35;mult*=1.35;}if(this.mutationIs(st,'mortar_airburst')){r*=1.2;mult*=0.86;}
+    const mut=st.mutation,range=this.skillRange(st,skills.mortar_bloom.baseRange);let p=this.aimPoint(src,range);let r=this.skillRadius(st,skills.mortar_bloom.baseRadius,slot),mult=1;
+    if(this.mutationIs(st,'mortar_spotter')){
+      const marked=this.targetsFor(src).filter(e=>e.hp>0&&e.kind==='elite'&&e.markUntil>this.time&&Math.hypot(e.x-src.x,e.z-src.z)<=range+3).sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0];
+      if(marked)p={x:marked.x,z:marked.z};
+    }if(mut==='mortar_fuse'){r*=1.35;mult*=1.35;}if(this.mutationIs(st,'mortar_airburst')){r*=1.2;mult*=0.86;}
     const baseDamage=skills.mortar_bloom.baseDamage*this.powerBucket(st)*this.slotAmp(slot)*mult;
     let points:{x:number;z:number;delay:number}[]=[];
     if(this.mutationIs(st,'mortar_carpet')){for(let i=-2;i<=2;i++)points.push({x:p.x+src.aimX*i*1.7,z:p.z+src.aimZ*i*1.7,delay:0.25+(i+2)*0.13});}
