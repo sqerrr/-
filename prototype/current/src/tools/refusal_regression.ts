@@ -23,7 +23,7 @@ const castSkills = new Set<string>();
 const tiers: Record<string, number> = { common: 0, uplifted: 0, legendary: 0 };
 const knownElites = new Set<number>();
 
-for (let i = 0; i < 3600; i++) {
+for (let i = 0; i < 6600; i++) {
   const snap: Snapshot = sim.snapshot();
   const a = i / (hz * 4.3),
     sx = Math.cos(a) * 0.65,
@@ -142,7 +142,7 @@ assert(
 // heldBy is only the first visible carrier for UI/history bookkeeping. The same refusal may
 // be learned by several living elites; the actual per-elite repertoire is authoritative.
 
-// The whole point of the slice: elites must actually end up carrying refusals and using
+// After the opening teaching elite, the live run must actually produce carriers and use
 // them. A silent store would make the whole draft invisible to the player.
 assert(elitesSeen > 0, 'the run produced no elites to arm');
 assert(armedElites > 0, 'no elite ever claimed a refused card');
