@@ -144,8 +144,8 @@ const HERO_HIT_RADIUS = 0.45;
 // Tier tables. D49 fixes the target fight lengths (8-12 / 15-25 / 30-45 s); each tier is a
 // step up in durability, payout and repertoire.
 const ELITE_RARITY_CAPACITY: Record<EliteRarity, number> = {
-  common: 1,
-  uplifted: 3,
+  common: 2,
+  uplifted: 4,
   legendary: 6
 };
 /**
@@ -1326,7 +1326,7 @@ export class Simulation {
     this.bossSpawned = true;
     const x = this.px < 0 ? 34 : -34,
       z = this.pz < 0 ? 24 : -24,
-      hp = eliteHp.warden * this.worldScale();
+      hp = eliteHp.warden * this.worldScale() * (4.15 + Math.min(1.35, this.eliteLegacyItems.length * 0.045));
     const e: Ent = {
       id: this.nextId++,
       kind: 'elite',
@@ -1336,7 +1336,7 @@ export class Simulation {
       maxHp: hp,
       radius: 1.42,
       speed: eliteSpeed.warden,
-      contactDps: eliteDps.warden * this.damageScale(),
+      contactDps: eliteDps.warden * this.damageScale() * 1.22,
       facingX: 0,
       facingZ: 1,
       state: 'normal',
@@ -1379,9 +1379,13 @@ export class Simulation {
       embedded: 0,
       lastArcAt: -99,
       sentryTouchedUntil: -99,
-      rarity: 'common',
+      rarity: 'legendary',
       repertoire: []
     };
+    // The finale is the enemy ecosystem's payoff: a late legendary repertoire plus every
+    // distinct relic effect elites managed to capture during the run.
+    this.claimRepertoire(e);
+    this.inheritEliteLegacy(e, true);
     this.ents.push(e);
     this.metrics.spawned++;
     this.metrics.eliteSpawned++;
@@ -2816,27 +2820,42 @@ export class Simulation {
     return t >= 0 && t <= range && lat <= halfWidth;
   }
   private updateBossAI(e: Ent, speed: number, d: number, nx: number, nz: number) {
-    if (e.bossPhase === 1 && e.hp <= e.maxHp * 0.5) {
-      e.bossPhase = 2;
-      e.adaptCooldown = 0.5;
-      e.buffUntil = this.time + 1.0;
+    const nextPhase =
+      e.bossPhase === 1 && e.hp <= e.maxHp * 0.66 ? 2 :
+      e.bossPhase === 2 && e.hp <= e.maxHp * 0.33 ? 3 : 0;
+    if (nextPhase) {
+      e.bossPhase = nextPhase;
+      e.adaptCooldown = nextPhase === 3 ? 0.15 : 0.45;
+      e.buffUntil = this.time + 1.1;
       this.events.push({
         type: 'BossPhase',
         tick: this.tick,
         entity: e.id,
-        phase: 2,
+        phase: nextPhase,
         x: e.x,
         z: e.z
       });
+      if (nextPhase === 3) {
+        for (let i=0;i<4;i++) {
+          const a=i*Math.PI/2+0.35;
+          this.spawnEnemyAt(i%2?'bookmark':'marginwalker',e.x+Math.cos(a)*2.6,e.z+Math.sin(a)*2.6,2.0);
+        }
+      }
+    }
+    // Between Warden patterns the boss can field the same authored Echo language as elites.
+    // This reuses collected run history without copying the player's dispatcher.
+    if (e.adaptStage === 0 && !e.eliteAction && !this.eliteEchoes.has(e.id) && e.repertoire.length) {
+      this.fieldRefusals(e, d);
+      if (this.eliteEchoes.has(e.id)) return;
     }
     if (e.adaptStage === 2 && e.bossPattern === 'charge') {
-      e.x += e.lockedX * (e.bossPhase === 2 ? 13.5 : 11.5) * this.dt;
-      e.z += e.lockedZ * (e.bossPhase === 2 ? 13.5 : 11.5) * this.dt;
+      e.x += e.lockedX * (e.bossPhase >= 3 ? 15.2 : e.bossPhase >= 2 ? 13.5 : 11.5) * this.dt;
+      e.z += e.lockedZ * (e.bossPhase >= 3 ? 15.2 : e.bossPhase >= 2 ? 13.5 : 11.5) * this.dt;
       e.x = Math.max(this.world.minX + 1, Math.min(this.world.maxX - 1, e.x));
       e.z = Math.max(this.world.minZ + 1, Math.min(this.world.maxZ - 1, e.z));
       if (e.stateTimer <= 0) {
         e.adaptStage = 0;
-        e.adaptCooldown = e.bossPhase === 2 ? 2.25 : 3.2;
+        e.adaptCooldown = e.bossPhase >= 3 ? 1.65 : e.bossPhase >= 2 ? 2.25 : 3.2;
         e.exposedUntil = this.time + 1.25;
       }
       return;
@@ -2844,14 +2863,14 @@ export class Simulation {
     if (e.adaptStage === 1 && e.stateTimer <= 0) {
       if (
         e.bossPattern === 'sweep' &&
-        this.playerInSector(e.x, e.z, e.lockedX, e.lockedZ, 7.8, e.bossPhase === 2 ? 0.92 : 0.78)
+        this.playerInSector(e.x, e.z, e.lockedX, e.lockedZ, 7.8, e.bossPhase >= 2 ? 0.92 : 0.78)
       )
-        this.hitPlayer((e.bossPhase === 2 ? 48 : 39) * this.damageScale());
+        this.hitPlayer((e.bossPhase >= 3 ? 61 : e.bossPhase >= 2 ? 48 : 39) * this.damageScale(), e, 'warden_sweep');
       else if (
         e.bossPattern === 'rupture' &&
-        this.playerInRay(e.x, e.z, e.lockedX, e.lockedZ, 16, e.bossPhase === 2 ? 1.85 : 1.55)
+        this.playerInRay(e.x, e.z, e.lockedX, e.lockedZ, 16, e.bossPhase >= 2 ? 1.85 : 1.55)
       ) {
-        this.hitPlayer((e.bossPhase === 2 ? 43 : 35) * this.damageScale());
+        this.hitPlayer((e.bossPhase >= 3 ? 55 : e.bossPhase >= 2 ? 43 : 35) * this.damageScale(), e, 'warden_rupture');
         this.fields.push({
           id: this.nextId++,
           x: this.px,
@@ -2864,16 +2883,16 @@ export class Simulation {
         });
       } else if (e.bossPattern === 'charge') {
         e.adaptStage = 2;
-        e.stateTimer = e.bossPhase === 2 ? 0.64 : 0.58;
+        e.stateTimer = e.bossPhase >= 2 ? 0.64 : 0.58;
         return;
       }
       e.adaptStage = 0;
-      e.adaptCooldown = e.bossPhase === 2 ? 2.25 : 3.2;
+      e.adaptCooldown = e.bossPhase >= 3 ? 1.65 : e.bossPhase >= 2 ? 2.25 : 3.2;
       e.exposedUntil = this.time + 0.7;
       return;
     }
     if (e.adaptStage === 0) {
-      if (d > 6.0) this.steerTo(e, this.px, this.pz, speed, e.bossPhase === 2 ? 1.22 : 1);
+      if (d > 6.0) this.steerTo(e, this.px, this.pz, speed, e.bossPhase >= 2 ? 1.22 : 1);
       else if (d < 3.2) {
         e.x -= nx * speed * 0.5 * this.dt;
         e.z -= nz * speed * 0.5 * this.dt;
@@ -2900,7 +2919,7 @@ export class Simulation {
                 aimX: e.lockedX,
                 aimZ: e.lockedZ,
                 radius: 7.8,
-                halfAngle: e.bossPhase === 2 ? 0.92 : 0.78
+                halfAngle: e.bossPhase >= 2 ? 0.92 : 0.78
               }
             : {
                 kind: 'ray',
@@ -2909,7 +2928,7 @@ export class Simulation {
                 aimX: e.lockedX,
                 aimZ: e.lockedZ,
                 range: pattern === 'rupture' ? 16 : 15,
-                halfWidth: pattern === 'rupture' ? (e.bossPhase === 2 ? 1.85 : 1.55) : 1.05
+                halfWidth: pattern === 'rupture' ? (e.bossPhase >= 2 ? 1.85 : 1.55) : 1.05
               };
         this.events.push({
           type: 'CombatShape',
@@ -2926,7 +2945,7 @@ export class Simulation {
           x: e.x,
           z: e.z
         });
-        if (e.bossPhase === 2 && this.rng.float() < 0.55) {
+        if (e.bossPhase >= 2 && this.rng.float() < 0.55) {
           for (let i = 0; i < 3; i++) {
             const a = this.rng.range(0, Math.PI * 2);
             this.spawnEnemyAt(
@@ -3312,7 +3331,7 @@ export class Simulation {
 
   private inheritEliteLegacy(e: Ent, all = false) {
     if (!this.eliteLegacyItems.length) return;
-    const pool = [...this.eliteLegacyItems];
+    const pool = all ? [...new Set(this.eliteLegacyItems)] : [...this.eliteLegacyItems];
     for (let i = pool.length - 1; i > 0; i--) {
       const j = this.relicRng.int(i + 1);
       [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -5877,17 +5896,26 @@ export class Simulation {
         squadTask: e.squadUntil && e.squadUntil > this.time ? (e.squadTask ?? 'none') : 'none',
         adaptationStage: e.adaptStage,
         eliteRarity: e.rarity,
-        refusalTitles: e.repertoire
-          .map((s: number) => this.refusalStore.find((c) => c.serial === s))
-          .filter((c): c is RefusedCard => !!c)
-          .map((c) => c.title),
-        refusalKinds: e.repertoire
-          .map((s: number) => this.refusalStore.find((c) => c.serial === s))
-          .filter((c): c is RefusedCard => !!c)
-          .map((c) => c.kind as string),
-        refusalIcons: e.repertoire
-          .map((s) => this.refusalStore.find((c) => c.serial === s)?.icon ?? '')
-          .filter((s) => !!s),
+        refusalTitles: [
+          ...e.repertoire
+            .map((s: number) => this.refusalStore.find((card) => card.serial === s))
+            .filter((card): card is RefusedCard => !!card)
+            .map((card) => card.title),
+          ...(e.relicItems ?? []).map((id) => items[id].name)
+        ],
+        refusalKinds: [
+          ...e.repertoire
+            .map((s: number) => this.refusalStore.find((card) => card.serial === s))
+            .filter((card): card is RefusedCard => !!card)
+            .map((card) => card.kind as string),
+          ...(e.relicItems ?? []).map(() => 'item')
+        ],
+        refusalIcons: [
+          ...e.repertoire
+            .map((s) => this.refusalStore.find((card) => card.serial === s)?.icon ?? '')
+            .filter((s) => !!s),
+          ...(e.relicItems ?? []).map((id) => items[id].short)
+        ],
         bossPhase: e.bossPhase,
         bossPattern: e.bossPattern,
         status: {
@@ -6106,7 +6134,8 @@ export class Simulation {
         e.toxinUntil,
         e.displacedUntil,
         e.embedded,
-        e.orderUntil
+        e.orderUntil,
+        (e.relicItems ?? []).join(',')
       );
 
     const m = this.metrics;
@@ -6116,6 +6145,7 @@ export class Simulation {
     put('metrics.progression', m.levels, m.mutations);
     put('metrics.survival', m.damageTaken, m.healingReceived, m.barrierGenerated, m.healsPicked);
     put('relics', this.relics.length, this.heldItems.length, this.heldItems.join(','));
+    put('eliteLegacyItems', this.eliteLegacyItems.join(','));
 
     return parts;
   }
