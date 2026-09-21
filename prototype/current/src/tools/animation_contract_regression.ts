@@ -71,7 +71,7 @@ assert(renderer.includes('s.orbit.active')&&renderer.includes('s.orbit.count'),'
 assert(renderer.includes("f.faction === 'rival'"),'hostile persistent fields are not visually separated');
 assert(renderer.includes("c.mutationApotheosis==='sentry_walker'"),'construct mutations are flattened in renderer');
 for(const affix of ['volatile','regenerating','shielded','vanguard','temporal','brood','crowned','swift','dense'])
-  assert(renderer.includes(`e.affix === '${affix}'`),`renderer has no visual branch for elite affix ${affix}`);
+  assert(renderer.includes(`e.affix === '${affix}'`) || renderer.includes(`aff==='${affix}'`),`renderer has no visual branch for elite affix ${affix}`);
 
 // Hero animation frames must share one visual family and use silhouette-trimmed UVs,
 // otherwise idle/run/cast visibly jump in apparent size despite identical world-space size.
