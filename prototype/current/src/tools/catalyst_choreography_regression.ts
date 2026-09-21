@@ -126,48 +126,48 @@ for(const cat of catalystOrder){
     const sim=fixture(left,right,cat);
     sim.activateSlot(0);
     const leftTrace=sim.lastContext.trace;
-    assert(leftTrace,\`\${cat} \${left}->\${right}: left emitted no trace\`);
+    assert(leftTrace,`${cat} ${left}->${right}: left emitted no trace`);
     sim.events.length=0;
     sim.activateSlot(1);
     const cue=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode===cat);
     const casts=sim.events.filter((e:any)=>e.type==='SkillActivated'&&e.skill===right);
-    assert(cue,\`\${cat} \${left}->\${right}: compatible pair did not fire choreography\`);
-    assert(casts.length>0,\`\${cat} \${left}->\${right}: right Phenomenon never activated\`);
+    assert(cue,`${cat} ${left}->${right}: compatible pair did not fire choreography`);
+    assert(casts.length>0,`${cat} ${left}->${right}: right Phenomenon never activated`);
 
     if(cat==='source'){
-      assert(casts.some((q:any)=>Math.hypot(q.x,q.z)>.55),\`\${cat} \${left}->\${right}: B still originates on hero\`);
+      assert(casts.some((q:any)=>Math.hypot(q.x,q.z)>.55),`${cat} ${left}->${right}: B still originates on hero`);
     } else if(cat==='carrier'){
-      assert(cue.points.length>0,\`\${cat} \${left}->\${right}: carrier cue has no live carriers\`);
-      assert(casts.some((q:any)=>cue.points.some((p:any)=>dist(q,p)<.9)),\`\${cat} \${left}->\${right}: B is not cast from an A carrier\`);
+      assert(cue.points.length>0,`${cat} ${left}->${right}: carrier cue has no live carriers`);
+      assert(casts.some((q:any)=>cue.points.some((p:any)=>dist(q,p)<.9)),`${cat} ${left}->${right}: B is not cast from an A carrier`);
     } else if(cat==='trail'){
-      assert(casts.length>=2,\`\${cat} \${left}->\${right}: path did not create repeated B placements\`);
+      assert(casts.length>=2,`${cat} ${left}->${right}: path did not create repeated B placements`);
       const span=Math.max(...casts.map((q:any)=>q.x))-Math.min(...casts.map((q:any)=>q.x))+
         Math.max(...casts.map((q:any)=>q.z))-Math.min(...casts.map((q:any)=>q.z));
-      assert(span>1.2,\`\${cat} \${left}->\${right}: repeated B placements collapsed to one point\`);
+      assert(span>1.2,`${cat} ${left}->${right}: repeated B placements collapsed to one point`);
     } else if(cat==='reverse'){
       const first=cue.points[0], second=cue.points[1]??cue.points[0], cast=casts[0];
-      assert(first&&dist(first,cast)<1.0,\`\${cat} \${left}->\${right}: B did not begin at reversed path head\`);
+      assert(first&&dist(first,cast)<1.0,`${cat} ${left}->${right}: B did not begin at reversed path head`);
       const dx=second.x-cast.x,dz=second.z-cast.z,m=Math.hypot(dx,dz)||1;
-      assert(cast.aimX*dx/m+cast.aimZ*dz/m>.45,\`\${cat} \${left}->\${right}: B does not face back along A path\`);
+      assert(cast.aimX*dx/m+cast.aimZ*dz/m>.45,`${cat} ${left}->${right}: B does not face back along A path`);
     } else if(cat==='collapse'){
       const center={x:cue.centerX,z:cue.centerZ};
       if(skills[right].directional){
-        assert(casts.length>=2,\`\${cat} \${left}->\${right}: directional B has no inward spokes\`);
+        assert(casts.length>=2,`${cat} ${left}->${right}: directional B has no inward spokes`);
         assert(casts.every((q:any)=>{
           const dx=center.x-q.x,dz=center.z-q.z,m=Math.hypot(dx,dz)||1;
           return q.aimX*dx/m+q.aimZ*dz/m>.45;
-        }),\`\${cat} \${left}->\${right}: directional spokes do not converge\`);
+        }),`${cat} ${left}->${right}: directional spokes do not converge`);
       } else {
-        assert(casts.some((q:any)=>dist(q,center)<1.0),\`\${cat} \${left}->\${right}: radial B is not centered on A area\`);
+        assert(casts.some((q:any)=>dist(q,center)<1.0),`${cat} ${left}->${right}: radial B is not centered on A area`);
       }
     }
 
     for(const list of [sim.projectiles,sim.constructs,sim.fields,sim.ents])
-      for(const q of list)assert(Number.isFinite(q.x)&&Number.isFinite(q.z),\`\${cat} \${left}->\${right}: produced invalid world coordinates\`);
-    pairAudit.push(\`\${cat}:\${left}->\${right}\`);
+      for(const q of list)assert(Number.isFinite(q.x)&&Number.isFinite(q.z),`${cat} ${left}->${right}: produced invalid world coordinates`);
+    pairAudit.push(`${cat}:${left}->${right}`);
   }
 }
-assert(pairAudit.length>200,\`too few Catalyst 2.0 pairs exercised: \${pairAudit.length}\`);
+assert(pairAudit.length>200,`too few Catalyst 2.0 pairs exercised: ${pairAudit.length}`);
 
 // 9) Renderer must have a dedicated visual grammar for each choreography, not a generic catalyst flash.
 const renderer=readFileSync('src/renderer/webgl2.ts','utf8');
