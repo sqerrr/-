@@ -3,7 +3,8 @@ import {
   activeSkillOrder,
   catalystOrder,
   catalystPairCompatible,
-  phenomenonChoreography
+  phenomenonChoreography,
+  skills
 } from '../content/definitions.js';
 import { Simulation } from '../core/simulation.js';
 import type { CatalystId, SkillId } from '../core/types.js';
@@ -115,7 +116,60 @@ for(const cat of catalystOrder){
   assert(n>0&&n<total,`${cat}: compatibility became empty or universal`);
 }
 
-// 8) Renderer must have a dedicated visual grammar for each choreography, not a generic catalyst flash.
+// 8) Exhaustive pair smoke: every pair advertised as compatible must physically fire the
+// right Phenomenon through the Catalyst, not merely pass a catalogue predicate. This is the
+// mechanical half of the GIF-test; renderer grammar is checked immediately afterwards.
+const pairAudit:any[]=[];
+for(const cat of catalystOrder){
+  for(const left of activeSkillOrder)for(const right of activeSkillOrder){
+    if(left===right||!catalystPairCompatible(cat,left,right))continue;
+    const sim=fixture(left,right,cat);
+    sim.activateSlot(0);
+    const leftTrace=sim.lastContext.trace;
+    assert(leftTrace,\`\${cat} \${left}->\${right}: left emitted no trace\`);
+    sim.events.length=0;
+    sim.activateSlot(1);
+    const cue=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode===cat);
+    const casts=sim.events.filter((e:any)=>e.type==='SkillActivated'&&e.skill===right);
+    assert(cue,\`\${cat} \${left}->\${right}: compatible pair did not fire choreography\`);
+    assert(casts.length>0,\`\${cat} \${left}->\${right}: right Phenomenon never activated\`);
+
+    if(cat==='source'){
+      assert(casts.some((q:any)=>Math.hypot(q.x,q.z)>.55),\`\${cat} \${left}->\${right}: B still originates on hero\`);
+    } else if(cat==='carrier'){
+      assert(cue.points.length>0,\`\${cat} \${left}->\${right}: carrier cue has no live carriers\`);
+      assert(casts.some((q:any)=>cue.points.some((p:any)=>dist(q,p)<.9)),\`\${cat} \${left}->\${right}: B is not cast from an A carrier\`);
+    } else if(cat==='trail'){
+      assert(casts.length>=2,\`\${cat} \${left}->\${right}: path did not create repeated B placements\`);
+      const span=Math.max(...casts.map((q:any)=>q.x))-Math.min(...casts.map((q:any)=>q.x))+
+        Math.max(...casts.map((q:any)=>q.z))-Math.min(...casts.map((q:any)=>q.z));
+      assert(span>1.2,\`\${cat} \${left}->\${right}: repeated B placements collapsed to one point\`);
+    } else if(cat==='reverse'){
+      const first=cue.points[0], second=cue.points[1]??cue.points[0], cast=casts[0];
+      assert(first&&dist(first,cast)<1.0,\`\${cat} \${left}->\${right}: B did not begin at reversed path head\`);
+      const dx=second.x-cast.x,dz=second.z-cast.z,m=Math.hypot(dx,dz)||1;
+      assert(cast.aimX*dx/m+cast.aimZ*dz/m>.45,\`\${cat} \${left}->\${right}: B does not face back along A path\`);
+    } else if(cat==='collapse'){
+      const center={x:cue.centerX,z:cue.centerZ};
+      if(skills[right].directional){
+        assert(casts.length>=2,\`\${cat} \${left}->\${right}: directional B has no inward spokes\`);
+        assert(casts.every((q:any)=>{
+          const dx=center.x-q.x,dz=center.z-q.z,m=Math.hypot(dx,dz)||1;
+          return q.aimX*dx/m+q.aimZ*dz/m>.45;
+        }),\`\${cat} \${left}->\${right}: directional spokes do not converge\`);
+      } else {
+        assert(casts.some((q:any)=>dist(q,center)<1.0),\`\${cat} \${left}->\${right}: radial B is not centered on A area\`);
+      }
+    }
+
+    for(const list of [sim.projectiles,sim.constructs,sim.fields,sim.ents])
+      for(const q of list)assert(Number.isFinite(q.x)&&Number.isFinite(q.z),\`\${cat} \${left}->\${right}: produced invalid world coordinates\`);
+    pairAudit.push(\`\${cat}:\${left}->\${right}\`);
+  }
+}
+assert(pairAudit.length>200,\`too few Catalyst 2.0 pairs exercised: \${pairAudit.length}\`);
+
+// 9) Renderer must have a dedicated visual grammar for each choreography, not a generic catalyst flash.
 const renderer=readFileSync('src/renderer/webgl2.ts','utf8');
 const bridge=readFileSync('src/presentation/bridge.ts','utf8');
 assert(renderer.includes("e.type === 'choreography'"),'renderer ignores physical choreography cue');
@@ -124,7 +178,7 @@ for(const mode of ['source','carrier','trail','reverse','collapse'])
 assert(bridge.includes("e.type === 'CatalystChoreography'"),'presentation bridge drops choreography event');
 assert(renderer.includes('s.orbit.centerX')&&renderer.includes('s.orbit.centerZ'),'relocated Orbit still renders around hero');
 
-// 9) Sentry base placement must be spatial even without a Catalyst.
+// 10) Sentry base placement must be spatial even without a Catalyst.
 {
   const sim=fixture('sentry','rail_spear','source');
   sim.catalysts=[null]; sim.activateSlot(0);
@@ -133,4 +187,4 @@ assert(renderer.includes('s.orbit.centerX')&&renderer.includes('s.orbit.centerZ'
   assert(turrets.every((q:any)=>q.x>1.2),'base Sentry reverted to spawning on top of hero');
 }
 
-console.log('catalyst-choreography-regression OK',JSON.stringify({signalAudit,matrix},null,2));
+console.log('catalyst-choreography-regression OK',JSON.stringify({signalAudit,matrix,pairAuditCount:pairAudit.length},null,2));
