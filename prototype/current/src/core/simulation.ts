@@ -4017,6 +4017,7 @@ export class Simulation {
     }
     const st = this.skillsRuntime.get(id);
     if (!st) return;
+
     this.currentSlot = slot;
     this.currentHits.clear();
     this.currentActivationDamage = 0;
@@ -4027,81 +4028,88 @@ export class Simulation {
     this.activationScale = 1;
     this.activationCountBonus = 0;
     this.activationDerived = false;
+    this.beginChoreographyTrace(id);
+
     const incoming = this.incomingCatalyst(slot),
-      conduct = 1 + this.resonance.conductivity * 0.16;
-    // Operators modify the normal activation instead of merely multiplying its damage.
+      conduct = 1 + this.resonance.conductivity * 0.16,
+      previousContext = this.lastContext,
+      choreographyId =
+        incoming !== null &&
+        (['source', 'carrier', 'trail', 'reverse', 'collapse'] as CatalystId[]).includes(incoming),
+      choreographyReady =
+        !!incoming &&
+        choreographyId &&
+        !!previousContext.trace &&
+        !!previousContext.skill &&
+        catalystPairCompatible(incoming, previousContext.skill, id);
+
+    // Compatibility-only Catalyst 1.x operators remain executable for old saves/replays.
+    // Current Discovery never offers them; the active five are handled below as physical choreography.
     const oldAimX = this.aimX,
       oldAimZ = this.aimZ;
-    if (incoming === 'anchor' && this.lastContext.hitIds.length) {
-      const dx = this.lastContext.x - this.px,
-        dz = this.lastContext.z - this.pz,
-        m = Math.hypot(dx, dz) || 1;
-      this.aimX = dx / m;
-      this.aimZ = dz / m;
-    }
-    if (incoming === 'capacitor') {
-      const divisor = Math.max(3, 6 - this.resonance.conductivity);
-      this.activationCountBonus += Math.min(
-        3,
-        Math.floor(this.lastContext.hitIds.length / divisor)
-      );
-    }
-    if (incoming === 'reservoir') {
-      const crowdMass = this.lastContext.hitIds.length + this.lastContext.kills * 2;
-      const threshold = Math.max(5, 9 - this.resonance.conductivity);
-      if (crowdMass >= threshold) {
-        this.activationCountBonus += 2 + Math.min(2, this.resonance.conductivity);
-        this.metrics.reactions++;
+    if (!choreographyId) {
+      if (incoming === 'anchor' && this.lastContext.hitIds.length) {
+        const dx = this.lastContext.x - this.px,
+          dz = this.lastContext.z - this.pz,
+          m = Math.hypot(dx, dz) || 1;
+        this.aimX = dx / m;
+        this.aimZ = dz / m;
       }
-    }
-    if (incoming === 'recoil') {
-      // Hits harder and shoves the owner back along the aim line: a price paid in position
-      // rather than in a number, so it reads on screen instead of in a tooltip.
-      this.activationScale *= 1.55;
-      this.px -= this.aimX * 1.2;
-      this.pz -= this.aimZ * 1.2;
-      this.clampWorld();
-    }
-    if (incoming === 'focus') {
-      this.activationScale *= 1.5;
-      this.activationCountBonus -= 1;
-    }
-    if (incoming === 'surge' && !this.lastContext.hitIds.length) {
-      // Rewards the beat that found nothing, so a whiff sets up the swing after it.
-      this.activationScale *= 1.9;
-    }
-    if (incoming === 'glut' && this.lastContext.hitIds.length) {
-      this.activationScale *= Math.min(1.6, 1 + this.lastContext.hitIds.length * 0.06);
-    }
-    if (incoming === 'stagger' && this.lastContext.hitIds.length) {
-      let far: Ent | null = null,
-        best = -1;
-      for (const eid of this.lastContext.hitIds) {
-        const e = this.ents.find((q) => q.id === eid && q.hp > 0);
-        if (!e) continue;
-        const d = Math.hypot(e.x - this.px, e.z - this.pz);
-        if (d > best) {
-          best = d;
-          far = e;
+      if (incoming === 'capacitor') {
+        const divisor = Math.max(3, 6 - this.resonance.conductivity);
+        this.activationCountBonus += Math.min(
+          3,
+          Math.floor(this.lastContext.hitIds.length / divisor)
+        );
+      }
+      if (incoming === 'reservoir') {
+        const crowdMass = this.lastContext.hitIds.length + this.lastContext.kills * 2;
+        const threshold = Math.max(5, 9 - this.resonance.conductivity);
+        if (crowdMass >= threshold) {
+          this.activationCountBonus += 2 + Math.min(2, this.resonance.conductivity);
+          this.metrics.reactions++;
         }
       }
-      if (far) {
-        const m = Math.hypot(far.x - this.px, far.z - this.pz) || 1;
-        this.aimX = (far.x - this.px) / m;
-        this.aimZ = (far.z - this.pz) / m;
+      if (incoming === 'recoil') {
+        this.activationScale *= 1.55;
+        this.px -= this.aimX * 1.2;
+        this.pz -= this.aimZ * 1.2;
+        this.clampWorld();
       }
+      if (incoming === 'focus') {
+        this.activationScale *= 1.5;
+        this.activationCountBonus -= 1;
+      }
+      if (incoming === 'surge' && !this.lastContext.hitIds.length) this.activationScale *= 1.9;
+      if (incoming === 'glut' && this.lastContext.hitIds.length)
+        this.activationScale *= Math.min(1.6, 1 + this.lastContext.hitIds.length * 0.06);
+      if (incoming === 'stagger' && this.lastContext.hitIds.length) {
+        let far: Ent | null = null,
+          best = -1;
+        for (const eid of this.lastContext.hitIds) {
+          const e = this.ents.find((q) => q.id === eid && q.hp > 0);
+          if (!e) continue;
+          const d = Math.hypot(e.x - this.px, e.z - this.pz);
+          if (d > best) {
+            best = d;
+            far = e;
+          }
+        }
+        if (far) {
+          const m = Math.hypot(far.x - this.px, far.z - this.pz) || 1;
+          this.aimX = (far.x - this.px) / m;
+          this.aimZ = (far.z - this.pz) / m;
+        }
+      }
+      if (incoming === 'splinter') this.activationCountBonus += 2;
     }
-    if (incoming === 'splinter') {
-      // Extra bodies are allowed to be real power. Balance the operator through opportunity
-      // cost and spatial distribution, not by silently shrinking every spawned manifestation.
-      this.activationCountBonus += 2;
-    }
+
     const feedback = this.feedbackCountBonus.get(slot) ?? 0;
     if (feedback) {
       this.activationCountBonus += feedback;
       this.feedbackCountBonus.delete(slot);
     }
-    if (incoming === 'aegis_relay' && this.lastContext.control > 0) {
+    if (!choreographyId && incoming === 'aegis_relay' && this.lastContext.control > 0) {
       const gain = Math.min(
         36,
         (this.lastContext.control * 2.6 + this.lastContext.hitIds.length * 0.35) * conduct
@@ -4117,43 +4125,36 @@ export class Simulation {
       });
       this.metrics.reactions++;
     }
+
     this.metrics.activations++;
-    this.events.push({
-      type: 'SkillActivated',
-      tick: this.tick,
-      slot,
-      skill: id,
-      x: this.px,
-      z: this.pz,
-      aimX: this.aimX,
-      aimZ: this.aimZ
-    });
-    this.dispatchSkill(id, st, slot, this.heroSource());
+    let choreographyHandled = false;
+    if (choreographyReady && incoming)
+      choreographyHandled = this.executeChoreography(
+        incoming,
+        id,
+        st,
+        slot,
+        previousContext.trace
+      );
+    if (!choreographyHandled)
+      this.castWithTrace(id, st, slot, this.heroSource());
+
     this.aimX = oldAimX;
     this.aimZ = oldAimZ;
-    if (incoming === 'relay' && this.lastContext.kills > 0) {
+
+    if (!choreographyId && incoming === 'relay' && this.lastContext.kills > 0) {
       const need = Math.max(1, 3 - Math.min(2, this.resonance.conductivity));
       if (this.lastContext.kills >= need) {
         const prev = this.activationScale;
         this.activationScale = 0.82;
         this.activationDerived = true;
-        this.events.push({
-          type: 'SkillActivated',
-          tick: this.tick,
-          slot,
-          skill: id,
-          x: this.px,
-          z: this.pz,
-          aimX: this.aimX,
-          aimZ: this.aimZ
-        });
-        this.dispatchSkill(id, st, slot, this.heroSource());
+        this.castWithTrace(id, st, slot, this.heroSource());
         this.activationDerived = false;
         this.activationScale = prev;
         this.metrics.reactions++;
       }
     }
-    if (incoming === 'conduit' && this.lastContext.state && this.currentHits.size) {
+    if (!choreographyId && incoming === 'conduit' && this.lastContext.state && this.currentHits.size) {
       for (const eid of this.currentHits) {
         const e = this.ents.find((q) => q.id === eid && q.hp > 0);
         if (e) this.applyState(e, this.lastContext.state, 0.65 * conduct);
@@ -4167,7 +4168,7 @@ export class Simulation {
         z: this.pz
       });
     }
-    if (incoming === 'echo_shard' && this.lastContext.damage > 0 && this.currentHits.size) {
+    if (!choreographyId && incoming === 'echo_shard' && this.lastContext.damage > 0 && this.currentHits.size) {
       const targets = [...this.currentHits]
         .map((eid) => this.ents.find((q) => q.id === eid && q.hp > 0))
         .filter(Boolean) as Ent[];
@@ -4197,11 +4198,11 @@ export class Simulation {
         });
       }
     }
-    if (incoming === 'backflow' && slot > 0 && this.currentHits.size >= 3) {
+    if (!choreographyId && incoming === 'backflow' && slot > 0 && this.currentHits.size >= 3) {
       this.feedbackCountBonus.set(slot - 1, 1);
       this.metrics.reactions++;
     }
-    if ((incoming === 'brand' || incoming === 'rime') && this.currentHits.size) {
+    if (!choreographyId && (incoming === 'brand' || incoming === 'rime') && this.currentHits.size) {
       const state = incoming === 'brand' ? 'mark' : 'chill';
       for (const eid of this.currentHits) {
         const e = this.ents.find((q) => q.id === eid && q.hp > 0);
@@ -4209,19 +4210,28 @@ export class Simulation {
       }
       this.metrics.reactions++;
     }
-    if (incoming === 'harvest' && this.currentActivationKills > 0) {
+    if (!choreographyId && incoming === 'harvest' && this.currentActivationKills > 0) {
       this.healPlayer(Math.min(20, this.currentActivationKills * 4 * conduct));
       this.metrics.reactions++;
     }
-    if (incoming === 'vault' && this.currentHits.size >= 3) {
-      const gain = Math.min(36, (this.currentHits.size * 3.2 + this.currentActivationKills * 2.4) * conduct);
+    if (!choreographyId && incoming === 'vault' && this.currentHits.size >= 3) {
+      const gain = Math.min(
+        36,
+        (this.currentHits.size * 3.2 + this.currentActivationKills * 2.4) * conduct
+      );
       this.grantBarrier(gain);
       this.metrics.reactions++;
     }
-    if (incoming === 'handoff' && slot + 1 < this.slots.length && this.slots[slot + 1]) {
+    if (
+      !choreographyId &&
+      incoming === 'handoff' &&
+      slot + 1 < this.slots.length &&
+      this.slots[slot + 1]
+    ) {
       this.feedbackCountBonus.set(slot + 1, 2);
       this.metrics.reactions++;
     }
+
     this.previousHits = new Set(this.currentHits);
     let cx = this.px,
       cz = this.pz;
@@ -4234,7 +4244,9 @@ export class Simulation {
         cz = ts.reduce((a, e) => a + e.z, 0) / ts.length;
       }
     }
-    const previous = this.lastContext;
+
+    const trace = this.finishChoreographyTrace(),
+      previous = this.lastContext;
     this.lastContext = {
       skill: id,
       damage: this.currentActivationDamage,
@@ -4244,9 +4256,13 @@ export class Simulation {
       state: this.currentProducedState,
       hitIds: [...this.currentHits],
       x: cx,
-      z: cz
+      z: cz,
+      trace
     };
-    if (incoming && slot > 0 && this.slots[slot - 1])
+
+    // Legacy events remain for old Catalyst ids. Catalyst 2.0 has its own richer event carrying
+    // the actual points/path used by the combined animation.
+    if (incoming && !choreographyId && slot > 0 && this.slots[slot - 1])
       this.events.push({
         type: 'CatalystTriggered',
         tick: this.tick,
@@ -4258,8 +4274,9 @@ export class Simulation {
         targetX: cx,
         targetZ: cz
       });
-    // Topology operator: a successful B can bounce execution once back to A. Guard forbids recursion.
+
     if (
+      !choreographyId &&
       incoming === 'overflow' &&
       slot > 0 &&
       !this.topologyGuard &&
@@ -4276,17 +4293,7 @@ export class Simulation {
           this.currentSlot = slot - 1;
           this.activationScale = 0.78;
           this.activationDerived = true;
-          this.events.push({
-            type: 'SkillActivated',
-            tick: this.tick,
-            slot: slot - 1,
-            skill: prevId,
-            x: this.px,
-            z: this.pz,
-            aimX: this.aimX,
-            aimZ: this.aimZ
-          });
-          this.dispatchSkill(prevId, prevSt, slot - 1, this.heroSource());
+          this.castWithTrace(prevId, prevSt, slot - 1, this.heroSource());
           this.activationDerived = saveDerived;
           this.activationScale = saveScale;
           this.currentSlot = saveSlot;
@@ -4295,6 +4302,7 @@ export class Simulation {
         }
       }
     }
+
     if (slot === lastSlot) {
       this.previousHits.clear();
       this.lastContext = {
@@ -4306,13 +4314,15 @@ export class Simulation {
         state: '',
         hitIds: [],
         x: this.px,
-        z: this.pz
+        z: this.pz,
+        trace: null
       };
     }
     this.currentSlot = -1;
     this.activationScale = 1;
     this.activationCountBonus = 0;
     this.activationDerived = false;
+    this.currentChoreography = null;
   }
 
   private sameChoreographyPoint(a: ChoreographyPoint, b: ChoreographyPoint, eps = 0.12) {
