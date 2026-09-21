@@ -3626,10 +3626,25 @@ export class Simulation {
     );
     if (grid.length >= 2 && this.sentryGridAcc >= 0.28) {
       this.sentryGridAcc = 0;
-      for (let i = 0; i < grid.length; i++) {
-        const a = grid[i],
-          b = grid[(i + 1) % grid.length],
-          dx = b.x - a.x,
+      const links: [Construct, Construct][] = [];
+      const seen = new Set<string>();
+      for (const a of grid) {
+        const near = grid
+          .filter((b) => b.id !== a.id)
+          .map((b) => ({ b, d: Math.hypot(b.x - a.x, b.z - a.z) }))
+          .filter((q) => q.d <= 6.4)
+          .sort((x, y) => x.d - y.d)
+          .slice(0, 2);
+        for (const q of near) {
+          const lo = Math.min(a.id, q.b.id), hi = Math.max(a.id, q.b.id), key = lo + ':' + hi;
+          if (!seen.has(key)) {
+            seen.add(key);
+            links.push([a, q.b]);
+          }
+        }
+      }
+      for (const [a,b] of links) {
+        const dx = b.x - a.x,
           dz = b.z - a.z,
           len = Math.hypot(dx, dz) || 1;
         this.combatShape(
@@ -4570,6 +4585,16 @@ export class Simulation {
 
   private castWithTrace(id: SkillId, st: SkillRuntime, slot: number, src: CastSource) {
     const firstNewId = this.nextId;
+    if (
+      this.currentChoreography &&
+      this.currentChoreography.points.length === 0 &&
+      this.currentChoreography.paths.length === 0 &&
+      this.currentChoreography.scheduled.length === 0
+    ) {
+      this.currentChoreography.origin = { x: src.x, z: src.z };
+      this.currentChoreography.aimX = src.aimX;
+      this.currentChoreography.aimZ = src.aimZ;
+    }
     this.events.push({
       type: 'SkillActivated',
       tick: this.tick,
@@ -5097,7 +5122,9 @@ export class Simulation {
     if(this.mutationIs(st,'mortar_spotter')){
       const marked=this.targetsFor(src).filter(e=>e.hp>0&&e.kind==='elite'&&e.markUntil>this.time&&Math.hypot(e.x-src.x,e.z-src.z)<=range+3).sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0];
       if(marked)p={x:marked.x,z:marked.z};
-    }if(mut==='mortar_fuse'){r*=1.35;mult*=1.35;}if(this.mutationIs(st,'mortar_airburst')){r*=1.2;mult*=0.86;}
+    }
+    if(this.currentChoreography) this.traceSegment({x:src.x,z:src.z},{x:p.x,z:p.z});
+    if(mut==='mortar_fuse'){r*=1.35;mult*=1.35;}if(this.mutationIs(st,'mortar_airburst')){r*=1.2;mult*=0.86;}
     const baseDamage=skills.mortar_bloom.baseDamage*this.powerBucket(st)*this.slotAmp(slot)*mult;
     let points:{x:number;z:number;delay:number}[]=[];
     if(this.mutationIs(st,'mortar_carpet')){for(let i=-2;i<=2;i++)points.push({x:p.x+src.aimX*i*1.7,z:p.z+src.aimZ*i*1.7,delay:0.25+(i+2)*0.13});}
@@ -6590,7 +6617,7 @@ export class Simulation {
    * folded into the hash, so a stale baseline fails loudly instead of silently matching
    * a different layout. Never change the layout without bumping.
    */
-  static readonly CANONICAL_SCHEMA_VERSION = 5;
+  static readonly CANONICAL_SCHEMA_VERSION = 6;
 
   /**
    * Explicit, ordered schema of everything that defines a run.
@@ -6624,6 +6651,16 @@ export class Simulation {
     put('chain.beat', this.beat, this.cycle);
     put('chain.charges', this.capacitorCharge, this.overflowCharge, this.aegisCharge);
     put('chain.orbitChoreo', this.orbitChoreoUntil, this.orbitChoreoX, this.orbitChoreoZ, this.orbitChoreoCarrier?.kind ?? '-', this.orbitChoreoCarrier && 'id' in this.orbitChoreoCarrier ? this.orbitChoreoCarrier.id : this.orbitChoreoCarrier?.kind === 'orbit' ? this.orbitChoreoCarrier.index : -1);
+    put('chain.context', this.lastContext.skill ?? '-', this.lastContext.x, this.lastContext.z, ...this.lastContext.hitIds);
+    if (this.lastContext.trace) {
+      const t=this.lastContext.trace;
+      put('chain.trace',t.skill,t.origin.x,t.origin.z,t.aimX,t.aimZ,t.terminal?.x??'-',t.terminal?.z??'-');
+      for(const p of t.points) put('chain.trace.point',p.x,p.z);
+      for(const p of t.areaPoints) put('chain.trace.area',p.x,p.z);
+      for(const path of t.paths) put('chain.trace.path',...path.flatMap((p)=>[p.x,p.z]));
+      for(const q of t.carriers) put('chain.trace.carrier',q.kind,'id' in q?q.id:q.index);
+      for(const p of t.scheduled) put('chain.trace.scheduled',p.x,p.z);
+    }
 
     put('growth.tempo', this.tempo);
     put('growth.power', this.globalPower);
