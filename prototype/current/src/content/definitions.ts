@@ -1301,7 +1301,7 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
   carrier: {
     id: 'carrier',
     name: 'Излучатель',
-    shortName: 'ИЗ ОБЪЕКТОВ',
+    shortName: 'ИЗЛУЧ.',
     desc: 'Каждый живой объект левого феномена становится точкой запуска правого: лезвие, осколок, вал или турель реально испускает его из своей позиции.',
     color: '#d7a0ff',
     scope: 'хореография · излучатели'
