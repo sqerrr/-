@@ -24,8 +24,8 @@ for (let i = 0; i < 300; i++) {
 assert(sawOrbit, 'swapped-in Phenomenon should participate immediately');
 assert(sim.swapCatalystLocations('reserve', 0, 'active', 0), 'Archive catalyst swap rejected');
 s = sim.snapshot();
-assert(s.chain.catalysts[0] === 'relay', 'Relay not moved active');
-assert(s.chain.catalystReserve[0] === 'anchor', 'old active Catalyst not moved to Archive');
+assert(s.chain.catalysts[0] === 'reverse', 'Reverse choreography not moved active');
+assert(s.chain.catalystReserve[0] === 'source', 'old active choreography not moved to Archive');
 console.log(
   'planning-regression OK',
   JSON.stringify(
