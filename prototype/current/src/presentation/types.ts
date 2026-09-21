@@ -37,6 +37,19 @@ export type PresentationCue =
       targetZ: number;
     }
   | {
+      type: 'choreography';
+      time: number;
+      catalyst: CatalystId;
+      fromSlot: number;
+      toSlot: number;
+      fromSkill: SkillId;
+      toSkill: SkillId;
+      mode: 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse';
+      points: { x: number; z: number }[];
+      centerX: number;
+      centerZ: number;
+    }
+  | {
       type: 'damage';
       time: number;
       entity: number;
@@ -122,6 +135,7 @@ export function isPresentationRelevantEvent(e: GameEvent) {
     e.type === 'SkillActivated' ||
     e.type === 'CombatShape' ||
     e.type === 'CatalystTriggered' ||
+    e.type === 'CatalystChoreography' ||
     e.type === 'DamageResolved' ||
     e.type === 'Reaction' ||
     e.type === 'EntitySpawned' ||
