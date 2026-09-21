@@ -58,6 +58,20 @@ export class PresentationBridge {
           targetX: e.targetX,
           targetZ: e.targetZ
         });
+      else if (e.type === 'CatalystChoreography')
+        cues.push({
+          type: 'choreography',
+          time,
+          catalyst: e.catalyst,
+          fromSlot: e.fromSlot,
+          toSlot: e.toSlot,
+          fromSkill: e.fromSkill,
+          toSkill: e.toSkill,
+          mode: e.mode,
+          points: e.points.map((p) => ({ ...p })),
+          centerX: e.centerX,
+          centerZ: e.centerZ
+        });
       else if (e.type === 'DamageResolved') {
         const target = postById.get(e.entity) ?? this.entityCache.get(e.entity);
         const dx = e.x - e.sourceX,

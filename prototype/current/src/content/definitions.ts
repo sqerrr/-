@@ -1290,6 +1290,46 @@ export interface CatalystDef {
   scope: string;
 }
 export const catalysts: Record<CatalystId, CatalystDef> = {
+  source: {
+    id: 'source',
+    name: 'Источник',
+    shortName: 'ИЗ A',
+    desc: 'Правый феномен возникает из физической точки, где закончился левый: удара, якоря или конца его пути.',
+    color: '#74e4ff',
+    scope: 'хореография · источник'
+  },
+  carrier: {
+    id: 'carrier',
+    name: 'Носитель',
+    shortName: 'НА A',
+    desc: 'Правый феномен разыгрывается из существующих объектов левого: лезвий, осколков, валов или турелей.',
+    color: '#d7a0ff',
+    scope: 'хореография · носитель'
+  },
+  trail: {
+    id: 'trail',
+    name: 'След',
+    shortName: 'ПО ПУТИ',
+    desc: 'Правый феномен разыгрывается вдоль траектории, которую только что прочертил левый.',
+    color: '#8ff0b0',
+    scope: 'хореография · путь'
+  },
+  reverse: {
+    id: 'reverse',
+    name: 'Обратный ход',
+    shortName: 'НАЗАД',
+    desc: 'Правый феномен стартует в конце пути левого и разыгрывается обратно к его началу.',
+    color: '#ffb06a',
+    scope: 'хореография · возврат'
+  },
+  collapse: {
+    id: 'collapse',
+    name: 'Схлопывание',
+    shortName: 'К ЦЕНТРУ',
+    desc: 'Правый феномен использует область левого: внешние точки сходятся к общему центру и меняют рисунок розыгрыша.',
+    color: '#ff7ec8',
+    scope: 'хореография · схлопывание'
+  },
   capacitor: {
     id: 'capacitor',
     name: 'Преобразователь массы',
@@ -1451,36 +1491,62 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     scope: 'связь'
   }
 };
-export const initialCatalysts: (CatalystId | null)[] = ['anchor', 'capacitor', 'backflow'];
-export const initialCatalystReserve: (CatalystId | null)[] = [
-  'relay',
-  'reservoir',
-  'conduit',
-  'aegis_relay'
+export const initialCatalysts: (CatalystId | null)[] = ['source', 'trail', 'carrier'];
+export const initialCatalystReserve: (CatalystId | null)[] = ['reverse', 'collapse'];
+
+/**
+ * Catalyst 2.0 Discovery is intentionally small. Old operators remain defined for save/replay
+ * compatibility, but they are not offered: a Catalyst slot is reserved for visible A→B choreography.
+ */
+export const catalystOrder: CatalystId[] = ['source', 'carrier', 'trail', 'reverse', 'collapse'];
+export const legacyCatalystOrder: CatalystId[] = [
+  'capacitor','anchor','reservoir','echo_shard','relay','conduit','overflow','aegis_relay','backflow',
+  'recoil','focus','surge','glut','stagger','splinter','brand','rime','harvest','vault','handoff'
 ];
-// Discovery uses operators with visible topology/causality. Scalar-only compatibility stones remain defined but are not offered.
-export const catalystOrder: CatalystId[] = [
-  'recoil',
-  'focus',
-  'surge',
-  'glut',
-  'stagger',
-  'splinter',
-  'brand',
-  'rime',
-  'harvest',
-  'vault',
-  'handoff',
-  'relay',
-  'anchor',
-  'capacitor',
-  'reservoir',
-  'conduit',
-  'echo_shard',
-  'backflow',
-  'overflow',
-  'aegis_relay'
-];
+
+export type ChoreographySignal = 'terminal' | 'path' | 'carrier' | 'area';
+export type ChoreographyOperator = 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse';
+export interface PhenomenonChoreographyDef {
+  emits: ChoreographySignal[];
+  accepts: ChoreographyOperator[];
+}
+
+/**
+ * Physical contract of the eleven live Phenomena. Compatibility is deliberately partial:
+ * a bright 25–60% pair space is better than pretending every abstract modifier fits everything.
+ */
+export const phenomenonChoreography: Record<SkillId, PhenomenonChoreographyDef> = {
+  frost_ring:    { emits:['area'],                         accepts:['source','carrier','trail','collapse'] },
+  rail_spear:    { emits:['terminal','path'],              accepts:['source','carrier','trail','reverse','collapse'] },
+  cleaver:       { emits:['terminal','area'],              accepts:['source','carrier','trail','reverse','collapse'] },
+  chain_arc:     { emits:['terminal','path'],              accepts:['source','carrier','trail','reverse','collapse'] },
+  orbit_blades:  { emits:['carrier','area'],               accepts:['source','carrier','collapse'] },
+  mortar_bloom:  { emits:['terminal','path','area'],       accepts:['source','carrier','trail','reverse','collapse'] },
+  sentry:        { emits:['carrier','area'],               accepts:['source','carrier','trail','reverse','collapse'] },
+  toxic_mist:    { emits:['area'],                         accepts:['source','carrier','trail','collapse'] },
+  mass_driver:   { emits:['terminal','path','carrier'],    accepts:['source','carrier','trail','reverse','collapse'] },
+  shard_fan:     { emits:['terminal','path','carrier'],    accepts:['source','carrier','trail','reverse','collapse'] },
+  tether_drag:   { emits:['terminal','path','area'],       accepts:['source','carrier','trail','reverse','collapse'] },
+  // Compatibility definitions never enter current Discovery; minimal profiles keep old saves type-safe.
+  ember_lance:       { emits:['terminal','path'], accepts:['source','trail','reverse'] },
+  repulse_halo:      { emits:['area'], accepts:['source','collapse'] },
+  breach_line:       { emits:['terminal','path'], accepts:['source','trail','reverse'] },
+  contact_saw:       { emits:['area'], accepts:['source','collapse'] },
+  backhand:          { emits:['area'], accepts:['source','collapse'] },
+  spreading_front:   { emits:['area'], accepts:['source','trail','collapse'] },
+  pin_burst:         { emits:['terminal','area'], accepts:['source','collapse'] }
+};
+
+export function catalystPairCompatible(id: CatalystId, left: SkillId, right: SkillId) {
+  if (!(['source','carrier','trail','reverse','collapse'] as CatalystId[]).includes(id)) return true;
+  const l = phenomenonChoreography[left], r = phenomenonChoreography[right];
+  if (!l || !r || !r.accepts.includes(id as ChoreographyOperator)) return false;
+  if (id === 'source' || id === 'reverse') return l.emits.includes('terminal');
+  if (id === 'carrier') return l.emits.includes('carrier');
+  if (id === 'trail') return l.emits.includes('path');
+  if (id === 'collapse') return l.emits.includes('area');
+  return false;
+}
 
 export interface ResonanceDef {
   id: ResonanceId;

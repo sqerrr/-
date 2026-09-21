@@ -1,8 +1,8 @@
-# Black Archive web prototype — v0.11.4
+# Black Archive web prototype — v0.12 Catalyst 2.0
 
 `prototype/current/` is the current executable browser build.
 
-Read root `00_START_HERE.md` first. Current owner correction: `36_OWNER_CORRECTION_CROWD_BUILD_ELITE_2026-09-20.md`.
+Read root `00_START_HERE.md` first. Catalyst authority: `37_CATALYST_2_0_CHOREOGRAPHY_2026-09-22.md`.
 
 ## Run
 
@@ -35,32 +35,31 @@ Examples:
 - R — restart;
 - F8 — technical debug.
 
-## Build/combat rules currently under test
+## Catalyst 2.0
 
-- XP → Doctrines; structural content comes from its own world/elite channels.
-- Up to four active Phenomena with Catalysts between them.
-- Quantity is allowed to be real throughput: extra rays/impacts/actors are not globally damage-normalised.
-- Position distributes that throughput: parallel lanes, nearby impacts, returning actors and repeated short-lived constructs should read differently.
-- Reservoir/Vault use immediate crowd results instead of hidden charge banks.
-- Sentry deploys again each Chain beat and old batteries expire quickly.
-- Active Cleaver/Arc branches no longer rely on wound stacks / hidden global charge.
-- Jackpot combinations are allowed; technical tests protect viability and broken contracts, not equal TTK.
+Current Discovery contains five physical operators:
 
-## Elites and shared items
+- **Источник** — B originates where A physically finishes;
+- **Носитель** — B is emitted from live A actors;
+- **След** — B is staged along A's path;
+- **Обратный ход** — B begins at A's far endpoint and plays back;
+- **Схлопывание** — B uses A's area/perimeter and converges toward its center.
 
-Elites compose:
+Compatibility is partial by design. The Chain and planner show when the current A → B pair is incompatible.
 
-`chassis + rarity + affix + authored action + learned refusals + captured/inherited items + optional Echo`
+The gameplay criterion is visual: without reading text, the player should see B physically using A's geometry. A generic proc or multiplier is not sufficient.
 
-- nearby elites can deliberately contest a ground relic;
-- refused cards are knowledge, not an exclusive one-owner inventory;
-- later elites can inherit a sample of items captured earlier by the enemy side;
-- from 120 s onward elites also gain autonomous full-pool evolution modules that do not depend on player refusals;
-- all 20 items have an explicit enemy-side effect;
-- durability growth from items is allowed;
-- immediate lethal tells remain the top visual layer.
+Old Catalyst 1.x definitions remain executable only for old save/replay compatibility and are not offered by Discovery.
 
-The final Warden is the enemy-side payoff: legendary, three phases, inherited refusal repertoire, and all distinct item effects captured by elites during the run.
+## Sentry
+
+Sentry is spatial infrastructure:
+
+- each beat builds a short forward battery instead of spawning a turret beside the hero;
+- recent waves can coexist;
+- turrets are physical Catalyst carriers;
+- Trail places enough batteries on long routes to keep network nodes connectable;
+- Gravity Grid creates real control links between nearby turrets.
 
 ## Active Phenomena
 
@@ -78,11 +77,18 @@ Discovery uses 11 active Phenomena:
 - Возвратные осколки;
 - Гравиякорь.
 
-Seven older definitions remain compatibility-only.
+Every one emits physical Catalyst signals in simulation; a regression rejects advertised capabilities that are not actually produced.
+
+## Existing combat rules retained
+
+- XP → Doctrines; structural content uses separate world/elite channels.
+- Quantity is allowed to create real throughput.
+- Jackpot combinations are allowed; tests catch broken contracts rather than equalizing all build TTK.
+- Elite ecosystem / Warden behaviour follows document 36.
 
 ## Presentation contract
 
-Simulation remains authoritative for count and geometry. Renderer does not invent a second combat model.
+Simulation owns physical origins, paths, objects and areas. Renderer visualizes that truth and adds distinct choreography cues; it does not invent a second Catalyst model.
 
 ## Tests
 
@@ -91,4 +97,4 @@ npm test
 npm run test:builds
 ```
 
-The suite includes isolated build viability, crowd/elite/Warden build matrix, progression and all-start probes. Manual play remains mandatory for readability and game feel.
+The Catalyst regression checks every live Phenomenon signal and physically exercises every currently advertised compatible pair. Manual play remains mandatory for the GIF-test and game feel.

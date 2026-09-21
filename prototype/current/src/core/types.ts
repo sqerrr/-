@@ -18,6 +18,11 @@ export type SkillId =
   | 'tether_drag'
   | 'pin_burst';
 export type CatalystId =
+  | 'source'
+  | 'carrier'
+  | 'trail'
+  | 'reverse'
+  | 'collapse'
   | 'capacitor'
   | 'anchor'
   | 'reservoir'
@@ -282,6 +287,8 @@ export interface OrbitSnapshot {
   active: boolean;
   count: number;
   radius: number;
+  centerX: number;
+  centerZ: number;
   mutation: MutationId | null;
   apotheosis: MutationId | null;
 }
@@ -526,6 +533,20 @@ export type GameEvent =
       sourceZ: number;
       targetX: number;
       targetZ: number;
+    }
+  | {
+      /** Catalyst 2.0: explicit physical choreography, rendered independently of damage numbers. */
+      type: 'CatalystChoreography';
+      tick: number;
+      catalyst: CatalystId;
+      fromSlot: number;
+      toSlot: number;
+      fromSkill: SkillId;
+      toSkill: SkillId;
+      mode: 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse';
+      points: { x: number; z: number }[];
+      centerX: number;
+      centerZ: number;
     }
   | {
       type: 'DamageResolved';

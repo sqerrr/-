@@ -1,5 +1,5 @@
 import { Simulation, type BenchmarkLoadout } from '../core/simulation.js';
-import { activeSkillOrder, catalystOrder, skills } from '../content/definitions.js';
+import { activeSkillOrder, catalystOrder, catalystPairCompatible, skills } from '../content/definitions.js';
 import type { CatalystId, DoctrineRuntime, MutationId, SkillId, Snapshot } from '../core/types.js';
 
 class Rng {
@@ -64,7 +64,11 @@ function spawnPack(sim:any){
 const rows:any[]=[];
 for(let n=0;n<builds;n++){
   const slots=shuffle(activeSkillOrder,rng).slice(0,4) as SkillId[];
-  const catalysts=shuffle(catalystOrder,rng).slice(0,3) as CatalystId[];
+  const catalysts=slots.slice(0,-1).map((left,i)=>{
+    const right=slots[i+1], pool=catalystOrder.filter(id=>catalystPairCompatible(id,left,right));
+    if(!pool.length) throw new Error(`no Catalyst 2.0 operator for ${left}->${right}`);
+    return pool[rng.int(pool.length)];
+  }) as CatalystId[];
   const mutations:any={},mutationUpgrades:any={},mutationApotheoses:any={},branches:any={};
   for(const id of slots){
     const b=branchFor(id,rng); branches[id]=b;

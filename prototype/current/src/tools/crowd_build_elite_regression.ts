@@ -47,7 +47,7 @@ sentry.configureBenchmarkLoadout({slots:['sentry'],catalysts:[],level:1,globalPo
 const sst=sentry.skillsRuntime.get('sentry');
 sentry.castSentry(sst,0,sentry.heroSource());
 assert(sentry.constructs.length===1,'base sentry cast did not deploy exactly one turret');
-assert(sentry.constructs[0].ttl<4.1,`base sentry persists too long for cycle deployment: ${sentry.constructs[0].ttl}`);
+assert(sentry.constructs[0].ttl>=4.5&&sentry.constructs[0].ttl<=6.5,`base sentry should preserve several recent Chain waves without becoming permanent: ${sentry.constructs[0].ttl}`);
 assert(sentry.constructs[0].power>1.9,`sentry did not inherit run power: ${sentry.constructs[0].power}`);
 
 // Hidden multi-cycle stores are retired from the two crowd catalysts.

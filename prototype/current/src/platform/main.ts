@@ -1,6 +1,7 @@
 import {
   activeSkillOrder,
   catalysts,
+  catalystPairCompatible,
   doctrines,
   mutationDef,
   rarityColor,
@@ -121,7 +122,7 @@ function modalState() {
 }
 async function copyDebugLog() {
   const text = [
-    'Black Archive v0.11.4 · debug',
+    'Black Archive v0.12 · debug',
     navigator.userAgent,
     location.href,
     '',
@@ -588,6 +589,41 @@ function pushEvents(events: readonly GameEvent[]) {
           `${from ? skills[from].name : '?'} → ${catalysts[e.catalyst].shortName} → ${to ? skills[to].name : '?'}. Цветной импульс показывает причинный маршрут.`
         );
       }
+    } else if (e.type === 'CatalystChoreography') {
+      const snap = sim.snapshot(),
+        from = snap.chain.slots[e.fromSlot],
+        to = snap.chain.slots[e.toSlot],
+        label = catalysts[e.catalyst].shortName.toUpperCase(),
+        explanation =
+          e.mode === 'source'
+            ? 'Правый феномен возник из точки, где закончился левый.'
+            : e.mode === 'carrier'
+              ? 'Правый феномен разыгрался из физических объектов левого.'
+              : e.mode === 'trail'
+                ? 'Правый феномен повторил путь, который только что прочертил левый.'
+                : e.mode === 'reverse'
+                  ? 'Правый феномен стартовал в конце пути левого и пошёл обратно.'
+                  : 'Правый феномен использовал область левого и сошёлся к её центру.';
+      combatFloats.push({
+        entity: -1,
+        x: e.centerX,
+        z: e.centerZ,
+        text: label,
+        amount: 0,
+        start: sim.time,
+        ttl: 0.92,
+        kind: 'catalyst'
+      });
+      const edge = document.querySelector<HTMLElement>(`#chain .edge[data-edge="${e.fromSlot}"]`);
+      edge?.classList.add('fired');
+      setTimeout(() => edge?.classList.remove('fired'), 620);
+      if (!seenCatalystTriggers.has(e.catalyst)) {
+        seenCatalystTriggers.add(e.catalyst);
+        showEliteAlert(
+          `ХОРЕОГРАФИЯ · ${label}`,
+          `${from ? skills[from].name : '?'} → ${to ? skills[to].name : '?'}. ${explanation}`
+        );
+      }
     } else if (e.type === 'RivalCast') {
       // The refused card is fired back at the hero: name it on the spot, not only in the log.
       combatFloats.push({
@@ -649,10 +685,18 @@ function updateChain(s: Snapshot) {
         edge.className = 'edge';
         edge.dataset.edge = String(i);
         if (cid) {
-          const cd = catalysts[cid];
-          edge.title = cd.desc;
+          const cd = catalysts[cid],
+            left = s.chain.slots[i],
+            right = s.chain.slots[i + 1],
+            compatible = !!left && !!right && catalystPairCompatible(cid, left, right);
+          edge.classList.add(compatible ? 'compatible' : 'incompatible');
+          edge.title = compatible
+            ? `${cd.desc}\nРАБОТАЕТ: ${skills[left!].name} → ${skills[right!].name}`
+            : `${cd.desc}\nНЕСОВМЕСТИМО с текущей парой.`;
           edge.style.setProperty('--cat-color', cd.color);
-          edge.innerHTML = `<div class="catdot"></div><b>${esc(cd.shortName)}</b><span>${esc(cd.scope)}</span>`;
+          edge.innerHTML = compatible
+            ? `<div class="catdot"></div><b>${esc(cd.shortName)}</b><span>связь работает</span>`
+            : `<div class="catdot"></div><b>⚠ ${esc(cd.shortName)}</b><span>не совместим</span>`;
         } else edge.innerHTML = '<b>—</b><span>пусто</span>';
         root.append(edge);
       }
@@ -745,10 +789,20 @@ function plannerCatNode(
   el.draggable = true;
   el.dataset.drag = `cat:${zone}:${idx}`;
   if (id) {
-    const d = catalysts[id];
+    const d = catalysts[id],
+      left = zone === 'active' ? s.chain.slots[idx] : null,
+      right = zone === 'active' ? s.chain.slots[idx + 1] : null,
+      compatible = zone !== 'active' || (!!left && !!right && catalystPairCompatible(id, left, right));
+    el.classList.add(compatible ? 'compatible' : 'incompatible');
     el.style.setProperty('--cat-color', d.color);
-    el.innerHTML = `<div class="catdot"></div><div class="nm">${esc(d.name)}</div><div class="sm">Катализатор · ${esc(d.scope)}</div><div class="effect">${esc(d.desc)}</div>`;
-  } else el.innerHTML = '<div>пустой<br>slot</div>';
+    const state =
+      zone !== 'active'
+        ? 'РЕЗЕРВ · поставьте между совместимой парой'
+        : compatible
+          ? `СВЯЗЬ РАБОТАЕТ · ${skills[left!].shortName} → ${skills[right!].shortName}`
+          : '⚠ НЕСОВМЕСТИМО · переставьте феномены или катализатор';
+    el.innerHTML = `<div class="catdot"></div><div class="nm">${esc(d.name)}</div><div class="sm">${esc(state)}</div><div class="effect">${esc(d.desc)}</div>`;
+  } else el.innerHTML = '<div>пустой<br>слот</div>';
   attachPlannerDnD(el);
   return el;
 }

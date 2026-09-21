@@ -2,6 +2,7 @@ import {
   activeSkillOrder,
   catalystOrder,
   catalysts,
+  catalystPairCompatible,
   doctrineOrder,
   doctrines,
   effectGrammar,
@@ -350,6 +351,24 @@ type CastSource = {
   vz: number;
 };
 
+type ChoreographyPoint = { x: number; z: number };
+type ChoreographyCarrier =
+  | { kind: 'projectile'; id: number }
+  | { kind: 'construct'; id: number }
+  | { kind: 'orbit'; index: number };
+type ChoreographyTrace = {
+  skill: SkillId;
+  origin: ChoreographyPoint;
+  aimX: number;
+  aimZ: number;
+  terminal: ChoreographyPoint | null;
+  points: ChoreographyPoint[];
+  areaPoints: ChoreographyPoint[];
+  paths: ChoreographyPoint[][];
+  carriers: ChoreographyCarrier[];
+  scheduled: ChoreographyPoint[];
+};
+
 export interface SimConfig {
   seed: number;
   hz: 30 | 60;
@@ -632,6 +651,11 @@ export class Simulation {
   private overflowConsumed = false;
   private aegisCharge = 0;
   private backflowBonus = new Map<number, number>();
+  private currentChoreography: ChoreographyTrace | null = null;
+  private orbitChoreoUntil = -1;
+  private orbitChoreoX = 0;
+  private orbitChoreoZ = 0;
+  private orbitChoreoCarrier: ChoreographyCarrier | null = null;
   private lastContext: {
     skill: SkillId | null;
     damage: number;
@@ -642,6 +666,7 @@ export class Simulation {
     hitIds: number[];
     x: number;
     z: number;
+    trace: ChoreographyTrace | null;
   } = {
     skill: null,
     damage: 0,
@@ -651,7 +676,8 @@ export class Simulation {
     state: '',
     hitIds: [],
     x: 0,
-    z: 0
+    z: 0,
+    trace: null
   };
   private damageBySource = new Map<string, number>();
   // Mirror of damageBySource for blows that landed on the player. Feeds the "what hit me"
@@ -964,7 +990,16 @@ export class Simulation {
   }
 
   private spawnProjectile(p: Omit<Projectile, 'id' | 'guarded'>) {
-    this.projectiles.push({ id: this.nextId++, guarded: false, ...p });
+    const id = this.nextId++;
+    this.projectiles.push({ id, guarded: false, ...p });
+    if (
+      this.currentChoreography &&
+      p.faction === 'hero' &&
+      p.sourceSlot === this.currentSlot &&
+      p.source === this.currentChoreography.skill
+    )
+      this.currentChoreography.carriers.push({ kind: 'projectile', id });
+    return id;
   }
 
   private projectileOwner(p: Projectile) {
@@ -1080,6 +1115,16 @@ export class Simulation {
 
   private scheduleStrike(strike: Omit<DelayedStrike, 'id'>) {
     this.delayedStrikes.push({ id: this.nextId++, ...strike });
+    if (
+      this.currentChoreography &&
+      strike.faction === 'hero' &&
+      strike.sourceSlot === this.currentSlot
+    ) {
+      const p = { x: strike.x, z: strike.z };
+      this.currentChoreography.scheduled.push(p);
+      this.tracePoint(p.x, p.z, true);
+      this.traceArea(p.x, p.z, strike.radius);
+    }
     this.events.push({
       type: 'CombatShape',
       tick: this.tick,
@@ -1223,7 +1268,9 @@ export class Simulation {
   }
   private generateCatalystDiscovery() {
     const owned = this.allOwnedCatalysts(),
-      pool = catalystOrder.filter((id) => !owned.includes(id));
+      unowned = catalystOrder.filter((id) => !owned.includes(id)),
+      useful = unowned.filter((id) => this.catalystCompatibleEdges(id).length > 0),
+      pool = useful.length ? useful : unowned;
     if (!pool.length) {
       this.generateLevelOffers();
       return;
@@ -3579,10 +3626,25 @@ export class Simulation {
     );
     if (grid.length >= 2 && this.sentryGridAcc >= 0.28) {
       this.sentryGridAcc = 0;
-      for (let i = 0; i < grid.length; i++) {
-        const a = grid[i],
-          b = grid[(i + 1) % grid.length],
-          dx = b.x - a.x,
+      const links: [Construct, Construct][] = [];
+      const seen = new Set<string>();
+      for (const a of grid) {
+        const near = grid
+          .filter((b) => b.id !== a.id)
+          .map((b) => ({ b, d: Math.hypot(b.x - a.x, b.z - a.z) }))
+          .filter((q) => q.d <= 6.4)
+          .sort((x, y) => x.d - y.d)
+          .slice(0, 2);
+        for (const q of near) {
+          const lo = Math.min(a.id, q.b.id), hi = Math.max(a.id, q.b.id), key = lo + ':' + hi;
+          if (!seen.has(key)) {
+            seen.add(key);
+            links.push([a, q.b]);
+          }
+        }
+      }
+      for (const [a,b] of links) {
+        const dx = b.x - a.x,
           dz = b.z - a.z,
           len = Math.hypot(dx, dz) || 1;
         this.combatShape(
@@ -3613,7 +3675,7 @@ export class Simulation {
     }
   }
 
-  private orbitProfile(st: SkillRuntime) {
+  private orbitProfile(st: SkillRuntime, center = this.orbitCenter()) {
     let count =
       3 +
       Math.max(0, Math.round(st.count) - 1) +
@@ -3626,7 +3688,7 @@ export class Simulation {
     let radius = this.skillRadius(st, skills.orbit_blades.baseRadius),
       crowd = 0;
     if (this.mutationIs(st,'orbit_blood')) {
-      crowd=this.ents.filter(e=>e.hp>0&&Math.hypot(e.x-this.px,e.z-this.pz)<6).length;
+      crowd=this.ents.filter(e=>e.hp>0&&Math.hypot(e.x-center.x,e.z-center.z)<6).length;
       radius*=1+Math.min(0.34,crowd*0.017);
       damageMul*=1+Math.min(0.48,crowd*0.024);
       if(this.mutationIs(st,'orbit_sanguine_crown')) radius*=1+Math.min(0.22,crowd*0.01);
@@ -3640,21 +3702,21 @@ export class Simulation {
   private updateOrbitBlades() {
     const st=this.skillsRuntime.get('orbit_blades');if(!st||!this.isActiveSkill('orbit_blades'))return;
     this.orbitAcc+=this.dt;if(this.orbitAcc<0.13)return;this.orbitAcc-=0.13;
-    const mut=st.mutation, profile=this.orbitProfile(st);
+    const center=this.orbitCenter(), mut=st.mutation, profile=this.orbitProfile(st,center);
     const dmg=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36*profile.damageMul;
     for(const e of this.ents){
       if(e.hp<=0||this.time-e.orbitHitAt<profile.hitInterval)continue;
-      const d=Math.hypot(e.x-this.px,e.z-this.pz);
+      const d=Math.hypot(e.x-center.x,e.z-center.z);
       if(Math.abs(d-profile.radius)<0.62){
         e.orbitHitAt=this.time;let m=dmg;
         if(mut==='orbit_saw'&&e.kind==='elite')m*=1.9;
-        this.damage(e,m,'orbit_blades',false,this.px,this.pz,this.slots.indexOf('orbit_blades'));
+        this.damage(e,m,'orbit_blades',false,center.x,center.z,this.slots.indexOf('orbit_blades'));
         this.closeDamage+=m;
         if(this.mutationIs(st,'orbit_sanguine_crown')&&profile.crowd>=5)this.grantBarrier(Math.min(3.2,m*0.02));
       }
     }
-    if(this.mutationIs(st,'orbit_aegis_crown')&&this.aegisCharge>=6){this.aegisCharge=0;this.grantBarrier(16);const rr=profile.radius+1.8;this.combatShape('orbit_aegis_crown',{kind:'circle',x:this.px,z:this.pz,radius:rr},'control');for(const e of this.ents){const dx=e.x-this.px,dz=e.z-this.pz,d=Math.hypot(dx,dz)||1;if(d<rr+e.radius){this.damage(e,22*this.powerBucket(st),'orbit_blades',false);e.x+=dx/d*0.75;e.z+=dz/d*0.75;}}this.events.push({type:'RareEvent',tick:this.tick,title:'КОРОНА ЭГИДЫ',detail:'Перехваты выпущены ударной волной',x:this.px,z:this.pz});}
-    if(this.mutationIs(st,'orbit_phoenix')&&this.time>=this.orbitPhoenixAt){this.orbitPhoenixAt=this.time+1.35;const t=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number((b.markUntil>this.time)||b.kind==='elite')-Number((a.markUntil>this.time)||a.kind==='elite')||Math.hypot(a.x-this.px,a.z-this.pz)-Math.hypot(b.x-this.px,b.z-this.pz))[0];if(t){const dx=t.x-this.px,dz=t.z-this.pz,m=Math.hypot(dx,dz)||1;this.spawnProjectile({x:this.px+dx/m*profile.radius,z:this.pz+dz/m*profile.radius,vx:dx/m*8.5,vz:dz/m*8.5,radius:0.28,ttl:2.8,damage:skills.orbit_blades.baseDamage*this.powerBucket(st)*1.25,coverDamage:16,faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:this.slots.indexOf('orbit_blades'),mutation:st.mutation,apotheosis:'orbit_phoenix',rivalConcentration:1,behavior:'returner',returnAt:1.3,phase:0,hitIds:[]});}}
+    if(this.mutationIs(st,'orbit_aegis_crown')&&this.aegisCharge>=6){this.aegisCharge=0;this.grantBarrier(16);const rr=profile.radius+1.8;this.combatShape('orbit_aegis_crown',{kind:'circle',x:center.x,z:center.z,radius:rr},'control');for(const e of this.ents){const dx=e.x-center.x,dz=e.z-center.z,d=Math.hypot(dx,dz)||1;if(d<rr+e.radius){this.damage(e,22*this.powerBucket(st),'orbit_blades',false,center.x,center.z);e.x+=dx/d*0.75;e.z+=dz/d*0.75;}}this.events.push({type:'RareEvent',tick:this.tick,title:'КОРОНА ЭГИДЫ',detail:'Перехваты выпущены ударной волной',x:center.x,z:center.z});}
+    if(this.mutationIs(st,'orbit_phoenix')&&this.time>=this.orbitPhoenixAt){this.orbitPhoenixAt=this.time+1.35;const t=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number((b.markUntil>this.time)||b.kind==='elite')-Number((a.markUntil>this.time)||a.kind==='elite')||Math.hypot(a.x-center.x,a.z-center.z)-Math.hypot(b.x-center.x,b.z-center.z))[0];if(t){const dx=t.x-center.x,dz=t.z-center.z,m=Math.hypot(dx,dz)||1;this.spawnProjectile({x:center.x+dx/m*profile.radius,z:center.z+dz/m*profile.radius,vx:dx/m*8.5,vz:dz/m*8.5,radius:0.28,ttl:2.8,damage:skills.orbit_blades.baseDamage*this.powerBucket(st)*1.25,coverDamage:16,faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:this.slots.indexOf('orbit_blades'),mutation:st.mutation,apotheosis:'orbit_phoenix',rivalConcentration:1,behavior:'returner',returnAt:1.3,phase:0,hitIds:[]});}}
   }
 
   private effectiveTempo() {
@@ -3896,6 +3958,8 @@ export class Simulation {
     } else anchors.push(base);
     const radius=this.skillRadius(st,mut==='tether_net'?4.8:mut==='tether_hook'?2.2:3.4,slot);
     for(const anchor of anchors){
+      const dx0=anchor.x-src.x,dz0=anchor.z-src.z,d0=Math.hypot(dx0,dz0)||1;
+      this.combatShape('tether_line',{kind:'ray',x:src.x,z:src.z,aimX:dx0/d0,aimZ:dz0/d0,range:d0,halfWidth:0.08},'control');
       this.combatShape('tether_drag',{kind:'circle',x:anchor.x,z:anchor.z,radius},'control');
       let pulled=0;
       const candidates=this.targetsFor(src).filter(e=>e.hp>0&&Math.hypot(e.x-anchor.x,e.z-anchor.z)<=radius+e.radius).sort((a,b)=>Math.hypot(a.x-anchor.x,a.z-anchor.z)-Math.hypot(b.x-anchor.x,b.z-anchor.z));
@@ -3972,6 +4036,7 @@ export class Simulation {
     }
     const st = this.skillsRuntime.get(id);
     if (!st) return;
+
     this.currentSlot = slot;
     this.currentHits.clear();
     this.currentActivationDamage = 0;
@@ -3982,81 +4047,88 @@ export class Simulation {
     this.activationScale = 1;
     this.activationCountBonus = 0;
     this.activationDerived = false;
+    this.beginChoreographyTrace(id);
+
     const incoming = this.incomingCatalyst(slot),
-      conduct = 1 + this.resonance.conductivity * 0.16;
-    // Operators modify the normal activation instead of merely multiplying its damage.
+      conduct = 1 + this.resonance.conductivity * 0.16,
+      previousContext = this.lastContext,
+      choreographyId =
+        incoming !== null &&
+        (['source', 'carrier', 'trail', 'reverse', 'collapse'] as CatalystId[]).includes(incoming),
+      choreographyReady =
+        !!incoming &&
+        choreographyId &&
+        !!previousContext.trace &&
+        !!previousContext.skill &&
+        catalystPairCompatible(incoming, previousContext.skill, id);
+
+    // Compatibility-only Catalyst 1.x operators remain executable for old saves/replays.
+    // Current Discovery never offers them; the active five are handled below as physical choreography.
     const oldAimX = this.aimX,
       oldAimZ = this.aimZ;
-    if (incoming === 'anchor' && this.lastContext.hitIds.length) {
-      const dx = this.lastContext.x - this.px,
-        dz = this.lastContext.z - this.pz,
-        m = Math.hypot(dx, dz) || 1;
-      this.aimX = dx / m;
-      this.aimZ = dz / m;
-    }
-    if (incoming === 'capacitor') {
-      const divisor = Math.max(3, 6 - this.resonance.conductivity);
-      this.activationCountBonus += Math.min(
-        3,
-        Math.floor(this.lastContext.hitIds.length / divisor)
-      );
-    }
-    if (incoming === 'reservoir') {
-      const crowdMass = this.lastContext.hitIds.length + this.lastContext.kills * 2;
-      const threshold = Math.max(5, 9 - this.resonance.conductivity);
-      if (crowdMass >= threshold) {
-        this.activationCountBonus += 2 + Math.min(2, this.resonance.conductivity);
-        this.metrics.reactions++;
+    if (!choreographyId) {
+      if (incoming === 'anchor' && this.lastContext.hitIds.length) {
+        const dx = this.lastContext.x - this.px,
+          dz = this.lastContext.z - this.pz,
+          m = Math.hypot(dx, dz) || 1;
+        this.aimX = dx / m;
+        this.aimZ = dz / m;
       }
-    }
-    if (incoming === 'recoil') {
-      // Hits harder and shoves the owner back along the aim line: a price paid in position
-      // rather than in a number, so it reads on screen instead of in a tooltip.
-      this.activationScale *= 1.55;
-      this.px -= this.aimX * 1.2;
-      this.pz -= this.aimZ * 1.2;
-      this.clampWorld();
-    }
-    if (incoming === 'focus') {
-      this.activationScale *= 1.5;
-      this.activationCountBonus -= 1;
-    }
-    if (incoming === 'surge' && !this.lastContext.hitIds.length) {
-      // Rewards the beat that found nothing, so a whiff sets up the swing after it.
-      this.activationScale *= 1.9;
-    }
-    if (incoming === 'glut' && this.lastContext.hitIds.length) {
-      this.activationScale *= Math.min(1.6, 1 + this.lastContext.hitIds.length * 0.06);
-    }
-    if (incoming === 'stagger' && this.lastContext.hitIds.length) {
-      let far: Ent | null = null,
-        best = -1;
-      for (const eid of this.lastContext.hitIds) {
-        const e = this.ents.find((q) => q.id === eid && q.hp > 0);
-        if (!e) continue;
-        const d = Math.hypot(e.x - this.px, e.z - this.pz);
-        if (d > best) {
-          best = d;
-          far = e;
+      if (incoming === 'capacitor') {
+        const divisor = Math.max(3, 6 - this.resonance.conductivity);
+        this.activationCountBonus += Math.min(
+          3,
+          Math.floor(this.lastContext.hitIds.length / divisor)
+        );
+      }
+      if (incoming === 'reservoir') {
+        const crowdMass = this.lastContext.hitIds.length + this.lastContext.kills * 2;
+        const threshold = Math.max(5, 9 - this.resonance.conductivity);
+        if (crowdMass >= threshold) {
+          this.activationCountBonus += 2 + Math.min(2, this.resonance.conductivity);
+          this.metrics.reactions++;
         }
       }
-      if (far) {
-        const m = Math.hypot(far.x - this.px, far.z - this.pz) || 1;
-        this.aimX = (far.x - this.px) / m;
-        this.aimZ = (far.z - this.pz) / m;
+      if (incoming === 'recoil') {
+        this.activationScale *= 1.55;
+        this.px -= this.aimX * 1.2;
+        this.pz -= this.aimZ * 1.2;
+        this.clampWorld();
       }
+      if (incoming === 'focus') {
+        this.activationScale *= 1.5;
+        this.activationCountBonus -= 1;
+      }
+      if (incoming === 'surge' && !this.lastContext.hitIds.length) this.activationScale *= 1.9;
+      if (incoming === 'glut' && this.lastContext.hitIds.length)
+        this.activationScale *= Math.min(1.6, 1 + this.lastContext.hitIds.length * 0.06);
+      if (incoming === 'stagger' && this.lastContext.hitIds.length) {
+        let far: Ent | null = null,
+          best = -1;
+        for (const eid of this.lastContext.hitIds) {
+          const e = this.ents.find((q) => q.id === eid && q.hp > 0);
+          if (!e) continue;
+          const d = Math.hypot(e.x - this.px, e.z - this.pz);
+          if (d > best) {
+            best = d;
+            far = e;
+          }
+        }
+        if (far) {
+          const m = Math.hypot(far.x - this.px, far.z - this.pz) || 1;
+          this.aimX = (far.x - this.px) / m;
+          this.aimZ = (far.z - this.pz) / m;
+        }
+      }
+      if (incoming === 'splinter') this.activationCountBonus += 2;
     }
-    if (incoming === 'splinter') {
-      // Extra bodies are allowed to be real power. Balance the operator through opportunity
-      // cost and spatial distribution, not by silently shrinking every spawned manifestation.
-      this.activationCountBonus += 2;
-    }
+
     const feedback = this.feedbackCountBonus.get(slot) ?? 0;
     if (feedback) {
       this.activationCountBonus += feedback;
       this.feedbackCountBonus.delete(slot);
     }
-    if (incoming === 'aegis_relay' && this.lastContext.control > 0) {
+    if (!choreographyId && incoming === 'aegis_relay' && this.lastContext.control > 0) {
       const gain = Math.min(
         36,
         (this.lastContext.control * 2.6 + this.lastContext.hitIds.length * 0.35) * conduct
@@ -4072,43 +4144,36 @@ export class Simulation {
       });
       this.metrics.reactions++;
     }
+
     this.metrics.activations++;
-    this.events.push({
-      type: 'SkillActivated',
-      tick: this.tick,
-      slot,
-      skill: id,
-      x: this.px,
-      z: this.pz,
-      aimX: this.aimX,
-      aimZ: this.aimZ
-    });
-    this.dispatchSkill(id, st, slot, this.heroSource());
+    let choreographyHandled = false;
+    if (choreographyReady && incoming)
+      choreographyHandled = this.executeChoreography(
+        incoming,
+        id,
+        st,
+        slot,
+        previousContext.trace
+      );
+    if (!choreographyHandled)
+      this.castWithTrace(id, st, slot, this.heroSource());
+
     this.aimX = oldAimX;
     this.aimZ = oldAimZ;
-    if (incoming === 'relay' && this.lastContext.kills > 0) {
+
+    if (!choreographyId && incoming === 'relay' && this.lastContext.kills > 0) {
       const need = Math.max(1, 3 - Math.min(2, this.resonance.conductivity));
       if (this.lastContext.kills >= need) {
         const prev = this.activationScale;
         this.activationScale = 0.82;
         this.activationDerived = true;
-        this.events.push({
-          type: 'SkillActivated',
-          tick: this.tick,
-          slot,
-          skill: id,
-          x: this.px,
-          z: this.pz,
-          aimX: this.aimX,
-          aimZ: this.aimZ
-        });
-        this.dispatchSkill(id, st, slot, this.heroSource());
+        this.castWithTrace(id, st, slot, this.heroSource());
         this.activationDerived = false;
         this.activationScale = prev;
         this.metrics.reactions++;
       }
     }
-    if (incoming === 'conduit' && this.lastContext.state && this.currentHits.size) {
+    if (!choreographyId && incoming === 'conduit' && this.lastContext.state && this.currentHits.size) {
       for (const eid of this.currentHits) {
         const e = this.ents.find((q) => q.id === eid && q.hp > 0);
         if (e) this.applyState(e, this.lastContext.state, 0.65 * conduct);
@@ -4122,7 +4187,7 @@ export class Simulation {
         z: this.pz
       });
     }
-    if (incoming === 'echo_shard' && this.lastContext.damage > 0 && this.currentHits.size) {
+    if (!choreographyId && incoming === 'echo_shard' && this.lastContext.damage > 0 && this.currentHits.size) {
       const targets = [...this.currentHits]
         .map((eid) => this.ents.find((q) => q.id === eid && q.hp > 0))
         .filter(Boolean) as Ent[];
@@ -4152,11 +4217,11 @@ export class Simulation {
         });
       }
     }
-    if (incoming === 'backflow' && slot > 0 && this.currentHits.size >= 3) {
+    if (!choreographyId && incoming === 'backflow' && slot > 0 && this.currentHits.size >= 3) {
       this.feedbackCountBonus.set(slot - 1, 1);
       this.metrics.reactions++;
     }
-    if ((incoming === 'brand' || incoming === 'rime') && this.currentHits.size) {
+    if (!choreographyId && (incoming === 'brand' || incoming === 'rime') && this.currentHits.size) {
       const state = incoming === 'brand' ? 'mark' : 'chill';
       for (const eid of this.currentHits) {
         const e = this.ents.find((q) => q.id === eid && q.hp > 0);
@@ -4164,19 +4229,28 @@ export class Simulation {
       }
       this.metrics.reactions++;
     }
-    if (incoming === 'harvest' && this.currentActivationKills > 0) {
+    if (!choreographyId && incoming === 'harvest' && this.currentActivationKills > 0) {
       this.healPlayer(Math.min(20, this.currentActivationKills * 4 * conduct));
       this.metrics.reactions++;
     }
-    if (incoming === 'vault' && this.currentHits.size >= 3) {
-      const gain = Math.min(36, (this.currentHits.size * 3.2 + this.currentActivationKills * 2.4) * conduct);
+    if (!choreographyId && incoming === 'vault' && this.currentHits.size >= 3) {
+      const gain = Math.min(
+        36,
+        (this.currentHits.size * 3.2 + this.currentActivationKills * 2.4) * conduct
+      );
       this.grantBarrier(gain);
       this.metrics.reactions++;
     }
-    if (incoming === 'handoff' && slot + 1 < this.slots.length && this.slots[slot + 1]) {
+    if (
+      !choreographyId &&
+      incoming === 'handoff' &&
+      slot + 1 < this.slots.length &&
+      this.slots[slot + 1]
+    ) {
       this.feedbackCountBonus.set(slot + 1, 2);
       this.metrics.reactions++;
     }
+
     this.previousHits = new Set(this.currentHits);
     let cx = this.px,
       cz = this.pz;
@@ -4189,7 +4263,9 @@ export class Simulation {
         cz = ts.reduce((a, e) => a + e.z, 0) / ts.length;
       }
     }
-    const previous = this.lastContext;
+
+    const trace = this.finishChoreographyTrace(),
+      previous = this.lastContext;
     this.lastContext = {
       skill: id,
       damage: this.currentActivationDamage,
@@ -4199,9 +4275,13 @@ export class Simulation {
       state: this.currentProducedState,
       hitIds: [...this.currentHits],
       x: cx,
-      z: cz
+      z: cz,
+      trace
     };
-    if (incoming && slot > 0 && this.slots[slot - 1])
+
+    // Legacy events remain for old Catalyst ids. Catalyst 2.0 has its own richer event carrying
+    // the actual points/path used by the combined animation.
+    if (incoming && !choreographyId && slot > 0 && this.slots[slot - 1])
       this.events.push({
         type: 'CatalystTriggered',
         tick: this.tick,
@@ -4213,8 +4293,9 @@ export class Simulation {
         targetX: cx,
         targetZ: cz
       });
-    // Topology operator: a successful B can bounce execution once back to A. Guard forbids recursion.
+
     if (
+      !choreographyId &&
       incoming === 'overflow' &&
       slot > 0 &&
       !this.topologyGuard &&
@@ -4231,17 +4312,7 @@ export class Simulation {
           this.currentSlot = slot - 1;
           this.activationScale = 0.78;
           this.activationDerived = true;
-          this.events.push({
-            type: 'SkillActivated',
-            tick: this.tick,
-            slot: slot - 1,
-            skill: prevId,
-            x: this.px,
-            z: this.pz,
-            aimX: this.aimX,
-            aimZ: this.aimZ
-          });
-          this.dispatchSkill(prevId, prevSt, slot - 1, this.heroSource());
+          this.castWithTrace(prevId, prevSt, slot - 1, this.heroSource());
           this.activationDerived = saveDerived;
           this.activationScale = saveScale;
           this.currentSlot = saveSlot;
@@ -4250,6 +4321,7 @@ export class Simulation {
         }
       }
     }
+
     if (slot === lastSlot) {
       this.previousHits.clear();
       this.lastContext = {
@@ -4261,13 +4333,461 @@ export class Simulation {
         state: '',
         hitIds: [],
         x: this.px,
-        z: this.pz
+        z: this.pz,
+        trace: null
       };
     }
     this.currentSlot = -1;
     this.activationScale = 1;
     this.activationCountBonus = 0;
     this.activationDerived = false;
+    this.currentChoreography = null;
+  }
+
+  private sameChoreographyPoint(a: ChoreographyPoint, b: ChoreographyPoint, eps = 0.12) {
+    return Math.hypot(a.x - b.x, a.z - b.z) <= eps;
+  }
+
+  private tracePoint(x: number, z: number, terminal = false) {
+    const t = this.currentChoreography;
+    if (!t) return;
+    const p = { x, z };
+    if (!t.points.some((q) => this.sameChoreographyPoint(q, p))) t.points.push(p);
+    if (terminal) t.terminal = p;
+  }
+
+  private traceArea(x: number, z: number, radius: number) {
+    const t = this.currentChoreography;
+    if (!t) return;
+    this.tracePoint(x, z);
+    const r = Math.max(0.35, radius);
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2;
+      const p = { x: x + Math.cos(a) * r, z: z + Math.sin(a) * r };
+      if (!t.areaPoints.some((q) => this.sameChoreographyPoint(q, p))) t.areaPoints.push(p);
+    }
+  }
+
+  private traceSegment(a: ChoreographyPoint, b: ChoreographyPoint) {
+    const t = this.currentChoreography;
+    if (!t) return;
+    const last = t.paths[t.paths.length - 1];
+    if (last && this.sameChoreographyPoint(last[last.length - 1], a, 0.2)) last.push({ ...b });
+    else t.paths.push([{ ...a }, { ...b }]);
+    t.terminal = { ...b };
+  }
+
+  private traceCombatShape(shape: CombatShape) {
+    if (!this.currentChoreography) return;
+    if (shape.kind === 'circle') {
+      this.traceArea(shape.x, shape.z, shape.radius);
+      return;
+    }
+    if (shape.kind === 'ray') {
+      const end = { x: shape.x + shape.aimX * shape.range, z: shape.z + shape.aimZ * shape.range };
+      this.traceSegment({ x: shape.x, z: shape.z }, end);
+      return;
+    }
+    const tip = {
+      x: shape.x + shape.aimX * shape.radius,
+      z: shape.z + shape.aimZ * shape.radius
+    };
+    this.traceSegment({ x: shape.x, z: shape.z }, tip);
+    const base = Math.atan2(shape.aimZ, shape.aimX);
+    for (const off of [-shape.halfAngle, shape.halfAngle]) {
+      const a = base + off;
+      const p = { x: shape.x + Math.cos(a) * shape.radius, z: shape.z + Math.sin(a) * shape.radius };
+      if (!this.currentChoreography.areaPoints.some((q) => this.sameChoreographyPoint(q, p)))
+        this.currentChoreography.areaPoints.push(p);
+    }
+  }
+
+  private beginChoreographyTrace(id: SkillId) {
+    this.currentChoreography = {
+      skill: id,
+      origin: { x: this.px, z: this.pz },
+      aimX: this.aimX,
+      aimZ: this.aimZ,
+      terminal: null,
+      points: [],
+      areaPoints: [],
+      paths: [],
+      carriers: [],
+      scheduled: []
+    };
+  }
+
+  private orbitCenter() {
+    if (this.time < this.orbitChoreoUntil) {
+      if (this.orbitChoreoCarrier) {
+        const p = this.resolveChoreographyCarrier(this.orbitChoreoCarrier);
+        if (p) {
+          this.orbitChoreoX = p.x;
+          this.orbitChoreoZ = p.z;
+        }
+      }
+      return { x: this.orbitChoreoX, z: this.orbitChoreoZ };
+    }
+    this.orbitChoreoCarrier = null;
+    return { x: this.px, z: this.pz };
+  }
+
+  private setOrbitChoreography(
+    x: number,
+    z: number,
+    carrier: ChoreographyCarrier | null = null
+  ) {
+    const safe = this.safeChoreographyPoint(x, z, 0.45);
+    this.orbitChoreoX = safe.x;
+    this.orbitChoreoZ = safe.z;
+    this.orbitChoreoCarrier = carrier;
+    this.orbitChoreoUntil = this.time + Math.max(1.0, this.cycleDuration() * 1.35);
+  }
+
+  private noteOrbitTrace() {
+    const t = this.currentChoreography,
+      st = this.skillsRuntime.get('orbit_blades');
+    if (!t || !st) return;
+    const center = this.orbitCenter(),
+      p = this.orbitProfile(st, center);
+    this.traceArea(center.x, center.z, p.radius);
+    for (let i = 0; i < p.count; i++)
+      t.carriers.push({ kind: 'orbit', index: i });
+  }
+
+  private finishChoreographyTrace() {
+    const t = this.currentChoreography;
+    if (!t) return null;
+    const resolvedHits: ChoreographyPoint[] = [];
+    for (const eid of this.currentHits) {
+      const e = this.ents.find((q) => q.id === eid);
+      if (e) {
+        const p = { x: e.x, z: e.z };
+        resolvedHits.push(p);
+        this.tracePoint(p.x, p.z);
+      }
+    }
+    if (t.scheduled.length >= 2) {
+      for (let i = 1; i < t.scheduled.length; i++)
+        this.traceSegment(t.scheduled[i - 1], t.scheduled[i]);
+    }
+    // "Источник" means the place where A physically finished doing useful work, not the
+    // abstract maximum range of its telegraph. This matters especially for Rail: a mist or
+    // turret should appear at the last pierced body, not eighteen empty metres behind it.
+    if (t.scheduled.length) t.terminal = { ...t.scheduled[t.scheduled.length - 1] };
+    else if (resolvedHits.length) t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
+    else if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
+    const out: ChoreographyTrace = {
+      ...t,
+      origin: { ...t.origin },
+      terminal: t.terminal ? { ...t.terminal } : null,
+      points: t.points.map((p) => ({ ...p })),
+      areaPoints: t.areaPoints.map((p) => ({ ...p })),
+      paths: t.paths.map((path) => path.map((p) => ({ ...p }))),
+      carriers: t.carriers.map((q) => ({ ...q })),
+      scheduled: t.scheduled.map((p) => ({ ...p }))
+    };
+    this.currentChoreography = null;
+    return out;
+  }
+
+  private resolveChoreographyCarrier(ref: ChoreographyCarrier): ChoreographyPoint | null {
+    if (ref.kind === 'projectile') {
+      const p = this.projectiles.find((q) => q.id === ref.id);
+      return p ? { x: p.x, z: p.z } : null;
+    }
+    if (ref.kind === 'construct') {
+      const p = this.constructs.find((q) => q.id === ref.id);
+      return p ? { x: p.x, z: p.z } : null;
+    }
+    const st = this.skillsRuntime.get('orbit_blades');
+    if (!st || !this.isActiveSkill('orbit_blades')) return null;
+    const center = this.orbitCenter(),
+      profile = this.orbitProfile(st, center),
+      index = ref.index % Math.max(1, profile.count),
+      a = this.time * (st.mutation === 'orbit_saw' ? 2.55 : 3.4) + (index * Math.PI * 2) / profile.count;
+    return { x: center.x + Math.cos(a) * profile.radius, z: center.z + Math.sin(a) * profile.radius };
+  }
+
+  private traceCarriers(trace: ChoreographyTrace) {
+    const out: { ref: ChoreographyCarrier; x: number; z: number }[] = [];
+    for (const ref of trace.carriers) {
+      const p = this.resolveChoreographyCarrier(ref);
+      if (p && !out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 0.25))
+        out.push({ ref, ...p });
+    }
+    return out;
+  }
+
+  private tracePath(trace: ChoreographyTrace) {
+    let best: ChoreographyPoint[] = [];
+    let bestLen = 0;
+    for (const path of trace.paths) {
+      let len = 0;
+      for (let i = 1; i < path.length; i++) len += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
+      if (len > bestLen) {
+        bestLen = len;
+        best = path;
+      }
+    }
+    if (best.length >= 2) return best.map((p) => ({ ...p }));
+    if (trace.terminal && !this.sameChoreographyPoint(trace.origin, trace.terminal))
+      return [{ ...trace.origin }, { ...trace.terminal }];
+    return [];
+  }
+
+  private sampleChoreographyPath(path: ChoreographyPoint[], count = 3) {
+    if (path.length <= 1 || count <= 1) return path.slice(0,1).map((p) => ({ ...p }));
+    const seg: number[] = [0];
+    let total = 0;
+    for (let i = 1; i < path.length; i++) {
+      total += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
+      seg.push(total);
+    }
+    if (total <= 0.001) return [path[0]];
+    const out: ChoreographyPoint[] = [];
+    for (let n = 0; n < count; n++) {
+      const d = (total * n) / Math.max(1, count - 1);
+      let i = 1;
+      while (i < seg.length && seg[i] < d) i++;
+      i = Math.min(i, path.length - 1);
+      const a = path[i - 1],
+        b = path[i],
+        span = Math.max(0.001, seg[i] - seg[i - 1]),
+        t = (d - seg[i - 1]) / span;
+      out.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
+    }
+    return out;
+  }
+
+  private choreographyAim(x: number, z: number, fallbackX = this.aimX, fallbackZ = this.aimZ) {
+    const target = this.ents
+      .filter((e) => e.hp > 0)
+      .sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z))[0];
+    if (target) {
+      const dx = target.x - x,
+        dz = target.z - z,
+        m = Math.hypot(dx, dz) || 1;
+      return { x: dx / m, z: dz / m };
+    }
+    const m = Math.hypot(fallbackX, fallbackZ) || 1;
+    return { x: fallbackX / m, z: fallbackZ / m };
+  }
+
+  private safeChoreographyPoint(x: number, z: number, radius = 0.28) {
+    x = Math.max(this.world.minX + radius, Math.min(this.world.maxX - radius, x));
+    z = Math.max(this.world.minZ + radius, Math.min(this.world.maxZ - radius, z));
+    return this.freeOf(x, z, radius);
+  }
+
+  private choreographySource(x: number, z: number, aimX?: number, aimZ?: number): CastSource {
+    const safe = this.safeChoreographyPoint(x, z),
+      aim =
+        aimX !== undefined && aimZ !== undefined
+          ? (() => {
+              const m = Math.hypot(aimX, aimZ) || 1;
+              return { x: aimX / m, z: aimZ / m };
+            })()
+          : this.choreographyAim(safe.x, safe.z);
+    return {
+      faction: 'hero',
+      owner: null,
+      x: safe.x,
+      z: safe.z,
+      aimX: aim.x,
+      aimZ: aim.z,
+      vx: this.playerVX,
+      vz: this.playerVZ
+    };
+  }
+
+  private castWithTrace(id: SkillId, st: SkillRuntime, slot: number, src: CastSource) {
+    const firstNewId = this.nextId;
+    if (
+      this.currentChoreography &&
+      this.currentChoreography.points.length === 0 &&
+      this.currentChoreography.paths.length === 0 &&
+      this.currentChoreography.scheduled.length === 0
+    ) {
+      this.currentChoreography.origin = { x: src.x, z: src.z };
+      this.currentChoreography.aimX = src.aimX;
+      this.currentChoreography.aimZ = src.aimZ;
+    }
+    this.events.push({
+      type: 'SkillActivated',
+      tick: this.tick,
+      slot,
+      skill: id,
+      x: src.x,
+      z: src.z,
+      aimX: src.aimX,
+      aimZ: src.aimZ
+    });
+    this.tracePoint(src.x, src.z);
+    this.dispatchSkill(id, st, slot, src);
+    const t = this.currentChoreography;
+    if (!t) return;
+    for (const p of this.projectiles)
+      if (p.id >= firstNewId && p.sourceSlot === slot && p.faction === 'hero')
+        t.carriers.push({ kind: 'projectile', id: p.id });
+    for (const q of this.constructs)
+      if (q.id >= firstNewId && q.sourceSlot === slot && q.faction === 'hero') {
+        t.carriers.push({ kind: 'construct', id: q.id });
+        this.tracePoint(q.x, q.z);
+        this.traceArea(q.x, q.z, 0.7);
+      }
+    for (const f of this.fields)
+      if (f.id >= firstNewId && f.sourceSlot === slot && f.faction !== 'rival')
+        this.traceArea(f.x, f.z, f.radius);
+    if (id === 'orbit_blades') this.noteOrbitTrace();
+  }
+
+  private emitChoreography(
+    mode: 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse',
+    fromSlot: number,
+    toSlot: number,
+    fromSkill: SkillId,
+    toSkill: SkillId,
+    points: ChoreographyPoint[]
+  ) {
+    if (!points.length) return;
+    const centerX = points.reduce((a, p) => a + p.x, 0) / points.length,
+      centerZ = points.reduce((a, p) => a + p.z, 0) / points.length;
+    this.events.push({
+      type: 'CatalystChoreography',
+      tick: this.tick,
+      catalyst: mode,
+      fromSlot,
+      toSlot,
+      fromSkill,
+      toSkill,
+      mode,
+      points: points.slice(0, 8).map((p) => ({ ...p })),
+      centerX,
+      centerZ
+    });
+    this.metrics.reactions++;
+  }
+
+  private executeChoreography(
+    incoming: CatalystId,
+    id: SkillId,
+    st: SkillRuntime,
+    slot: number,
+    previous: ChoreographyTrace | null
+  ) {
+    if (
+      !previous ||
+      !previous.skill ||
+      !catalystPairCompatible(incoming, previous.skill, id) ||
+      !(['source', 'carrier', 'trail', 'reverse', 'collapse'] as CatalystId[]).includes(incoming)
+    )
+      return false;
+
+    const mode = incoming as 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse',
+      path = this.tracePath(previous),
+      carriers = this.traceCarriers(previous);
+
+    if (mode === 'source') {
+      const p = previous.terminal ?? path[path.length - 1];
+      if (!p) return false;
+      if (id === 'orbit_blades') {
+        this.setOrbitChoreography(p.x, p.z);
+        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
+      } else this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
+      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [previous.origin, p]);
+      return true;
+    }
+
+    if (mode === 'carrier') {
+      const live = carriers.slice(0, 3);
+      if (!live.length) return false;
+      if (id === 'orbit_blades') {
+        this.setOrbitChoreography(live[0].x, live[0].z, live[0].ref);
+        this.castWithTrace(id, st, slot, this.choreographySource(live[0].x, live[0].z));
+      } else {
+        for (const p of live)
+          this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
+      }
+      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, live);
+      return true;
+    }
+
+    if (mode === 'trail') {
+      if (path.length < 2) return false;
+      let sampleCount = 3;
+      if (id === 'sentry') {
+        let pathLength = 0;
+        for (let i = 1; i < path.length; i++)
+          pathLength += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
+        // A Sentry trail is supposed to become infrastructure. Keep consecutive batteries
+        // close enough that Gravity Grid / Living Circuit can physically connect them,
+        // instead of drawing a pretty line of isolated towers that cannot interact.
+        sampleCount = Math.min(6, Math.max(3, Math.ceil(pathLength / 4.6) + 1));
+      }
+      const samples = this.sampleChoreographyPath(path, sampleCount);
+      if (id === 'orbit_blades') {
+        const p = samples[Math.floor(samples.length / 2)];
+        this.setOrbitChoreography(p.x, p.z);
+        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
+      } else {
+        for (let i = 0; i < samples.length; i++) {
+          const p = samples[i],
+            q = samples[Math.min(samples.length - 1, i + 1)],
+            prev = samples[Math.max(0, i - 1)],
+            dx = q.x - prev.x,
+            dz = q.z - prev.z;
+          this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, dx, dz));
+        }
+      }
+      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, path);
+      return true;
+    }
+
+    if (mode === 'reverse') {
+      if (path.length < 2) return false;
+      const start = path[0],
+        end = path[path.length - 1],
+        dx = start.x - end.x,
+        dz = start.z - end.z;
+      if (id === 'orbit_blades') {
+        this.setOrbitChoreography(end.x, end.z);
+        this.castWithTrace(id, st, slot, this.choreographySource(end.x, end.z, dx, dz));
+      } else this.castWithTrace(id, st, slot, this.choreographySource(end.x, end.z, dx, dz));
+      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [...path].reverse());
+      return true;
+    }
+
+    const outer = previous.areaPoints.slice(0, 16);
+    if (!outer.length) return false;
+    const center = {
+      x: outer.reduce((a, p) => a + p.x, 0) / outer.length,
+      z: outer.reduce((a, p) => a + p.z, 0) / outer.length
+    };
+    if (id === 'orbit_blades') {
+      this.setOrbitChoreography(center.x, center.z);
+      this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
+    } else if (skills[id].directional) {
+      const spokes = outer.length <= 4
+        ? outer.slice(0, 3)
+        : [outer[0], outer[Math.floor(outer.length / 3)], outer[Math.floor((outer.length * 2) / 3)]];
+      for (const p of spokes)
+        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, center.x - p.x, center.z - p.z));
+    } else {
+      for (const eid of this.lastContext.hitIds) {
+        const e = this.ents.find((q) => q.id === eid && q.hp > 0);
+        if (!e) continue;
+        const dx = center.x - e.x,
+          dz = center.z - e.z,
+          d = Math.hypot(dx, dz) || 1;
+        e.x += (dx / d) * Math.min(1.1, d * 0.35);
+        e.z += (dz / d) * Math.min(1.1, d * 0.35);
+        e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.55);
+      }
+      this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
+    }
+    this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [...outer, center]);
+    return true;
   }
 
   private stateActive(e: Ent, state: string) {
@@ -4442,6 +4962,7 @@ export class Simulation {
     shape: CombatShape,
     intent: 'damage' | 'control' | 'field' = 'damage'
   ) {
+    this.traceCombatShape(shape);
     this.events.push({ type: 'CombatShape', tick: this.tick, source, intent, shape });
   }
 
@@ -4632,7 +5153,9 @@ export class Simulation {
     if(this.mutationIs(st,'mortar_spotter')){
       const marked=this.targetsFor(src).filter(e=>e.hp>0&&e.kind==='elite'&&e.markUntil>this.time&&Math.hypot(e.x-src.x,e.z-src.z)<=range+3).sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0];
       if(marked)p={x:marked.x,z:marked.z};
-    }if(mut==='mortar_fuse'){r*=1.35;mult*=1.35;}if(this.mutationIs(st,'mortar_airburst')){r*=1.2;mult*=0.86;}
+    }
+    if(this.currentChoreography) this.traceSegment({x:src.x,z:src.z},{x:p.x,z:p.z});
+    if(mut==='mortar_fuse'){r*=1.35;mult*=1.35;}if(this.mutationIs(st,'mortar_airburst')){r*=1.2;mult*=0.86;}
     const baseDamage=skills.mortar_bloom.baseDamage*this.powerBucket(st)*this.slotAmp(slot)*mult;
     let points:{x:number;z:number;delay:number}[]=[];
     if(this.mutationIs(st,'mortar_carpet')){for(let i=-2;i<=2;i++)points.push({x:p.x+src.aimX*i*1.7,z:p.z+src.aimZ*i*1.7,delay:0.25+(i+2)*0.13});}
@@ -4648,12 +5171,27 @@ export class Simulation {
     if(this.supportsAxis(st.id,'multiplicity')) count+=Math.ceil(this.resonance.multiplicity/2);
     if(!src.owner) count+=Math.min(2,Math.floor(this.doctrines.quantity/2));
     count=Math.max(1,Math.min(5,count));
+
+    // Base Sentry is now spatial construction, not "pop a turret beside the hero".
+    // Each beat builds a short forward battery. Movement/facing and Catalyst choreography
+    // therefore leave a legible field of recent positions that Grid/Arc can actually use.
+    const perpX=-src.aimZ, perpZ=src.aimX,
+      forward=2.5+(count>3?0.35:0),
+      spacing=1.05;
     for(let i=0;i<count;i++){
-      const a=i*Math.PI*2/count+this.cycle*0.7,r=1.2;
-      this.constructs.push({id:this.nextId++,x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r,ttl:this.persistentDuration(st,3.45,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.powerBucket(st)*this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
-      this.events.push({type:'ConstructSpawned',tick:this.tick,skill:'sentry',x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r});
+      const lane=i-(count-1)/2,
+        stagger=(i%2)*0.35,
+        rawX=src.x+src.aimX*(forward+stagger)+perpX*lane*spacing,
+        rawZ=src.z+src.aimZ*(forward+stagger)+perpZ*lane*spacing,
+        p=this.freeOf(rawX,rawZ,0.38),
+        id=this.nextId++;
+      this.constructs.push({id,x:p.x,z:p.z,ttl:this.persistentDuration(st,5.25,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.powerBucket(st)*this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
+      if(this.currentChoreography&&src.faction==='hero')this.currentChoreography.carriers.push({kind:'construct',id});
+      this.events.push({type:'ConstructSpawned',tick:this.tick,skill:'sentry',x:p.x,z:p.z});
+      this.combatShape('sentry_placement',{kind:'circle',x:p.x,z:p.z,radius:0.42},'field');
     }
-    while(this.constructs.length>14)this.constructs.shift();this.noteState('construct');
+    while(this.constructs.length>18)this.constructs.shift();
+    this.noteState('construct');
   }
 
   private castToxic(st: SkillRuntime, slot: number, src: CastSource) {
@@ -5379,13 +5917,34 @@ export class Simulation {
       ...new Set([...this.catalysts, ...this.catalystReserve].filter(Boolean) as CatalystId[])
     ];
   }
+  private catalystCompatibleEdges(id: CatalystId) {
+    const out: number[] = [];
+    for (let i = 0; i < this.catalysts.length; i++) {
+      const left = this.slots[i],
+        right = this.slots[i + 1];
+      if (left && right && catalystPairCompatible(id, left, right)) out.push(i);
+    }
+    return out;
+  }
   private makeCatalystAdd(id: CatalystId): RewardOffer {
+    const edges = this.catalystCompatibleEdges(id),
+      examples = edges
+        .slice(0, 2)
+        .map((edge) => {
+          const left = this.slots[edge]!,
+            right = this.slots[edge + 1]!;
+          return `${skills[left].shortName} → ${skills[right].shortName}`;
+        });
     return {
       id: `addcat:${id}:${this.rng.nextU32()}`,
       kind: 'catalyst_add',
       title: catalysts[id].name,
-      subtitle: `${catalysts[id].scope.toUpperCase()} · готовое правило`,
-      description: catalysts[id].desc,
+      subtitle: `${catalysts[id].scope.toUpperCase()} · ХОРЕОГРАФИЯ`,
+      description:
+        catalysts[id].desc +
+        (examples.length
+          ? ` Сейчас совместим: ${examples.join(' · ')}.`
+          : ' Совместимость зависит от физической формы соседних феноменов.'),
       catalyst: id
     };
   }
@@ -5505,7 +6064,9 @@ export class Simulation {
   }
   private generateEliteCache() {
     const owned = this.allOwnedCatalysts(),
-      unowned = catalystOrder.filter((id) => !owned.includes(id));
+      allUnowned = catalystOrder.filter((id) => !owned.includes(id)),
+      usefulUnowned = allUnowned.filter((id) => this.catalystCompatibleEdges(id).length > 0),
+      unowned = usefulUnowned.length ? usefulUnowned : allUnowned;
     let offers: RewardOffer[] = [];
     const hasSpace = this.catalystReserve.some((x) => !x) || this.catalysts.some((x) => !x);
     if (unowned.length && hasSpace) {
@@ -5545,7 +6106,10 @@ export class Simulation {
     this.choiceSerial++;
   }
   private placeCatalyst(id: CatalystId) {
-    let edge = this.catalysts.findIndex((c, i) => !c && !!this.slots[i] && !!this.slots[i + 1]);
+    let edge = this.catalysts.findIndex((c, i) => {
+      const left=this.slots[i], right=this.slots[i+1];
+      return !c && !!left && !!right && catalystPairCompatible(id,left,right);
+    });
     if (edge >= 0) this.catalysts[edge] = id;
     else {
       const reserve = this.catalystReserve.findIndex((x) => !x);
@@ -6036,9 +6600,9 @@ export class Simulation {
       })),
       orbit: (() => {
         const st=this.skillsRuntime.get('orbit_blades');
-        if(!st||!this.isActiveSkill('orbit_blades')) return {active:false,count:0,radius:0,mutation:null,apotheosis:null};
-        const p=this.orbitProfile(st);
-        return {active:true,count:p.count,radius:p.radius,mutation:st.mutation,apotheosis:st.mutationApotheosis};
+        if(!st||!this.isActiveSkill('orbit_blades')) return {active:false,count:0,radius:0,centerX:this.px,centerZ:this.pz,mutation:null,apotheosis:null};
+        const center=this.orbitCenter(),p=this.orbitProfile(st,center);
+        return {active:true,count:p.count,radius:p.radius,centerX:center.x,centerZ:center.z,mutation:st.mutation,apotheosis:st.mutationApotheosis};
       })(),
       world: {
         ...this.world,
@@ -6084,7 +6648,7 @@ export class Simulation {
    * folded into the hash, so a stale baseline fails loudly instead of silently matching
    * a different layout. Never change the layout without bumping.
    */
-  static readonly CANONICAL_SCHEMA_VERSION = 4;
+  static readonly CANONICAL_SCHEMA_VERSION = 6;
 
   /**
    * Explicit, ordered schema of everything that defines a run.
@@ -6117,6 +6681,17 @@ export class Simulation {
 
     put('chain.beat', this.beat, this.cycle);
     put('chain.charges', this.capacitorCharge, this.overflowCharge, this.aegisCharge);
+    put('chain.orbitChoreo', this.orbitChoreoUntil, this.orbitChoreoX, this.orbitChoreoZ, this.orbitChoreoCarrier?.kind ?? '-', this.orbitChoreoCarrier && 'id' in this.orbitChoreoCarrier ? this.orbitChoreoCarrier.id : this.orbitChoreoCarrier?.kind === 'orbit' ? this.orbitChoreoCarrier.index : -1);
+    put('chain.context', this.lastContext.skill ?? '-', this.lastContext.x, this.lastContext.z, ...this.lastContext.hitIds);
+    if (this.lastContext.trace) {
+      const t=this.lastContext.trace;
+      put('chain.trace',t.skill,t.origin.x,t.origin.z,t.aimX,t.aimZ,t.terminal?.x??'-',t.terminal?.z??'-');
+      for(const p of t.points) put('chain.trace.point',p.x,p.z);
+      for(const p of t.areaPoints) put('chain.trace.area',p.x,p.z);
+      for(const path of t.paths) put('chain.trace.path',...path.flatMap((p)=>[p.x,p.z]));
+      for(const q of t.carriers) put('chain.trace.carrier',q.kind,'id' in q?q.id:q.index);
+      for(const p of t.scheduled) put('chain.trace.scheduled',p.x,p.z);
+    }
 
     put('growth.tempo', this.tempo);
     put('growth.power', this.globalPower);
