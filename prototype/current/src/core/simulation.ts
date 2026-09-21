@@ -652,6 +652,8 @@ export class Simulation {
   private aegisCharge = 0;
   private backflowBonus = new Map<number, number>();
   private currentChoreography: ChoreographyTrace | null = null;
+  /** Multi-origin Catalyst Sentry casts use small nodes so the field survives the construct cap. */
+  private sentryChoreographyNodeCap = 0;
   private orbitChoreoUntil = -1;
   private orbitChoreoX = 0;
   private orbitChoreoZ = 0;
@@ -4741,8 +4743,11 @@ export class Simulation {
         this.setOrbitChoreography(live[0].x, live[0].z, live[0].ref);
         this.castWithTrace(id, st, slot, this.choreographySource(live[0].x, live[0].z));
       } else {
+        const oldNodeCap=this.sentryChoreographyNodeCap;
+        if(id==='sentry')this.sentryChoreographyNodeCap=2;
         for (const p of live)
           this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
+        this.sentryChoreographyNodeCap=oldNodeCap;
       }
       this.emitChoreography(mode, slot - 1, slot, previous.skill, id, live);
       return true;
@@ -4766,6 +4771,8 @@ export class Simulation {
         this.setOrbitChoreography(p.x, p.z);
         this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
       } else {
+        const oldNodeCap=this.sentryChoreographyNodeCap;
+        if(id==='sentry')this.sentryChoreographyNodeCap=2;
         for (let i = 0; i < samples.length; i++) {
           const p = samples[i],
             q = samples[Math.min(samples.length - 1, i + 1)],
@@ -4774,6 +4781,7 @@ export class Simulation {
             dz = q.z - prev.z;
           this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, dx, dz));
         }
+        this.sentryChoreographyNodeCap=oldNodeCap;
       }
       this.emitChoreography(mode, slot - 1, slot, previous.skill, id, path);
       return true;
@@ -4791,6 +4799,8 @@ export class Simulation {
       // Reverse is a real replay, not merely "Source + turn 180°". Each step starts on the
       // already-travelled A path and faces the next earlier point, so a zig-zag A produces
       // a visibly staged backward B sequence.
+      const oldNodeCap=this.sentryChoreographyNodeCap;
+      if(id==='sentry')this.sentryChoreographyNodeCap=2;
       for (let i = 0; i < samples.length; i++) {
         const p = samples[i],
           toward = samples[i + 1] ?? path[0],
@@ -4798,6 +4808,7 @@ export class Simulation {
           dz = toward.z - p.z;
         this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, dx, dz));
       }
+      this.sentryChoreographyNodeCap=oldNodeCap;
       this.emitChoreography(mode, slot - 1, slot, previous.skill, id, samples);
       return true;
     }
@@ -4848,9 +4859,11 @@ export class Simulation {
       this.setOrbitChoreography(center.x, center.z);
       this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
     } else if (id === 'sentry') {
-      // A collapse Sentry is not "one battery at the centroid". Build three inward-facing
-      // batteries from A's perimeter so the resulting structure visibly participates in the
-      // convergence and can immediately become a real Gravity Grid / Living Circuit network.
+      // A collapse Sentry is not "one battery at the centroid". Build small inward-facing
+      // nodes from A's perimeter; limiting each node to two turrets keeps all perimeter
+      // positions alive instead of letting Quantity fill the global cap from the first node.
+      const oldNodeCap=this.sentryChoreographyNodeCap;
+      this.sentryChoreographyNodeCap=2;
       for (const p of spokes)
         this.castWithTrace(
           id,
@@ -4858,6 +4871,7 @@ export class Simulation {
           slot,
           this.choreographySource(p.x, p.z, center.x - p.x, center.z - p.z)
         );
+      this.sentryChoreographyNodeCap=oldNodeCap;
     } else if (skills[id].directional) {
       for (const p of spokes)
         this.castWithTrace(
@@ -5254,6 +5268,7 @@ export class Simulation {
     if(this.supportsAxis(st.id,'multiplicity')) count+=Math.ceil(this.resonance.multiplicity/2);
     if(!src.owner) count+=Math.min(2,Math.floor(this.doctrines.quantity/2));
     count=Math.max(1,Math.min(5,count));
+    if(this.sentryChoreographyNodeCap>0) count=Math.min(count,this.sentryChoreographyNodeCap);
 
     // Base Sentry is now spatial construction, not "pop a turret beside the hero".
     // Each beat builds a short forward battery. Movement/facing and Catalyst choreography
