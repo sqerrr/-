@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import {
   activeSkillOrder,
+  catalysts,
   catalystOrder,
   catalystPairCompatible,
   phenomenonChoreography,
@@ -57,6 +58,65 @@ for(const id of activeSkillOrder){
   assert(destination&&dist(toxic,destination)<1.2,'Source visual destination disagrees with physical Toxic Mist');
 }
 
+// 2a) Gravity Anchor owns a literal world anchor: Source must start from that anchor,
+// not from whichever dragged enemy happened to be processed last.
+{
+  const sim=fixture('tether_drag','toxic_mist','source');
+  sim.activateSlot(0);
+  const anchorPoint=sim.lastContext.trace?.terminal;
+  assert(anchorPoint,'Gravity Anchor emitted no terminal');
+  sim.events.length=0;
+  sim.activateSlot(1);
+  const toxic=sim.fields.filter((q:any)=>q.source==='toxic_mist').at(-1);
+  assert(toxic,'Gravity Anchor Source did not create Toxic Mist');
+  assert(dist(toxic,anchorPoint)<1.0,'Source detached from the physical Gravity Anchor');
+}
+
+// 2b) SOURCE on a moving Phenomenon must use the body that is visibly travelling now,
+// not the far telegraph endpoint that it may reach several seconds later.
+for (const left of ['mass_driver','shard_fan'] as SkillId[]) {
+  const sim=fixture(left,'toxic_mist','source');
+  sim.activateSlot(0);
+  const projected=sim.lastContext.trace?.terminal;
+  assert(projected,`${left}: moving trace has no projected terminal`);
+  sim.ents=[];
+  for(let i=0;i<8;i++)sim.updateProjectiles();
+  const live=sim.projectiles
+    .filter((p:any)=>p.source===left)
+    .sort((a:any,b:any)=>Math.hypot(b.x,b.z)-Math.hypot(a.x,a.z))[0];
+  assert(live,`${left}: moving body disappeared before next Chain beat`);
+  assert(dist(live,projected)>2,`${left}: fixture does not separate live body from future endpoint`);
+  sim.events.length=0;
+  sim.activateSlot(1);
+  const toxic=sim.fields.filter((q:any)=>q.source==='toxic_mist').at(-1);
+  assert(toxic,`${left}: Source did not create Toxic Mist`);
+  assert(dist(toxic,live)<1.25,`${left}: Source fired at a future endpoint instead of the live moving body`);
+}
+
+// 2c) TRAIL on a moving actor grows from the segment that actor has actually travelled.
+for (const left of ['mass_driver','shard_fan'] as SkillId[]) {
+  const sim=fixture(left,'frost_ring','trail');
+  sim.activateSlot(0);
+  const projected=sim.lastContext.trace?.terminal;
+  assert(projected,`${left}: moving Trail has no projected endpoint fixture`);
+  sim.ents=[];
+  for(let i=0;i<30;i++)sim.updateProjectiles();
+  const live=sim.projectiles
+    .filter((p:any)=>p.source===left)
+    .sort((a:any,b:any)=>Math.hypot(b.x,b.z)-Math.hypot(a.x,a.z))[0];
+  assert(live,`${left}: moving body disappeared before Trail test`);
+  sim.events.length=0;
+  sim.activateSlot(1);
+  const cue=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='trail');
+  const casts=sim.events.filter((e:any)=>e.type==='SkillActivated'&&e.skill==='frost_ring');
+  assert(cue&&casts.length>=2,`${left}: live Trail did not create repeated Frost placements`);
+  const span=Math.max(...casts.map((q:any)=>q.x))-Math.min(...casts.map((q:any)=>q.x))+
+    Math.max(...casts.map((q:any)=>q.z))-Math.min(...casts.map((q:any)=>q.z));
+  assert(span>1.15,`${left}: live travelled segment is still visually collapsed (${span.toFixed(2)})`);
+  assert(casts.every((q:any)=>dist(q,projected)>1.5),
+    `${left}: Trail leaked into future telegraph geometry instead of travelled space`);
+}
+
 // 3) CARRIER: B casts from several actual moving Orbit blades.
 {
   const sim=fixture('orbit_blades','frost_ring','carrier');
@@ -81,15 +141,30 @@ for(const id of activeSkillOrder){
   assert(turrets.some((q:any)=>Math.hypot(q.x,q.z)>7),'Trail Sentry never leaves hero vicinity');
 }
 
-// 5) REVERSE: B starts at A's endpoint and travels back toward A origin.
+// 5) REVERSE: B is staged from A's far endpoint back toward A origin.
 {
   const sim=fixture('rail_spear','mass_driver','reverse');
   sim.activateSlot(0); sim.events.length=0; sim.activateSlot(1);
-  const p=sim.projectiles.filter((q:any)=>q.source==='mass_driver').at(-1);
+  const ps=sim.projectiles.filter((q:any)=>q.source==='mass_driver'),
+    casts=sim.events.filter((e:any)=>e.type==='SkillActivated'&&e.skill==='mass_driver'),
+    ev=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='reverse');
+  assert(ev&&ps.length>=2&&casts.length>=2,'Reverse Mass Driver did not create staged playback');
+  assert(ev.points.length===casts.length,'Reverse Mass Driver cue/cast sequence length drifted');
+  assert(dist(casts[0],ev.points[0])<.9,'Reverse Mass Driver did not begin at the actual reversed Rail endpoint');
+  assert(dist(casts.at(-1),{x:0,z:0})<dist(casts[0],{x:0,z:0})-1.5,
+    'Reverse Mass Driver sequence did not walk back toward Rail origin');
+  assert(ps.every((p:any)=>p.vx<-.05),'Reverse Mass Driver contains a projectile travelling forward instead of back');
+}
+
+// 5b) REVERSE is a staged playback, not just one cast from A's endpoint.
+{
+  const sim=fixture('chain_arc','rail_spear','reverse');
+  sim.activateSlot(0); sim.events.length=0; sim.activateSlot(1);
   const ev=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='reverse');
-  assert(ev&&p,'Reverse Mass Driver missing');
-  assert(p.x>7,'Reverse Mass Driver did not start at Rail endpoint');
-  assert(p.vx<0,'Reverse Mass Driver does not travel back toward the Rail origin');
+  const casts=sim.events.filter((e:any)=>e.type==='SkillActivated'&&e.skill==='rail_spear');
+  assert(ev&&casts.length>=2,'Reverse did not stage Rail along the Arc path');
+  assert(ev.points.length===casts.length,'Reverse cue and physical cast sequence disagree');
+  assert(dist(casts[0],casts.at(-1))>1.2,'Reverse Rail sequence is visually collapsed');
 }
 
 // 6) COLLAPSE: directional B originates on A's outer area and aims into its center.
@@ -107,6 +182,51 @@ for(const id of activeSkillOrder){
   }
 }
 
+// 6b) COLLAPSE must remain visible even when A and B are both hero-centred radial Phenomena.
+// The crowd itself must physically converge; otherwise Frost -> Toxic would look almost identical
+// to two independent casts despite the fancy Catalyst overlay.
+{
+  const sim=fixture('frost_ring','toxic_mist','collapse');
+  sim.activateSlot(0);
+  const before=new Map(sim.ents.map((e:any)=>[e.id,{x:e.x,z:e.z}]));
+  sim.events.length=0;
+  sim.activateSlot(1);
+  const ev=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='collapse');
+  assert(ev,'radial Collapse event missing');
+  let moved=0, inward=0;
+  for(const e of sim.ents){
+    const b=before.get(e.id) as any;
+    if(!b)continue;
+    const delta=Math.hypot(e.x-b.x,e.z-b.z);
+    if(delta>.12){
+      moved++;
+      const db=Math.hypot(b.x-ev.centerX,b.z-ev.centerZ),
+        da=Math.hypot(e.x-ev.centerX,e.z-ev.centerZ);
+      if(da<db-.1)inward++;
+    }
+  }
+  assert(moved>=2&&inward===moved,`radial Collapse did not visibly move the crowd inward: ${inward}/${moved}`);
+}
+
+// 6c) Sentry Collapse must build an actual inward field, not one ordinary battery at the centroid.
+{
+  const sim=fixture('frost_ring','sentry','collapse');
+  const st=sim.skillsRuntime.get('sentry');
+  st.mutationApotheosis='sentry_gravity_grid';
+  sim.activateSlot(0); sim.events.length=0; sim.activateSlot(1);
+  const ev=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='collapse');
+  const turrets=sim.constructs.filter((q:any)=>q.skill==='sentry');
+  assert(ev,'Sentry Collapse event missing');
+  assert(turrets.length>=3,`Sentry Collapse did not build perimeter batteries: ${turrets.length}`);
+  const xs=turrets.map((q:any)=>q.x),zs=turrets.map((q:any)=>q.z);
+  assert(Math.max(...xs)-Math.min(...xs)>2.2||Math.max(...zs)-Math.min(...zs)>2.2,
+    'Sentry Collapse batteries collapsed into one local clump');
+  sim.events.length=0;
+  for(let i=0;i<20;i++)sim.updateConstructs();
+  assert(sim.events.some((e:any)=>e.type==='CombatShape'&&e.source==='sentry_gravity_grid'),
+    'Sentry Collapse created visible turrets but no real Gravity Grid links');
+}
+
 // 7) Pair space is intentionally partial, never fake-universal.
 const matrix:any={};
 for(const cat of catalystOrder){
@@ -115,6 +235,11 @@ for(const cat of catalystOrder){
   matrix[cat]={compatible:n,total,ratio:+(n/total).toFixed(3)};
   assert(n>0&&n<total,`${cat}: compatibility became empty or universal`);
 }
+
+assert(!catalystPairCompatible('reverse','rail_spear','chain_arc'),
+  'Reverse still advertises target-seeking Chain Arc even though Arc cannot follow a prescribed return path');
+assert(!catalystPairCompatible('carrier','sentry','orbit_blades'),
+  'Emitter still advertises multiple A objects into a single global Orbit center');
 
 // 8) Exhaustive pair smoke: every pair advertised as compatible must physically fire the
 // right Phenomenon through the Catalyst, not merely pass a catalogue predicate. This is the
@@ -135,18 +260,31 @@ for(const cat of catalystOrder){
     assert(casts.length>0,`${cat} ${left}->${right}: right Phenomenon never activated`);
 
     if(cat==='source'){
-      assert(casts.some((q:any)=>Math.hypot(q.x,q.z)>.55),`${cat} ${left}->${right}: B still originates on hero`);
+      const destination=cue.points[cue.points.length-1];
+      assert(destination,`${cat} ${left}->${right}: Source has no physical destination`);
+      assert(casts.some((q:any)=>dist(q,destination)<1.0),
+        `${cat} ${left}->${right}: B did not originate at A's physical Source destination`);
+      // Moving actors can legitimately still be near the hero in this zero-time exhaustive fixture;
+      // the dedicated live-motion test above advances them and proves they do not use future endpoints.
     } else if(cat==='carrier'){
       assert(cue.points.length>0,`${cat} ${left}->${right}: carrier cue has no live carriers`);
       assert(casts.some((q:any)=>cue.points.some((p:any)=>dist(q,p)<.9)),`${cat} ${left}->${right}: B is not cast from an A carrier`);
     } else if(cat==='trail'){
       assert(casts.length>=2,`${cat} ${left}->${right}: path did not create repeated B placements`);
+      const moving=left==='mass_driver'||left==='shard_fan';
       const span=Math.max(...casts.map((q:any)=>q.x))-Math.min(...casts.map((q:any)=>q.x))+
         Math.max(...casts.map((q:any)=>q.z))-Math.min(...casts.map((q:any)=>q.z));
-      assert(span>1.2,`${cat} ${left}->${right}: repeated B placements collapsed to one point`);
+      if(!moving)
+        assert(span>1.2,`${cat} ${left}->${right}: repeated B placements collapsed to one point`);
+      else
+        assert(casts.every((q:any)=>cue.points.some((p:any)=>dist(q,p)<1.0)),
+          `${cat} ${left}->${right}: zero-time moving Trail left its actually travelled segment`);
     } else if(cat==='reverse'){
+      assert(casts.length>=2,`${cat} ${left}->${right}: Reverse degraded to a single turned cast`);
       const first=cue.points[0], second=cue.points[1]??cue.points[0], cast=casts[0];
       assert(first&&dist(first,cast)<1.0,`${cat} ${left}->${right}: B did not begin at reversed path head`);
+      assert(casts.every((q:any)=>cue.points.some((p:any)=>dist(q,p)<1.0)),
+        `${cat} ${left}->${right}: Reverse casts left A's physical path`);
       const dx=second.x-cast.x,dz=second.z-cast.z,m=Math.hypot(dx,dz)||1;
       assert(cast.aimX*dx/m+cast.aimZ*dz/m>.45,`${cat} ${left}->${right}: B does not face back along A path`);
     } else if(cat==='collapse'){
@@ -157,6 +295,19 @@ for(const cat of catalystOrder){
           const dx=center.x-q.x,dz=center.z-q.z,m=Math.hypot(dx,dz)||1;
           return q.aimX*dx/m+q.aimZ*dz/m>.45;
         }),`${cat} ${left}->${right}: directional spokes do not converge`);
+      } else if(right==='sentry'){
+        // Collapse Sentry is intentionally infrastructure: several perimeter batteries face
+        // inward instead of pretending a single ordinary non-directional cast at the centroid.
+        assert(casts.length>=3,`${cat} ${left}->${right}: Sentry did not build perimeter batteries`);
+        const sentrySpan=Math.max(...casts.map((q:any)=>q.x))-Math.min(...casts.map((q:any)=>q.x))+
+          Math.max(...casts.map((q:any)=>q.z))-Math.min(...casts.map((q:any)=>q.z));
+        assert(sentrySpan>1.3,`${cat} ${left}->${right}: Sentry perimeter collapsed into one clump`);
+        assert(casts.filter((q:any)=>dist(q,center)>.65).length>=2,
+          `${cat} ${left}->${right}: too few Sentry batteries use A's perimeter`);
+        assert(casts.every((q:any)=>{
+          const dx=center.x-q.x,dz=center.z-q.z,m=Math.hypot(dx,dz)||1;
+          return q.aimX*dx/m+q.aimZ*dz/m>.35;
+        }),`${cat} ${left}->${right}: Sentry batteries do not face the convergence center`);
       } else {
         assert(casts.some((q:any)=>dist(q,center)<1.0),`${cat} ${left}->${right}: radial B is not centered on A area`);
       }
@@ -172,9 +323,13 @@ assert(pairAudit.length>200,`too few Catalyst 2.0 pairs exercised: ${pairAudit.l
 // 9) Renderer must have a dedicated visual grammar for each choreography, not a generic catalyst flash.
 const renderer=readFileSync('src/renderer/webgl2.ts','utf8');
 const bridge=readFileSync('src/presentation/bridge.ts','utf8');
+assert(catalysts.carrier.name==='Излучатель','Carrier still exposes misleading attachment/network naming');
 assert(renderer.includes("e.type === 'choreography'"),'renderer ignores physical choreography cue');
 for(const mode of ['source','carrier','trail','reverse','collapse'])
   assert(renderer.includes(`e.mode === '${mode}'`)||renderer.includes(`e.mode === 'trail' || e.mode === 'reverse'`),`renderer has no distinct visual branch for ${mode}`);
+const emitterBlock=renderer.slice(renderer.indexOf("e.mode === 'carrier'"),renderer.indexOf("e.mode === 'trail' || e.mode === 'reverse'"));
+assert(!emitterBlock.includes("kind:'bolt'"),'Emitter presentation still falsely connects A carriers into a network');
+assert(emitterBlock.includes("for(let arm=0;arm<4;arm++)"),'Emitter has no per-object outward launch signature');
 assert(bridge.includes("e.type === 'CatalystChoreography'"),'presentation bridge drops choreography event');
 assert(renderer.includes('s.orbit.centerX')&&renderer.includes('s.orbit.centerZ'),'relocated Orbit still renders around hero');
 
@@ -195,6 +350,24 @@ assert(renderer.includes('s.orbit.centerX')&&renderer.includes('s.orbit.centerZ'
   for(let i=0;i<20;i++)sim.updateConstructs();
   assert(sim.events.some((e:any)=>e.type==='CombatShape'&&e.source==='sentry_gravity_grid'),
     'Trail Grid exists visually but never creates real connecting control links');
+}
+
+// 10b) Quantity must enrich a Sentry Trail without erasing its early nodes via the global cap.
+{
+  const sim=fixture('rail_spear','sentry','trail');
+  sim.doctrines.quantity=6;
+  sim.resonance.multiplicity=4;
+  const st=sim.skillsRuntime.get('sentry');
+  st.count=3;
+  sim.activateSlot(0); sim.events.length=0; sim.activateSlot(1);
+  const turrets=sim.constructs.filter((q:any)=>q.skill==='sentry');
+  assert(turrets.length>=6&&turrets.length<=18,`Quantity Sentry Trail produced implausible node count: ${turrets.length}`);
+  const xs=turrets.map((q:any)=>q.x), span=Math.max(...xs)-Math.min(...xs);
+  assert(span>5,'Quantity Sentry Trail lost route coverage to local construct-cap churn');
+  const cue=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='trail');
+  assert(cue&&cue.points.length>=3,'Quantity Sentry Trail lost its choreography route');
+  assert(cue.points.slice(0,-1).every((p:any)=>turrets.some((q:any)=>dist(p,q)<4.2)),
+    'Quantity Sentry Trail discarded early physical nodes');
 }
 
 // 11) Catalyst-created world origins obey the same solid-world rules as ordinary actors.

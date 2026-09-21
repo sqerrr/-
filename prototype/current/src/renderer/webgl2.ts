@@ -415,11 +415,17 @@ export class WebGLRenderer {
             this.fx.push({kind:'pulse',start:time+0.08,ttl:0.34,x:b.x,z:b.z,r:0.8,color});
           }
         } else if (e.mode === 'carrier') {
+          // "Излучатель" is not a network between A objects. Each live A object is an
+          // independent physical origin for B, so give every carrier its own outward burst
+          // instead of drawing misleading carrier-to-carrier links.
           for(let i=0;i<pts.length;i++){
-            const p=pts[i];
-            this.fx.push({kind:'ring',start:time+i*0.035,ttl:0.52,x:p.x,z:p.z,r:0.72,color});
-            this.fx.push({kind:'pulse',start:time+0.06+i*0.035,ttl:0.28,x:p.x,z:p.z,r:0.46,color:pale});
-            if(i>0){const q=pts[i-1];this.fx.push({kind:'bolt',start:time,ttl:0.32,x1:q.x,z1:q.z,x2:p.x,z2:p.z,r:0.12,color:pale});}
+            const p=pts[i], delay=i*0.035;
+            this.fx.push({kind:'ring',start:time+delay,ttl:0.56,x:p.x,z:p.z,r:0.78,color});
+            this.fx.push({kind:'pulse',start:time+0.05+delay,ttl:0.3,x:p.x,z:p.z,r:0.48,color:pale});
+            for(let arm=0;arm<4;arm++){
+              const a=arm*Math.PI/2+Math.PI/4, len=0.72;
+              this.fx.push({kind:'beam',start:time+delay,ttl:0.3,x1:p.x,z1:p.z,x2:p.x+Math.cos(a)*len,z2:p.z+Math.sin(a)*len,width:3.1,color:pale});
+            }
           }
         } else if (e.mode === 'trail' || e.mode === 'reverse') {
           for(let i=1;i<pts.length;i++){

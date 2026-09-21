@@ -1294,17 +1294,17 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     id: 'source',
     name: 'Источник',
     shortName: 'ИЗ A',
-    desc: 'Правый феномен возникает из физической точки, где закончился левый: удара, якоря или конца его пути.',
+    desc: 'Правый феномен запускается из фактической точки левого в момент следующего такта: последнего удара, якоря, живого снаряда или уже достигнутого конца пути.',
     color: '#74e4ff',
     scope: 'хореография · источник'
   },
   carrier: {
     id: 'carrier',
-    name: 'Носитель',
-    shortName: 'НА A',
-    desc: 'Правый феномен разыгрывается из существующих объектов левого: лезвий, осколков, валов или турелей.',
+    name: 'Излучатель',
+    shortName: 'ИЗЛУЧ.',
+    desc: 'Каждый живой объект левого феномена становится точкой запуска правого: лезвие, осколок, вал или турель реально испускает его из своей позиции.',
     color: '#d7a0ff',
-    scope: 'хореография · носитель'
+    scope: 'хореография · излучатели'
   },
   trail: {
     id: 'trail',
@@ -1519,8 +1519,8 @@ export const phenomenonChoreography: Record<SkillId, PhenomenonChoreographyDef> 
   frost_ring:    { emits:['area'],                         accepts:['source','carrier','trail','collapse'] },
   rail_spear:    { emits:['terminal','path'],              accepts:['source','carrier','trail','reverse','collapse'] },
   cleaver:       { emits:['terminal','area'],              accepts:['source','carrier','trail','reverse','collapse'] },
-  chain_arc:     { emits:['terminal','path'],              accepts:['source','carrier','trail','reverse','collapse'] },
-  orbit_blades:  { emits:['carrier','area'],               accepts:['source','carrier','collapse'] },
+  chain_arc:     { emits:['terminal','path'],              accepts:['source','carrier','trail','collapse'] },
+  orbit_blades:  { emits:['carrier','area'],               accepts:['source','collapse'] },
   mortar_bloom:  { emits:['terminal','path','area'],       accepts:['source','carrier','trail','reverse','collapse'] },
   sentry:        { emits:['carrier','area'],               accepts:['source','carrier','trail','reverse','collapse'] },
   toxic_mist:    { emits:['area'],                         accepts:['source','carrier','trail','collapse'] },

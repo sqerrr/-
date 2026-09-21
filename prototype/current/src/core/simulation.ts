@@ -652,6 +652,8 @@ export class Simulation {
   private aegisCharge = 0;
   private backflowBonus = new Map<number, number>();
   private currentChoreography: ChoreographyTrace | null = null;
+  /** Multi-origin Catalyst Sentry casts use small nodes so the field survives the construct cap. */
+  private sentryChoreographyNodeCap = 0;
   private orbitChoreoUntil = -1;
   private orbitChoreoX = 0;
   private orbitChoreoZ = 0;
@@ -4393,6 +4395,11 @@ export class Simulation {
       z: shape.z + shape.aimZ * shape.radius
     };
     this.traceSegment({ x: shape.x, z: shape.z }, tip);
+    // A sector is a physical area, not only its two side rays. Keeping the forward tip in
+    // areaPoints gives Collapse enough real contour to build inward structures (especially
+    // Sentry batteries) without inventing geometry unrelated to A.
+    if (!this.currentChoreography.areaPoints.some((q) => this.sameChoreographyPoint(q, tip)))
+      this.currentChoreography.areaPoints.push({ ...tip });
     const base = Math.atan2(shape.aimZ, shape.aimX);
     for (const off of [-shape.halfAngle, shape.halfAngle]) {
       const a = base + off;
@@ -4475,6 +4482,9 @@ export class Simulation {
     // abstract maximum range of its telegraph. This matters especially for Rail: a mist or
     // turret should appear at the last pierced body, not eighteen empty metres behind it.
     if (t.scheduled.length) t.terminal = { ...t.scheduled[t.scheduled.length - 1] };
+    // Gravity Anchor's semantic terminal is the anchor itself. Replacing it with the last
+    // dragged enemy makes Source visibly detach from the object that caused the interaction.
+    else if (t.skill === 'tether_drag' && t.terminal) t.terminal = { ...t.terminal };
     else if (resolvedHits.length) t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
     else if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
     const out: ChoreographyTrace = {
@@ -4517,6 +4527,29 @@ export class Simulation {
         out.push({ ref, ...p });
     }
     return out;
+  }
+
+  private movingChoreographyPath(
+    trace: ChoreographyTrace,
+    carriers: { ref: ChoreographyCarrier; x: number; z: number }[]
+  ) {
+    // Mass Driver and Returner are physical actors that are still travelling when the next
+    // Chain beat usually fires. Their old static telegraph endpoint is a *future* position,
+    // so using it made Source/Trail/Reverse visibly happen ahead of A. Use the leading live
+    // body and the segment it has actually travelled so far.
+    if (
+      (trace.skill === 'mass_driver' || trace.skill === 'shard_fan') &&
+      carriers.length
+    ) {
+      const lead = [...carriers].sort(
+        (a, b) =>
+          Math.hypot(b.x - trace.origin.x, b.z - trace.origin.z) -
+          Math.hypot(a.x - trace.origin.x, a.z - trace.origin.z)
+      )[0];
+      if (lead && !this.sameChoreographyPoint(trace.origin, lead, 0.2))
+        return [{ ...trace.origin }, { x: lead.x, z: lead.z }];
+    }
+    return this.tracePath(trace);
   }
 
   private tracePath(trace: ChoreographyTrace) {
@@ -4685,11 +4718,15 @@ export class Simulation {
       return false;
 
     const mode = incoming as 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse',
-      path = this.tracePath(previous),
-      carriers = this.traceCarriers(previous);
+      carriers = this.traceCarriers(previous),
+      path = this.movingChoreographyPath(previous, carriers);
 
     if (mode === 'source') {
-      const p = previous.terminal ?? path[path.length - 1];
+      const movingLead =
+          (previous.skill === 'mass_driver' || previous.skill === 'shard_fan') && path.length >= 2
+            ? path[path.length - 1]
+            : null,
+        p = movingLead ?? previous.terminal ?? path[path.length - 1];
       if (!p) return false;
       if (id === 'orbit_blades') {
         this.setOrbitChoreography(p.x, p.z);
@@ -4706,8 +4743,11 @@ export class Simulation {
         this.setOrbitChoreography(live[0].x, live[0].z, live[0].ref);
         this.castWithTrace(id, st, slot, this.choreographySource(live[0].x, live[0].z));
       } else {
+        const oldNodeCap=this.sentryChoreographyNodeCap;
+        if(id==='sentry')this.sentryChoreographyNodeCap=2;
         for (const p of live)
           this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
+        this.sentryChoreographyNodeCap=oldNodeCap;
       }
       this.emitChoreography(mode, slot - 1, slot, previous.skill, id, live);
       return true;
@@ -4731,6 +4771,8 @@ export class Simulation {
         this.setOrbitChoreography(p.x, p.z);
         this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
       } else {
+        const oldNodeCap=this.sentryChoreographyNodeCap;
+        if(id==='sentry')this.sentryChoreographyNodeCap=2;
         for (let i = 0; i < samples.length; i++) {
           const p = samples[i],
             q = samples[Math.min(samples.length - 1, i + 1)],
@@ -4739,6 +4781,7 @@ export class Simulation {
             dz = q.z - prev.z;
           this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, dx, dz));
         }
+        this.sentryChoreographyNodeCap=oldNodeCap;
       }
       this.emitChoreography(mode, slot - 1, slot, previous.skill, id, path);
       return true;
@@ -4746,44 +4789,98 @@ export class Simulation {
 
     if (mode === 'reverse') {
       if (path.length < 2) return false;
-      const start = path[0],
-        end = path[path.length - 1],
-        dx = start.x - end.x,
-        dz = start.z - end.z;
-      if (id === 'orbit_blades') {
-        this.setOrbitChoreography(end.x, end.z);
-        this.castWithTrace(id, st, slot, this.choreographySource(end.x, end.z, dx, dz));
-      } else this.castWithTrace(id, st, slot, this.choreographySource(end.x, end.z, dx, dz));
-      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [...path].reverse());
+      const total = path.reduce(
+          (sum, p, i) =>
+            i ? sum + Math.hypot(p.x - path[i - 1].x, p.z - path[i - 1].z) : sum,
+          0
+        ),
+        sampleCount = total > 9 ? 4 : total > 3.2 ? 3 : 2,
+        samples = this.sampleChoreographyPath(path, sampleCount).reverse();
+      // Reverse is a real replay, not merely "Source + turn 180°". Each step starts on the
+      // already-travelled A path and faces the next earlier point, so a zig-zag A produces
+      // a visibly staged backward B sequence.
+      const oldNodeCap=this.sentryChoreographyNodeCap;
+      if(id==='sentry')this.sentryChoreographyNodeCap=2;
+      for (let i = 0; i < samples.length; i++) {
+        const p = samples[i],
+          toward = samples[i + 1] ?? path[0],
+          dx = toward.x - p.x,
+          dz = toward.z - p.z;
+        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, dx, dz));
+      }
+      this.sentryChoreographyNodeCap=oldNodeCap;
+      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, samples);
       return true;
     }
 
     const outer = previous.areaPoints.slice(0, 16);
     if (!outer.length) return false;
     const center = {
-      x: outer.reduce((a, p) => a + p.x, 0) / outer.length,
-      z: outer.reduce((a, p) => a + p.z, 0) / outer.length
-    };
+        x: outer.reduce((a, p) => a + p.x, 0) / outer.length,
+        z: outer.reduce((a, p) => a + p.z, 0) / outer.length
+      },
+      collapseRadius = Math.max(
+        1.2,
+        ...outer.map((p) => Math.hypot(p.x - center.x, p.z - center.z))
+      ),
+      spokes =
+        outer.length <= 4
+          ? outer.slice(0, 3)
+          : [
+              outer[0],
+              outer[Math.floor(outer.length / 3)],
+              outer[Math.floor((outer.length * 2) / 3)]
+            ];
+
+    // Collapse must be readable even when A is a hero-centred persistent area (Frost/Orbit/Toxic),
+    // where simply recasting a radial B at the same center would be almost indistinguishable from
+    // two independent skills. Pull the actual crowd occupying A's recorded area before B resolves.
+    // This is simulation state, not decorative VFX, and uses ordinary world collision resolution.
+    let collapsed = 0;
+    for (const e of this.ents) {
+      if (e.hp <= 0) continue;
+      const dx = center.x - e.x,
+        dz = center.z - e.z,
+        d = Math.hypot(dx, dz);
+      if (d > collapseRadius + e.radius || d < 0.08) continue;
+      const move = Math.min(2.2, d * 0.55),
+        p = this.freeOf(e.x + (dx / d) * move, e.z + (dz / d) * move, e.radius);
+      e.x = p.x;
+      e.z = p.z;
+      e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.72);
+      collapsed++;
+    }
+    if (collapsed) {
+      this.currentActivationControl += collapsed * 0.45;
+      this.noteState('displaced');
+    }
+
     if (id === 'orbit_blades') {
       this.setOrbitChoreography(center.x, center.z);
       this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
-    } else if (skills[id].directional) {
-      const spokes = outer.length <= 4
-        ? outer.slice(0, 3)
-        : [outer[0], outer[Math.floor(outer.length / 3)], outer[Math.floor((outer.length * 2) / 3)]];
+    } else if (id === 'sentry') {
+      // A collapse Sentry is not "one battery at the centroid". Build small inward-facing
+      // nodes from A's perimeter; limiting each node to two turrets keeps all perimeter
+      // positions alive instead of letting Quantity fill the global cap from the first node.
+      const oldNodeCap=this.sentryChoreographyNodeCap;
+      this.sentryChoreographyNodeCap=2;
       for (const p of spokes)
-        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, center.x - p.x, center.z - p.z));
+        this.castWithTrace(
+          id,
+          st,
+          slot,
+          this.choreographySource(p.x, p.z, center.x - p.x, center.z - p.z)
+        );
+      this.sentryChoreographyNodeCap=oldNodeCap;
+    } else if (skills[id].directional) {
+      for (const p of spokes)
+        this.castWithTrace(
+          id,
+          st,
+          slot,
+          this.choreographySource(p.x, p.z, center.x - p.x, center.z - p.z)
+        );
     } else {
-      for (const eid of this.lastContext.hitIds) {
-        const e = this.ents.find((q) => q.id === eid && q.hp > 0);
-        if (!e) continue;
-        const dx = center.x - e.x,
-          dz = center.z - e.z,
-          d = Math.hypot(dx, dz) || 1;
-        e.x += (dx / d) * Math.min(1.1, d * 0.35);
-        e.z += (dz / d) * Math.min(1.1, d * 0.35);
-        e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.55);
-      }
       this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
     }
     this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [...outer, center]);
@@ -5171,6 +5268,7 @@ export class Simulation {
     if(this.supportsAxis(st.id,'multiplicity')) count+=Math.ceil(this.resonance.multiplicity/2);
     if(!src.owner) count+=Math.min(2,Math.floor(this.doctrines.quantity/2));
     count=Math.max(1,Math.min(5,count));
+    if(this.sentryChoreographyNodeCap>0) count=Math.min(count,this.sentryChoreographyNodeCap);
 
     // Base Sentry is now spatial construction, not "pop a turret beside the hero".
     // Each beat builds a short forward battery. Movement/facing and Catalyst choreography
