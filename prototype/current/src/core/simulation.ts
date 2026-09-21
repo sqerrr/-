@@ -4715,7 +4715,17 @@ export class Simulation {
 
     if (mode === 'trail') {
       if (path.length < 2) return false;
-      const samples = this.sampleChoreographyPath(path, 3);
+      let sampleCount = 3;
+      if (id === 'sentry') {
+        let pathLength = 0;
+        for (let i = 1; i < path.length; i++)
+          pathLength += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
+        // A Sentry trail is supposed to become infrastructure. Keep consecutive batteries
+        // close enough that Gravity Grid / Living Circuit can physically connect them,
+        // instead of drawing a pretty line of isolated towers that cannot interact.
+        sampleCount = Math.min(6, Math.max(3, Math.ceil(pathLength / 4.6) + 1));
+      }
+      const samples = this.sampleChoreographyPath(path, sampleCount);
       if (id === 'orbit_blades') {
         const p = samples[Math.floor(samples.length / 2)];
         this.setOrbitChoreography(p.x, p.z);
