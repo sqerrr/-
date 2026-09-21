@@ -205,7 +205,12 @@ for(const cat of catalystOrder){
     assert(casts.length>0,`${cat} ${left}->${right}: right Phenomenon never activated`);
 
     if(cat==='source'){
-      assert(casts.some((q:any)=>Math.hypot(q.x,q.z)>.55),`${cat} ${left}->${right}: B still originates on hero`);
+      const destination=cue.points[cue.points.length-1];
+      assert(destination,`${cat} ${left}->${right}: Source has no physical destination`);
+      assert(casts.some((q:any)=>dist(q,destination)<1.0),
+        `${cat} ${left}->${right}: B did not originate at A's physical Source destination`);
+      // Moving actors can legitimately still be near the hero in this zero-time exhaustive fixture;
+      // the dedicated live-motion test above advances them and proves they do not use future endpoints.
     } else if(cat==='carrier'){
       assert(cue.points.length>0,`${cat} ${left}->${right}: carrier cue has no live carriers`);
       assert(casts.some((q:any)=>cue.points.some((p:any)=>dist(q,p)<.9)),`${cat} ${left}->${right}: B is not cast from an A carrier`);
