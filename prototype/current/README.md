@@ -1,8 +1,8 @@
-# Black Archive web prototype — v0.12 Catalyst 2.0
+# Black Archive web prototype — v0.12.1 Elite Readability + Catalyst 2.0
 
 `prototype/current/` is the current executable browser build.
 
-Read root `00_START_HERE.md` first. Catalyst authority: `37_CATALYST_2_0_CHOREOGRAPHY_2026-09-22.md`.
+Read root `00_START_HERE.md` first. Elite visual-language authority: `38_ELITE_VISUAL_LANGUAGE_2026-09-22.md`. Catalyst authority: `37_CATALYST_2_0_CHOREOGRAPHY_2026-09-22.md`.
 
 ## Run
 
@@ -34,6 +34,18 @@ Examples:
 - Space / P — pause;
 - R — restart;
 - F8 — technical debug.
+
+## Elite visual language
+
+Live combat follows a shape-first readability contract:
+
+- chassis = persistent physical motif and matching minimap/off-screen shape;
+- affix = compact shoulder/HP-bar badge;
+- rarity/evolution tier = scale + blue/gold frame treatment;
+- current dangerous action = body pose + authored geometry + final red warning layer;
+- red is reserved for immediate hostile danger, not passive elite identity;
+- the center threat panel is sticky and uses short action-specific imperatives;
+- full rarity/chassis/affix strings are no longer printed over every elite.
 
 ## Catalyst 2.0
 
