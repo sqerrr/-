@@ -178,7 +178,26 @@ for(const mode of ['source','carrier','trail','reverse','collapse'])
 assert(bridge.includes("e.type === 'CatalystChoreography'"),'presentation bridge drops choreography event');
 assert(renderer.includes('s.orbit.centerX')&&renderer.includes('s.orbit.centerZ'),'relocated Orbit still renders around hero');
 
-// 10) Sentry base placement must be spatial even without a Catalyst.
+// 10) A Trail Sentry battery must be close enough to become an actual network, not decorative dots.
+{
+  const sim=fixture('rail_spear','sentry','trail');
+  const st=sim.skillsRuntime.get('sentry');
+  st.mutationApotheosis='sentry_gravity_grid';
+  sim.activateSlot(0); sim.activateSlot(1);
+  const turrets=sim.constructs.filter((q:any)=>q.skill==='sentry');
+  assert(turrets.length>=4,`Trail Grid deployed too few towers to read as infrastructure: ${turrets.length}`);
+  const sorted=[...turrets].sort((a:any,b:any)=>a.x-b.x||a.z-b.z);
+  let connected=0;
+  for(let i=1;i<sorted.length;i++)
+    if(dist(sorted[i-1],sorted[i])<=6.4)connected++;
+  assert(connected>=Math.min(3,sorted.length-1),`Trail Grid towers are too far apart to form a network: ${connected}/${sorted.length-1}`);
+  sim.events.length=0;
+  for(let i=0;i<20;i++)sim.updateConstructs();
+  assert(sim.events.some((e:any)=>e.type==='CombatShape'&&e.source==='sentry_gravity_grid'),
+    'Trail Grid exists visually but never creates real connecting control links');
+}
+
+// 11) Sentry base placement must be spatial even without a Catalyst.
 {
   const sim=fixture('sentry','rail_spear','source');
   sim.catalysts=[null]; sim.activateSlot(0);
