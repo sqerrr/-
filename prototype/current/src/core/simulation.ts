@@ -4697,7 +4697,7 @@ export class Simulation {
 
     if (mode === 'trail') {
       if (path.length < 2) return false;
-      const samples = this.sampleChoreographyPath(path, Math.min(3, Math.max(2, path.length)));
+      const samples = this.sampleChoreographyPath(path, 3);
       if (id === 'orbit_blades') {
         const p = samples[Math.floor(samples.length / 2)];
         this.setOrbitChoreography(p.x, p.z);
