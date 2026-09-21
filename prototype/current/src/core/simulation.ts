@@ -4475,6 +4475,9 @@ export class Simulation {
     // abstract maximum range of its telegraph. This matters especially for Rail: a mist or
     // turret should appear at the last pierced body, not eighteen empty metres behind it.
     if (t.scheduled.length) t.terminal = { ...t.scheduled[t.scheduled.length - 1] };
+    // Gravity Anchor's semantic terminal is the anchor itself. Replacing it with the last
+    // dragged enemy makes Source visibly detach from the object that caused the interaction.
+    else if (t.skill === 'tether_drag' && t.terminal) t.terminal = { ...t.terminal };
     else if (resolvedHits.length) t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
     else if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
     const out: ChoreographyTrace = {
