@@ -38,11 +38,43 @@
 .choicebox,.choicebox.cat-doctrine,.choicebox.cat-phenomenon,.choicebox.cat-catalyst,.choicebox.cat-item,.choicebox.cat-resonance,.choicebox.cat-mutation,.choicebox.cat-mixed{--cat:#536b78;border-color:#405463;box-shadow:0 24px 80px #000}.card.cat-doctrine,.card.cat-phenomenon,.card.cat-catalyst,.card.cat-item,.card.cat-resonance,.card.cat-mutation{border-left-color:#365064}.card .tag{display:flex;align-items:center;gap:6px;color:#9eb1bb}.card .tag::before{width:22px;height:18px;display:grid;place-items:center;border:1px solid #516674;background:#071017;border-radius:4px;color:#eaf5f7;font-weight:900}.card.cat-phenomenon .tag::before{content:'⌑'}.card.cat-catalyst .tag::before{content:'⧖'}.card.cat-item .tag::before{content:'◇'}.card.cat-resonance .tag::before{content:'✦'}.card.cat-doctrine .tag::before{content:'△'}.card.cat-mutation .tag::before{content:'◆'}.card.apotheosis .tag::before{content:'✦';border-color:#ffd36b;color:#ffd36b}.catdot{border-radius:2px;transform:rotate(45deg)}
 @media(max-width:1050px){.sheet-grid{grid-template-columns:1fr 1fr}.sheet-items{grid-template-columns:repeat(2,1fr)}}@media(max-width:760px){.sheet-grid{grid-template-columns:1fr}.sheet-list,.sheet-items{grid-template-columns:1fr}}
 </style>
+
+<style id="elite-visual-language-v0121">
+/* v0.12.1: recognise, do not read. Live combat UI carries identity through shape first. */
+.objective{display:grid!important;grid-template-columns:auto minmax(110px,1fr) auto;gap:6px!important;align-items:center;padding:6px!important;background:#061018d9!important}
+.obj-chip{display:grid;place-items:center;min-height:28px;padding:0 8px;border:1px solid #294656;border-radius:6px;background:#0a1720;color:#91a9b7;font:800 9px/1 system-ui;letter-spacing:.045em;white-space:nowrap}
+.obj-route{display:grid;place-items:center;min-height:30px;padding:0 10px;border-left:2px solid #77dac1;border-right:2px solid #77dac1;color:#e9fff8;font:900 11px/1.05 system-ui;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#threatPanel{width:min(540px,calc(100vw - 580px));padding:9px 11px 10px;background:#071018ee;border-color:#394b57;box-shadow:0 10px 30px #0009}
+.threatHead{display:grid;grid-template-columns:42px minmax(0,1fr) 42px;align-items:center;gap:9px}
+.threatGlyph{width:38px;height:38px;display:grid;place-items:center;border:1px solid currentColor;border-radius:7px;background:#05090ddd;font:900 23px/1 system-ui;text-shadow:0 0 12px currentColor}
+.threatGlyph.affixGlyph:empty{visibility:hidden}
+.threatCopy{min-width:0;text-align:left}
+#threatTitle{text-align:left;font-size:13px;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#eef7fa}
+#threatRule{text-align:left;margin-top:4px;color:#8ba3b2;font:800 9px/1.1 system-ui;letter-spacing:.055em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#threatBody{margin-top:3px;font:900 10px/1.15 system-ui;letter-spacing:.035em;color:#c8d5dd;text-align:center;min-height:12px}
+#threatPanel.danger{background:#21080def;border-color:#ff3048;box-shadow:0 0 0 1px #ff243255,0 10px 34px #000b,0 0 30px #ff1f3038}
+#threatPanel.danger .threatGlyph{border-color:#ff4057!important;color:#fff!important;background:#380a12}
+#threatPanel.danger #threatTitle{font-size:15px;color:#fff4f5;text-align:center;text-shadow:0 0 10px #ff233b}
+#threatPanel.danger #threatRule{color:#ff96a4;text-align:center}
+#threatPanel.danger #threatBody{font-size:13px;color:#fff;font-weight:950;letter-spacing:.075em}
+#threatPanel.danger .affixGlyph{visibility:hidden}
+.threatbar{margin:7px 0 5px;height:6px}
+#mapWrap .mapLegend{line-height:1.45;color:#829aa8}
+@media(max-width:1050px){
+  #threatPanel{width:min(470px,calc(100vw - 410px))}
+  .threatHead{grid-template-columns:36px minmax(0,1fr) 36px;gap:6px}.threatGlyph{width:32px;height:32px;font-size:19px}
+  #threatTitle{font-size:11px}#threatRule{font-size:8px}
+}
+@media(max-width:760px){
+  .objective{grid-template-columns:auto 1fr}.obj-chip:last-child{display:none}.obj-route{font-size:10px}
+  #threatPanel{top:142px;left:10px;right:180px;transform:none;width:auto;min-width:0}
+}
+</style>
 </head><body>
 <canvas id="game"></canvas><canvas id="combatHud"></canvas><div id="atmosphere"></div>
-<section id="hud" class="panel"><div class="hud-head"><b>BLACK ARCHIVE · v0.12</b><span class="tiny">сид <span id="seed"></span></span></div><div class="bars"><div class="bar hp"><i id="hpbar"></i><span id="hptext"></span></div><div class="bar xp"><i id="xpbar"></i><span id="xptext"></span></div></div><div class="hud-mainline"><span id="time">0:00 / 8:00</span><span id="level">УР. 1</span><span class="tiny">Shift или ПКМ · рывок</span></div><div id="objective" class="objective">Ищите на карте разные структуры: феномены дают новое оружие, катализаторы меняют связки, элиты дают мутации, а предметы можно перехватить у врага.</div><div class="buttons"><select id="modeSelect" title="Режим старта"><option value="clean">Чистый забег</option><option value="showcase">Демонстрация</option></select><select id="startSkill" title="Стартовый феномен"></select><button id="planBtn" class="primary">Сборка [Tab]</button><button id="pauseBtn">Пауза</button><button id="restartBtn">Рестарт</button></div></section>
-<section id="mapWrap" class="panel"><div class="mapTitle">Карта архива</div><canvas id="minimap"></canvas><div class="mapLegend">⌑ Феномен · ⧖ Катализатор · ✦ Усиление · ✚ Восстановление<br>◆ Элита · красный ◆ Хранитель · ◇ Предмет</div></section>
-<section id="threatPanel"><div id="threatTitle"></div><div class="threatbar"><i id="threatHp"></i></div><div id="threatBody"></div></section>
+<section id="hud" class="panel"><div class="hud-head"><b>BLACK ARCHIVE · v0.12.1</b><span class="tiny">сид <span id="seed"></span></span></div><div class="bars"><div class="bar hp"><i id="hpbar"></i><span id="hptext"></span></div><div class="bar xp"><i id="xpbar"></i><span id="xptext"></span></div></div><div class="hud-mainline"><span id="time">0:00 / 8:00</span><span id="level">УР. 1</span><span class="tiny">Shift или ПКМ · рывок</span></div><div id="objective" class="objective"><span id="phaseBadge" class="obj-chip">РАЗГОН · 0/0</span><span id="routeBadge" class="obj-route">ИЩИТЕ УЗЕЛ СБОРКИ</span><span id="finalBadge" class="obj-chip">ФИНАЛ 7:00</span></div><div class="buttons"><select id="modeSelect" title="Режим старта"><option value="clean">Чистый забег</option><option value="showcase">Демонстрация</option></select><select id="startSkill" title="Стартовый феномен"></select><button id="planBtn" class="primary">Сборка [Tab]</button><button id="pauseBtn">Пауза</button><button id="restartBtn">Рестарт</button></div></section>
+<section id="mapWrap" class="panel"><div class="mapTitle">Карта архива</div><canvas id="minimap"></canvas><div class="mapLegend">⌑ Феномен · ⧖ Катализатор · ✦ Усиление · ✚ Восстановление<br>формы = тип элиты · красный = атака сейчас · ◇ Предмет</div></section>
+<section id="threatPanel"><div class="threatHead"><span id="threatChassisGlyph" class="threatGlyph"></span><div class="threatCopy"><div id="threatTitle"></div><div id="threatRule"></div></div><span id="threatAffixGlyph" class="threatGlyph affixGlyph"></span></div><div class="threatbar"><i id="threatHp"></i></div><div id="threatBody"></div></section>
 <div id="eliteAlert"><div id="eliteAlertTitle"></div><div id="eliteAlertBody"></div></div>
 <section id="chain-panel" class="panel"><div class="chain-head"><span><b style="color:#8effda">ЦЕПОЧКА</b> · до 4 феноменов. Катализатор физически меняет постановку двух соседних феноменов.</span><span id="chainInfo"></span></div><div id="chain" class="chain"></div></section>
 <div id="planner"><div class="plannerbox"><div class="planner-head"><div><h2>ПЕРСОНАЖ И СБОРКА · БОЙ ОСТАНОВЛЕН</h2><p>Здесь видно, что уже собрано, какие итоговые параметры выросли и как устроена активная цепочка. Перетаскивание меняет только порядок феноменов и катализаторов.</p></div><div class="grow"></div><button id="planClose" class="primary">Вернуться в бой [Tab]</button></div><div id="plannerStats" class="planner-stats"></div><div class="sheet-grid"><div class="planner-section"><div class="planner-label">Персонаж</div><div id="plannerCharacter" class="sheet-stats"></div></div><div class="planner-section"><div class="planner-label">Специализации</div><div id="plannerDoctrines" class="sheet-list"></div></div><div class="planner-section"><div class="planner-label">Итоговые усиления ядра</div><div id="plannerDerived" class="sheet-stats"></div></div></div><div class="planner-section"><div class="planner-label">Активная цепочка · феномен → катализатор → феномен</div><div id="plannerChain" class="planner-chain"></div></div><div class="planner-section"><div class="planner-label">Резерв феноменов и катализаторов</div><div id="plannerReserve" class="reserve-row"></div></div><div class="planner-section"><div class="planner-label">Предметы</div><div id="plannerItems" class="sheet-items"></div></div><div class="planner-note"><strong>Путь развития:</strong> опыт даёт специализации; мировые узлы открывают феномены и катализаторы; серьёзные элиты дают ядра мутаций; предметы лежат на поле и могут достаться врагу.</div></div></div>
@@ -50,5 +82,5 @@
 <div id="pause">ПАУЗА</div><div id="overlay"><div class="overcard"><h1 id="overTitle"></h1><p id="overText"></p><button id="overRestart">Перезапустить</button></div></div>
 <section id="debugPanel" class="collapsed debug-hidden"><div class="debug-head"><b>CHOICE DEBUG v0.12</b><span class="grow"></span><button id="debugCopy">Скопировать лог</button><button id="debugClear">Очистить</button><button id="debugToggle">Свернуть</button></div><div class="debug-help">Только техническая диагностика UI/choice. F8 показывает/скрывает панель.</div><pre id="debugLog"></pre></section>
 
-<div id="loading"><div class="loadbox"><b>Загрузка Black Archive v0.12…</b><span>ЯДРО · ЦЕПОЧКА · КАТАЛИЗАТОРЫ · ЭЛИТЫ · АРХИВ</span></div></div>
-<script type="module" src="/dist/platform/main.js?v=011c"></script></body></html>
+<div id="loading"><div class="loadbox"><b>Загрузка Black Archive v0.12.1…</b><span>ЯДРО · ЦЕПОЧКА · КАТАЛИЗАТОРЫ · ЭЛИТЫ · АРХИВ</span></div></div>
+<script type="module" src="/dist/platform/main.js?v=0121"></script></body></html>
