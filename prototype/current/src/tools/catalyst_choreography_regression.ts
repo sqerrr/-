@@ -152,6 +152,17 @@ for (const left of ['mass_driver','shard_fan'] as SkillId[]) {
   assert(p.vx<0,'Reverse Mass Driver does not travel back toward the Rail origin');
 }
 
+// 5b) REVERSE is a staged playback, not just one cast from A's endpoint.
+{
+  const sim=fixture('chain_arc','rail_spear','reverse');
+  sim.activateSlot(0); sim.events.length=0; sim.activateSlot(1);
+  const ev=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='reverse');
+  const casts=sim.events.filter((e:any)=>e.type==='SkillActivated'&&e.skill==='rail_spear');
+  assert(ev&&casts.length>=2,'Reverse did not stage Rail along the Arc path');
+  assert(ev.points.length===casts.length,'Reverse cue and physical cast sequence disagree');
+  assert(dist(casts[0],casts.at(-1))>1.2,'Reverse Rail sequence is visually collapsed');
+}
+
 // 6) COLLAPSE: directional B originates on A's outer area and aims into its center.
 {
   const sim=fixture('frost_ring','rail_spear','collapse');
@@ -265,8 +276,11 @@ for(const cat of catalystOrder){
         assert(casts.every((q:any)=>cue.points.some((p:any)=>dist(q,p)<1.0)),
           `${cat} ${left}->${right}: zero-time moving Trail left its actually travelled segment`);
     } else if(cat==='reverse'){
+      assert(casts.length>=2,`${cat} ${left}->${right}: Reverse degraded to a single turned cast`);
       const first=cue.points[0], second=cue.points[1]??cue.points[0], cast=casts[0];
       assert(first&&dist(first,cast)<1.0,`${cat} ${left}->${right}: B did not begin at reversed path head`);
+      assert(casts.every((q:any)=>cue.points.some((p:any)=>dist(q,p)<1.0)),
+        `${cat} ${left}->${right}: Reverse casts left A's physical path`);
       const dx=second.x-cast.x,dz=second.z-cast.z,m=Math.hypot(dx,dz)||1;
       assert(cast.aimX*dx/m+cast.aimZ*dz/m>.45,`${cat} ${left}->${right}: B does not face back along A path`);
     } else if(cat==='collapse'){
