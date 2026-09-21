@@ -925,6 +925,7 @@ export class WebGLRenderer {
         // faint world-space boundary; the affix identity itself is the double-chevron badge.
         shapes.push({ x: e.x, z: e.z, r: 7.5, mode: 1, color: rgba('#ffb15e', 0.17) });
       }
+    }
     for (const f of this.fx) {
       const t = (s.time - f.start) / f.ttl;
       if (t < 0 || t > 1 || f.kind === 'beam' || f.kind === 'slash') continue;
