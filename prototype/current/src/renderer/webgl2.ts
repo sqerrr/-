@@ -402,6 +402,43 @@ export class WebGLRenderer {
         } else {
           this.fx.push({ kind:'pulse', start:time, ttl:0.24, x:e.x, z:e.z, r:1.0, color:rgba(accent,0.7) });
         }
+      } else if (e.type === 'choreography') {
+        const base = catalysts[e.catalyst]?.color ?? '#dce8f2',
+          color = rgba(base, 0.96),
+          pale = rgba(base, 0.48),
+          pts = e.points;
+        if (e.mode === 'source') {
+          const a=pts[0], b=pts[pts.length-1];
+          if(a&&b)this.fx.push({kind:'beam',start:time,ttl:0.42,x1:a.x,z1:a.z,x2:b.x,z2:b.z,width:5.5,color:pale});
+          if(b){
+            this.fx.push({kind:'ring',start:time+0.02,ttl:0.58,x:b.x,z:b.z,r:1.55,color});
+            this.fx.push({kind:'pulse',start:time+0.08,ttl:0.34,x:b.x,z:b.z,r:0.8,color});
+          }
+        } else if (e.mode === 'carrier') {
+          for(let i=0;i<pts.length;i++){
+            const p=pts[i];
+            this.fx.push({kind:'ring',start:time+i*0.035,ttl:0.52,x:p.x,z:p.z,r:0.72,color});
+            this.fx.push({kind:'pulse',start:time+0.06+i*0.035,ttl:0.28,x:p.x,z:p.z,r:0.46,color:pale});
+            if(i>0){const q=pts[i-1];this.fx.push({kind:'bolt',start:time,ttl:0.32,x1:q.x,z1:q.z,x2:p.x,z2:p.z,r:0.12,color:pale});}
+          }
+        } else if (e.mode === 'trail' || e.mode === 'reverse') {
+          for(let i=1;i<pts.length;i++){
+            const a=pts[i-1],b=pts[i],delay=e.mode==='reverse'?(i-1)*0.045:0;
+            this.fx.push({kind:'beam',start:time+delay,ttl:0.42,x1:a.x,z1:a.z,x2:b.x,z2:b.z,width:e.mode==='reverse'?5:3.6,color:pale});
+            this.fx.push({kind:'pulse',start:time+delay,ttl:0.3,x:b.x,z:b.z,r:0.46,color});
+          }
+          const head=pts[0];
+          if(head)this.fx.push({kind:'ring',start:time,ttl:0.46,x:head.x,z:head.z,r:0.92,color});
+        } else if (e.mode === 'collapse') {
+          const center={x:e.centerX,z:e.centerZ};
+          for(const p of pts){
+            if(Math.hypot(p.x-center.x,p.z-center.z)<0.15)continue;
+            this.fx.push({kind:'beam',start:time,ttl:0.48,x1:p.x,z1:p.z,x2:center.x,z2:center.z,width:4.4,color:pale});
+            this.fx.push({kind:'ring',start:time,ttl:0.38,x:p.x,z:p.z,r:0.58,color:pale});
+          }
+          this.fx.push({kind:'ring',start:time+0.05,ttl:0.62,x:center.x,z:center.z,r:1.72,color});
+          this.fx.push({kind:'pulse',start:time+0.12,ttl:0.36,x:center.x,z:center.z,r:0.92,color});
+        }
       } else if (e.type === 'catalyst') {
         const color = rgba(catalysts[e.catalyst].color, 0.92);
         this.fx.push({
@@ -1630,8 +1667,8 @@ export class WebGLRenderer {
         const a = s.time * (saw?2.55:3.4) + (i * Math.PI * 2) / n,
           pulse=1+0.07*Math.sin(s.time*8+i);
         add(
-          s.player.x + Math.cos(a) * rad,
-          s.player.z + Math.sin(a) * rad,
+          s.orbit.centerX + Math.cos(a) * rad,
+          s.orbit.centerZ + Math.sin(a) * rad,
           (saw?19:13)*pulse,
           (saw?38:28)*pulse,
           cellFor.white,
