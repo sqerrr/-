@@ -3941,6 +3941,8 @@ export class Simulation {
     } else anchors.push(base);
     const radius=this.skillRadius(st,mut==='tether_net'?4.8:mut==='tether_hook'?2.2:3.4,slot);
     for(const anchor of anchors){
+      const dx0=anchor.x-src.x,dz0=anchor.z-src.z,d0=Math.hypot(dx0,dz0)||1;
+      this.combatShape('tether_line',{kind:'ray',x:src.x,z:src.z,aimX:dx0/d0,aimZ:dz0/d0,range:d0,halfWidth:0.08},'control');
       this.combatShape('tether_drag',{kind:'circle',x:anchor.x,z:anchor.z,radius},'control');
       let pulled=0;
       const candidates=this.targetsFor(src).filter(e=>e.hp>0&&Math.hypot(e.x-anchor.x,e.z-anchor.z)<=radius+e.radius).sort((a,b)=>Math.hypot(a.x-anchor.x,a.z-anchor.z)-Math.hypot(b.x-anchor.x,b.z-anchor.z));
@@ -5109,12 +5111,27 @@ export class Simulation {
     if(this.supportsAxis(st.id,'multiplicity')) count+=Math.ceil(this.resonance.multiplicity/2);
     if(!src.owner) count+=Math.min(2,Math.floor(this.doctrines.quantity/2));
     count=Math.max(1,Math.min(5,count));
+
+    // Base Sentry is now spatial construction, not "pop a turret beside the hero".
+    // Each beat builds a short forward battery. Movement/facing and Catalyst choreography
+    // therefore leave a legible field of recent positions that Grid/Arc can actually use.
+    const perpX=-src.aimZ, perpZ=src.aimX,
+      forward=2.5+(count>3?0.35:0),
+      spacing=1.05;
     for(let i=0;i<count;i++){
-      const a=i*Math.PI*2/count+this.cycle*0.7,r=1.2;
-      this.constructs.push({id:this.nextId++,x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r,ttl:this.persistentDuration(st,3.45,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.powerBucket(st)*this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
-      this.events.push({type:'ConstructSpawned',tick:this.tick,skill:'sentry',x:src.x+Math.cos(a)*r,z:src.z+Math.sin(a)*r});
+      const lane=i-(count-1)/2,
+        stagger=(i%2)*0.35,
+        rawX=src.x+src.aimX*(forward+stagger)+perpX*lane*spacing,
+        rawZ=src.z+src.aimZ*(forward+stagger)+perpZ*lane*spacing,
+        p=this.freeOf(rawX,rawZ,0.38),
+        id=this.nextId++;
+      this.constructs.push({id,x:p.x,z:p.z,ttl:this.persistentDuration(st,5.25,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.powerBucket(st)*this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
+      if(this.currentChoreography&&src.faction==='hero')this.currentChoreography.carriers.push({kind:'construct',id});
+      this.events.push({type:'ConstructSpawned',tick:this.tick,skill:'sentry',x:p.x,z:p.z});
+      this.combatShape('sentry_placement',{kind:'circle',x:p.x,z:p.z,radius:0.42},'field');
     }
-    while(this.constructs.length>14)this.constructs.shift();this.noteState('construct');
+    while(this.constructs.length>18)this.constructs.shift();
+    this.noteState('construct');
   }
 
   private castToxic(st: SkillRuntime, slot: number, src: CastSource) {
