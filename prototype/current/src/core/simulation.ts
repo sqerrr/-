@@ -4296,6 +4296,411 @@ export class Simulation {
     this.activationDerived = false;
   }
 
+  private sameChoreographyPoint(a: ChoreographyPoint, b: ChoreographyPoint, eps = 0.12) {
+    return Math.hypot(a.x - b.x, a.z - b.z) <= eps;
+  }
+
+  private tracePoint(x: number, z: number, terminal = false) {
+    const t = this.currentChoreography;
+    if (!t) return;
+    const p = { x, z };
+    if (!t.points.some((q) => this.sameChoreographyPoint(q, p))) t.points.push(p);
+    if (terminal) t.terminal = p;
+  }
+
+  private traceArea(x: number, z: number, radius: number) {
+    const t = this.currentChoreography;
+    if (!t) return;
+    this.tracePoint(x, z);
+    const r = Math.max(0.35, radius);
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2;
+      const p = { x: x + Math.cos(a) * r, z: z + Math.sin(a) * r };
+      if (!t.areaPoints.some((q) => this.sameChoreographyPoint(q, p))) t.areaPoints.push(p);
+    }
+  }
+
+  private traceSegment(a: ChoreographyPoint, b: ChoreographyPoint) {
+    const t = this.currentChoreography;
+    if (!t) return;
+    const last = t.paths[t.paths.length - 1];
+    if (last && this.sameChoreographyPoint(last[last.length - 1], a, 0.2)) last.push({ ...b });
+    else t.paths.push([{ ...a }, { ...b }]);
+    t.terminal = { ...b };
+  }
+
+  private traceCombatShape(shape: CombatShape) {
+    if (!this.currentChoreography) return;
+    if (shape.kind === 'circle') {
+      this.traceArea(shape.x, shape.z, shape.radius);
+      return;
+    }
+    if (shape.kind === 'ray') {
+      const end = { x: shape.x + shape.aimX * shape.range, z: shape.z + shape.aimZ * shape.range };
+      this.traceSegment({ x: shape.x, z: shape.z }, end);
+      return;
+    }
+    const tip = {
+      x: shape.x + shape.aimX * shape.radius,
+      z: shape.z + shape.aimZ * shape.radius
+    };
+    this.traceSegment({ x: shape.x, z: shape.z }, tip);
+    const base = Math.atan2(shape.aimZ, shape.aimX);
+    for (const off of [-shape.halfAngle, shape.halfAngle]) {
+      const a = base + off;
+      const p = { x: shape.x + Math.cos(a) * shape.radius, z: shape.z + Math.sin(a) * shape.radius };
+      if (!this.currentChoreography.areaPoints.some((q) => this.sameChoreographyPoint(q, p)))
+        this.currentChoreography.areaPoints.push(p);
+    }
+  }
+
+  private beginChoreographyTrace(id: SkillId) {
+    this.currentChoreography = {
+      skill: id,
+      origin: { x: this.px, z: this.pz },
+      aimX: this.aimX,
+      aimZ: this.aimZ,
+      terminal: null,
+      points: [],
+      areaPoints: [],
+      paths: [],
+      carriers: [],
+      scheduled: []
+    };
+  }
+
+  private orbitCenter() {
+    if (this.time < this.orbitChoreoUntil) {
+      if (this.orbitChoreoCarrier) {
+        const p = this.resolveChoreographyCarrier(this.orbitChoreoCarrier);
+        if (p) {
+          this.orbitChoreoX = p.x;
+          this.orbitChoreoZ = p.z;
+        }
+      }
+      return { x: this.orbitChoreoX, z: this.orbitChoreoZ };
+    }
+    this.orbitChoreoCarrier = null;
+    return { x: this.px, z: this.pz };
+  }
+
+  private setOrbitChoreography(
+    x: number,
+    z: number,
+    carrier: ChoreographyCarrier | null = null
+  ) {
+    this.orbitChoreoX = x;
+    this.orbitChoreoZ = z;
+    this.orbitChoreoCarrier = carrier;
+    this.orbitChoreoUntil = this.time + Math.max(1.0, this.cycleDuration() * 1.35);
+  }
+
+  private noteOrbitTrace() {
+    const t = this.currentChoreography,
+      st = this.skillsRuntime.get('orbit_blades');
+    if (!t || !st) return;
+    const center = this.orbitCenter(),
+      p = this.orbitProfile(st, center);
+    this.traceArea(center.x, center.z, p.radius);
+    for (let i = 0; i < p.count; i++)
+      t.carriers.push({ kind: 'orbit', index: i });
+  }
+
+  private finishChoreographyTrace() {
+    const t = this.currentChoreography;
+    if (!t) return null;
+    for (const eid of this.currentHits) {
+      const e = this.ents.find((q) => q.id === eid);
+      if (e) this.tracePoint(e.x, e.z);
+    }
+    if (t.scheduled.length >= 2) {
+      for (let i = 1; i < t.scheduled.length; i++)
+        this.traceSegment(t.scheduled[i - 1], t.scheduled[i]);
+    }
+    if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
+    const out: ChoreographyTrace = {
+      ...t,
+      origin: { ...t.origin },
+      terminal: t.terminal ? { ...t.terminal } : null,
+      points: t.points.map((p) => ({ ...p })),
+      areaPoints: t.areaPoints.map((p) => ({ ...p })),
+      paths: t.paths.map((path) => path.map((p) => ({ ...p }))),
+      carriers: t.carriers.map((q) => ({ ...q })),
+      scheduled: t.scheduled.map((p) => ({ ...p }))
+    };
+    this.currentChoreography = null;
+    return out;
+  }
+
+  private resolveChoreographyCarrier(ref: ChoreographyCarrier): ChoreographyPoint | null {
+    if (ref.kind === 'projectile') {
+      const p = this.projectiles.find((q) => q.id === ref.id);
+      return p ? { x: p.x, z: p.z } : null;
+    }
+    if (ref.kind === 'construct') {
+      const p = this.constructs.find((q) => q.id === ref.id);
+      return p ? { x: p.x, z: p.z } : null;
+    }
+    const st = this.skillsRuntime.get('orbit_blades');
+    if (!st || !this.isActiveSkill('orbit_blades')) return null;
+    const center = this.orbitCenter(),
+      profile = this.orbitProfile(st, center),
+      index = ref.index % Math.max(1, profile.count),
+      a = this.time * (st.mutation === 'orbit_saw' ? 2.55 : 3.4) + (index * Math.PI * 2) / profile.count;
+    return { x: center.x + Math.cos(a) * profile.radius, z: center.z + Math.sin(a) * profile.radius };
+  }
+
+  private traceCarriers(trace: ChoreographyTrace) {
+    const out: { ref: ChoreographyCarrier; x: number; z: number }[] = [];
+    for (const ref of trace.carriers) {
+      const p = this.resolveChoreographyCarrier(ref);
+      if (p && !out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 0.25))
+        out.push({ ref, ...p });
+    }
+    return out;
+  }
+
+  private tracePath(trace: ChoreographyTrace) {
+    let best: ChoreographyPoint[] = [];
+    let bestLen = 0;
+    for (const path of trace.paths) {
+      let len = 0;
+      for (let i = 1; i < path.length; i++) len += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
+      if (len > bestLen) {
+        bestLen = len;
+        best = path;
+      }
+    }
+    if (best.length >= 2) return best.map((p) => ({ ...p }));
+    if (trace.terminal && !this.sameChoreographyPoint(trace.origin, trace.terminal))
+      return [{ ...trace.origin }, { ...trace.terminal }];
+    return [];
+  }
+
+  private sampleChoreographyPath(path: ChoreographyPoint[], count = 3) {
+    if (path.length <= count) return path.map((p) => ({ ...p }));
+    const seg: number[] = [0];
+    let total = 0;
+    for (let i = 1; i < path.length; i++) {
+      total += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
+      seg.push(total);
+    }
+    if (total <= 0.001) return [path[0]];
+    const out: ChoreographyPoint[] = [];
+    for (let n = 0; n < count; n++) {
+      const d = (total * n) / Math.max(1, count - 1);
+      let i = 1;
+      while (i < seg.length && seg[i] < d) i++;
+      i = Math.min(i, path.length - 1);
+      const a = path[i - 1],
+        b = path[i],
+        span = Math.max(0.001, seg[i] - seg[i - 1]),
+        t = (d - seg[i - 1]) / span;
+      out.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
+    }
+    return out;
+  }
+
+  private choreographyAim(x: number, z: number, fallbackX = this.aimX, fallbackZ = this.aimZ) {
+    const target = this.ents
+      .filter((e) => e.hp > 0)
+      .sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z))[0];
+    if (target) {
+      const dx = target.x - x,
+        dz = target.z - z,
+        m = Math.hypot(dx, dz) || 1;
+      return { x: dx / m, z: dz / m };
+    }
+    const m = Math.hypot(fallbackX, fallbackZ) || 1;
+    return { x: fallbackX / m, z: fallbackZ / m };
+  }
+
+  private choreographySource(x: number, z: number, aimX?: number, aimZ?: number): CastSource {
+    const aim =
+      aimX !== undefined && aimZ !== undefined
+        ? (() => {
+            const m = Math.hypot(aimX, aimZ) || 1;
+            return { x: aimX / m, z: aimZ / m };
+          })()
+        : this.choreographyAim(x, z);
+    return {
+      faction: 'hero',
+      owner: null,
+      x,
+      z,
+      aimX: aim.x,
+      aimZ: aim.z,
+      vx: this.playerVX,
+      vz: this.playerVZ
+    };
+  }
+
+  private castWithTrace(id: SkillId, st: SkillRuntime, slot: number, src: CastSource) {
+    const firstNewId = this.nextId;
+    this.events.push({
+      type: 'SkillActivated',
+      tick: this.tick,
+      slot,
+      skill: id,
+      x: src.x,
+      z: src.z,
+      aimX: src.aimX,
+      aimZ: src.aimZ
+    });
+    this.tracePoint(src.x, src.z);
+    this.dispatchSkill(id, st, slot, src);
+    const t = this.currentChoreography;
+    if (!t) return;
+    for (const p of this.projectiles)
+      if (p.id >= firstNewId && p.sourceSlot === slot && p.faction === 'hero')
+        t.carriers.push({ kind: 'projectile', id: p.id });
+    for (const q of this.constructs)
+      if (q.id >= firstNewId && q.sourceSlot === slot && q.faction === 'hero') {
+        t.carriers.push({ kind: 'construct', id: q.id });
+        this.tracePoint(q.x, q.z);
+        this.traceArea(q.x, q.z, 0.7);
+      }
+    for (const f of this.fields)
+      if (f.id >= firstNewId && f.sourceSlot === slot && f.faction !== 'rival')
+        this.traceArea(f.x, f.z, f.radius);
+    if (id === 'orbit_blades') this.noteOrbitTrace();
+  }
+
+  private emitChoreography(
+    mode: 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse',
+    fromSlot: number,
+    toSlot: number,
+    fromSkill: SkillId,
+    toSkill: SkillId,
+    points: ChoreographyPoint[]
+  ) {
+    if (!points.length) return;
+    const centerX = points.reduce((a, p) => a + p.x, 0) / points.length,
+      centerZ = points.reduce((a, p) => a + p.z, 0) / points.length;
+    this.events.push({
+      type: 'CatalystChoreography',
+      tick: this.tick,
+      catalyst: mode,
+      fromSlot,
+      toSlot,
+      fromSkill,
+      toSkill,
+      mode,
+      points: points.slice(0, 8).map((p) => ({ ...p })),
+      centerX,
+      centerZ
+    });
+    this.metrics.reactions++;
+  }
+
+  private executeChoreography(
+    incoming: CatalystId,
+    id: SkillId,
+    st: SkillRuntime,
+    slot: number,
+    previous: ChoreographyTrace | null
+  ) {
+    if (
+      !previous ||
+      !previous.skill ||
+      !catalystPairCompatible(incoming, previous.skill, id) ||
+      !(['source', 'carrier', 'trail', 'reverse', 'collapse'] as CatalystId[]).includes(incoming)
+    )
+      return false;
+
+    const mode = incoming as 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse',
+      path = this.tracePath(previous),
+      carriers = this.traceCarriers(previous);
+
+    if (mode === 'source') {
+      const p = previous.terminal ?? path[path.length - 1];
+      if (!p) return false;
+      if (id === 'orbit_blades') {
+        this.setOrbitChoreography(p.x, p.z);
+        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
+      } else this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
+      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [previous.origin, p]);
+      return true;
+    }
+
+    if (mode === 'carrier') {
+      const live = carriers.slice(0, 3);
+      if (!live.length) return false;
+      if (id === 'orbit_blades') {
+        this.setOrbitChoreography(live[0].x, live[0].z, live[0].ref);
+        this.castWithTrace(id, st, slot, this.choreographySource(live[0].x, live[0].z));
+      } else {
+        for (const p of live)
+          this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
+      }
+      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, live);
+      return true;
+    }
+
+    if (mode === 'trail') {
+      if (path.length < 2) return false;
+      const samples = this.sampleChoreographyPath(path, Math.min(3, Math.max(2, path.length)));
+      if (id === 'orbit_blades') {
+        const p = samples[Math.floor(samples.length / 2)];
+        this.setOrbitChoreography(p.x, p.z);
+        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
+      } else {
+        for (let i = 0; i < samples.length; i++) {
+          const p = samples[i],
+            q = samples[Math.min(samples.length - 1, i + 1)],
+            prev = samples[Math.max(0, i - 1)],
+            dx = q.x - prev.x,
+            dz = q.z - prev.z;
+          this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, dx, dz));
+        }
+      }
+      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, path);
+      return true;
+    }
+
+    if (mode === 'reverse') {
+      if (path.length < 2) return false;
+      const start = path[0],
+        end = path[path.length - 1],
+        dx = start.x - end.x,
+        dz = start.z - end.z;
+      if (id === 'orbit_blades') {
+        this.setOrbitChoreography(end.x, end.z);
+        this.castWithTrace(id, st, slot, this.choreographySource(end.x, end.z, dx, dz));
+      } else this.castWithTrace(id, st, slot, this.choreographySource(end.x, end.z, dx, dz));
+      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [...path].reverse());
+      return true;
+    }
+
+    const outer = previous.areaPoints.slice(0, 4);
+    if (!outer.length) return false;
+    const center = {
+      x: outer.reduce((a, p) => a + p.x, 0) / outer.length,
+      z: outer.reduce((a, p) => a + p.z, 0) / outer.length
+    };
+    if (id === 'orbit_blades') {
+      this.setOrbitChoreography(center.x, center.z);
+      this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
+    } else if (skills[id].directional) {
+      for (const p of outer.slice(0, 3))
+        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, center.x - p.x, center.z - p.z));
+    } else {
+      for (const eid of this.lastContext.hitIds) {
+        const e = this.ents.find((q) => q.id === eid && q.hp > 0);
+        if (!e) continue;
+        const dx = center.x - e.x,
+          dz = center.z - e.z,
+          d = Math.hypot(dx, dz) || 1;
+        e.x += (dx / d) * Math.min(1.1, d * 0.35);
+        e.z += (dz / d) * Math.min(1.1, d * 0.35);
+        e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.55);
+      }
+      this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
+    }
+    this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [...outer, center]);
+    return true;
+  }
+
   private stateActive(e: Ent, state: string) {
     if (state === 'ignite') return e.igniteUntil > this.time;
     if (state === 'chill') return e.chillUntil > this.time;
