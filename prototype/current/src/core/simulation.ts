@@ -3658,7 +3658,7 @@ export class Simulation {
     }
   }
 
-  private orbitProfile(st: SkillRuntime) {
+  private orbitProfile(st: SkillRuntime, center = this.orbitCenter()) {
     let count =
       3 +
       Math.max(0, Math.round(st.count) - 1) +
@@ -3671,7 +3671,7 @@ export class Simulation {
     let radius = this.skillRadius(st, skills.orbit_blades.baseRadius),
       crowd = 0;
     if (this.mutationIs(st,'orbit_blood')) {
-      crowd=this.ents.filter(e=>e.hp>0&&Math.hypot(e.x-this.px,e.z-this.pz)<6).length;
+      crowd=this.ents.filter(e=>e.hp>0&&Math.hypot(e.x-center.x,e.z-center.z)<6).length;
       radius*=1+Math.min(0.34,crowd*0.017);
       damageMul*=1+Math.min(0.48,crowd*0.024);
       if(this.mutationIs(st,'orbit_sanguine_crown')) radius*=1+Math.min(0.22,crowd*0.01);
@@ -3685,21 +3685,21 @@ export class Simulation {
   private updateOrbitBlades() {
     const st=this.skillsRuntime.get('orbit_blades');if(!st||!this.isActiveSkill('orbit_blades'))return;
     this.orbitAcc+=this.dt;if(this.orbitAcc<0.13)return;this.orbitAcc-=0.13;
-    const mut=st.mutation, profile=this.orbitProfile(st);
+    const center=this.orbitCenter(), mut=st.mutation, profile=this.orbitProfile(st,center);
     const dmg=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36*profile.damageMul;
     for(const e of this.ents){
       if(e.hp<=0||this.time-e.orbitHitAt<profile.hitInterval)continue;
-      const d=Math.hypot(e.x-this.px,e.z-this.pz);
+      const d=Math.hypot(e.x-center.x,e.z-center.z);
       if(Math.abs(d-profile.radius)<0.62){
         e.orbitHitAt=this.time;let m=dmg;
         if(mut==='orbit_saw'&&e.kind==='elite')m*=1.9;
-        this.damage(e,m,'orbit_blades',false,this.px,this.pz,this.slots.indexOf('orbit_blades'));
+        this.damage(e,m,'orbit_blades',false,center.x,center.z,this.slots.indexOf('orbit_blades'));
         this.closeDamage+=m;
         if(this.mutationIs(st,'orbit_sanguine_crown')&&profile.crowd>=5)this.grantBarrier(Math.min(3.2,m*0.02));
       }
     }
-    if(this.mutationIs(st,'orbit_aegis_crown')&&this.aegisCharge>=6){this.aegisCharge=0;this.grantBarrier(16);const rr=profile.radius+1.8;this.combatShape('orbit_aegis_crown',{kind:'circle',x:this.px,z:this.pz,radius:rr},'control');for(const e of this.ents){const dx=e.x-this.px,dz=e.z-this.pz,d=Math.hypot(dx,dz)||1;if(d<rr+e.radius){this.damage(e,22*this.powerBucket(st),'orbit_blades',false);e.x+=dx/d*0.75;e.z+=dz/d*0.75;}}this.events.push({type:'RareEvent',tick:this.tick,title:'КОРОНА ЭГИДЫ',detail:'Перехваты выпущены ударной волной',x:this.px,z:this.pz});}
-    if(this.mutationIs(st,'orbit_phoenix')&&this.time>=this.orbitPhoenixAt){this.orbitPhoenixAt=this.time+1.35;const t=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number((b.markUntil>this.time)||b.kind==='elite')-Number((a.markUntil>this.time)||a.kind==='elite')||Math.hypot(a.x-this.px,a.z-this.pz)-Math.hypot(b.x-this.px,b.z-this.pz))[0];if(t){const dx=t.x-this.px,dz=t.z-this.pz,m=Math.hypot(dx,dz)||1;this.spawnProjectile({x:this.px+dx/m*profile.radius,z:this.pz+dz/m*profile.radius,vx:dx/m*8.5,vz:dz/m*8.5,radius:0.28,ttl:2.8,damage:skills.orbit_blades.baseDamage*this.powerBucket(st)*1.25,coverDamage:16,faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:this.slots.indexOf('orbit_blades'),mutation:st.mutation,apotheosis:'orbit_phoenix',rivalConcentration:1,behavior:'returner',returnAt:1.3,phase:0,hitIds:[]});}}
+    if(this.mutationIs(st,'orbit_aegis_crown')&&this.aegisCharge>=6){this.aegisCharge=0;this.grantBarrier(16);const rr=profile.radius+1.8;this.combatShape('orbit_aegis_crown',{kind:'circle',x:center.x,z:center.z,radius:rr},'control');for(const e of this.ents){const dx=e.x-center.x,dz=e.z-center.z,d=Math.hypot(dx,dz)||1;if(d<rr+e.radius){this.damage(e,22*this.powerBucket(st),'orbit_blades',false,center.x,center.z);e.x+=dx/d*0.75;e.z+=dz/d*0.75;}}this.events.push({type:'RareEvent',tick:this.tick,title:'КОРОНА ЭГИДЫ',detail:'Перехваты выпущены ударной волной',x:center.x,z:center.z});}
+    if(this.mutationIs(st,'orbit_phoenix')&&this.time>=this.orbitPhoenixAt){this.orbitPhoenixAt=this.time+1.35;const t=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number((b.markUntil>this.time)||b.kind==='elite')-Number((a.markUntil>this.time)||a.kind==='elite')||Math.hypot(a.x-center.x,a.z-center.z)-Math.hypot(b.x-center.x,b.z-center.z))[0];if(t){const dx=t.x-center.x,dz=t.z-center.z,m=Math.hypot(dx,dz)||1;this.spawnProjectile({x:center.x+dx/m*profile.radius,z:center.z+dz/m*profile.radius,vx:dx/m*8.5,vz:dz/m*8.5,radius:0.28,ttl:2.8,damage:skills.orbit_blades.baseDamage*this.powerBucket(st)*1.25,coverDamage:16,faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:this.slots.indexOf('orbit_blades'),mutation:st.mutation,apotheosis:'orbit_phoenix',rivalConcentration:1,behavior:'returner',returnAt:1.3,phase:0,hitIds:[]});}}
   }
 
   private effectiveTempo() {
