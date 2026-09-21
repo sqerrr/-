@@ -58,6 +58,27 @@ for(const id of activeSkillOrder){
   assert(destination&&dist(toxic,destination)<1.2,'Source visual destination disagrees with physical Toxic Mist');
 }
 
+// 2b) SOURCE on a moving Phenomenon must use the body that is visibly travelling now,
+// not the far telegraph endpoint that it may reach several seconds later.
+for (const left of ['mass_driver','shard_fan'] as SkillId[]) {
+  const sim=fixture(left,'toxic_mist','source');
+  sim.activateSlot(0);
+  const projected=sim.lastContext.trace?.terminal;
+  assert(projected,`${left}: moving trace has no projected terminal`);
+  sim.ents=[];
+  for(let i=0;i<8;i++)sim.updateProjectiles();
+  const live=sim.projectiles
+    .filter((p:any)=>p.source===left)
+    .sort((a:any,b:any)=>Math.hypot(b.x,b.z)-Math.hypot(a.x,a.z))[0];
+  assert(live,`${left}: moving body disappeared before next Chain beat`);
+  assert(dist(live,projected)>2,`${left}: fixture does not separate live body from future endpoint`);
+  sim.events.length=0;
+  sim.activateSlot(1);
+  const toxic=sim.fields.filter((q:any)=>q.source==='toxic_mist').at(-1);
+  assert(toxic,`${left}: Source did not create Toxic Mist`);
+  assert(dist(toxic,live)<1.25,`${left}: Source fired at a future endpoint instead of the live moving body`);
+}
+
 // 3) CARRIER: B casts from several actual moving Orbit blades.
 {
   const sim=fixture('orbit_blades','frost_ring','carrier');
@@ -161,6 +182,9 @@ for(const cat of catalystOrder){
   matrix[cat]={compatible:n,total,ratio:+(n/total).toFixed(3)};
   assert(n>0&&n<total,`${cat}: compatibility became empty or universal`);
 }
+
+assert(!catalystPairCompatible('reverse','rail_spear','chain_arc'),
+  'Reverse still advertises target-seeking Chain Arc even though Arc cannot follow a prescribed return path');
 
 // 8) Exhaustive pair smoke: every pair advertised as compatible must physically fire the
 // right Phenomenon through the Catalyst, not merely pass a catalogue predicate. This is the
