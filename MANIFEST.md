@@ -1,8 +1,9 @@
-# Manifest — 2026-09-22 — v0.12 current
+# Manifest — 2026-09-22 — v0.12.1 current
 
 ## Current authority
 
 - `00_START_HERE.md` / `README.md` — entry point.
+- `38_ELITE_VISUAL_LANGUAGE_2026-09-22.md` — **current elite visual-language / combat-HUD readability authority.**
 - `37_CATALYST_2_0_CHOREOGRAPHY_2026-09-22.md` — **current Catalyst / Chain choreography authority.**
 - `36_OWNER_CORRECTION_CROWD_BUILD_ELITE_2026-09-20.md` — crowd/build/elite/Warden rules.
 - `33_ANIMATION_PRESENTATION_LEGACY_AUDIT_2026-09-20.md` — presentation contract + legacy audit.
@@ -14,11 +15,13 @@ Older Catalyst analyses remain research evidence only where document 37 supersed
 
 ## Executable
 
-`prototype/current/` is **v0.12-catalyst-choreography**.
+`prototype/current/` is **v0.12.1 elite-readability on top of v0.12 Catalyst choreography**.
 
 Key facts:
 
 - deterministic TypeScript core + WebGL2 presentation;
+- chassis-specific world/minimap/off-screen shapes, separate affix badges and rarity frames;
+- red reserved for immediate hostile danger; sticky action-focused threat panel; compact combat repertoire icons;
 - 11 active Phenomena / 7 compatibility-only Phenomena;
 - 5 active Catalyst 2.0 operators: Source, Carrier, Trail, Reverse, Collapse;
 - old Catalyst 1.x definitions are compatibility-only, not Discovery content;
