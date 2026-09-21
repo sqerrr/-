@@ -79,6 +79,30 @@ for (const left of ['mass_driver','shard_fan'] as SkillId[]) {
   assert(dist(toxic,live)<1.25,`${left}: Source fired at a future endpoint instead of the live moving body`);
 }
 
+// 2c) TRAIL on a moving actor grows from the segment that actor has actually travelled.
+for (const left of ['mass_driver','shard_fan'] as SkillId[]) {
+  const sim=fixture(left,'frost_ring','trail');
+  sim.activateSlot(0);
+  const projected=sim.lastContext.trace?.terminal;
+  assert(projected,`${left}: moving Trail has no projected endpoint fixture`);
+  sim.ents=[];
+  for(let i=0;i<30;i++)sim.updateProjectiles();
+  const live=sim.projectiles
+    .filter((p:any)=>p.source===left)
+    .sort((a:any,b:any)=>Math.hypot(b.x,b.z)-Math.hypot(a.x,a.z))[0];
+  assert(live,`${left}: moving body disappeared before Trail test`);
+  sim.events.length=0;
+  sim.activateSlot(1);
+  const cue=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='trail');
+  const casts=sim.events.filter((e:any)=>e.type==='SkillActivated'&&e.skill==='frost_ring');
+  assert(cue&&casts.length>=2,`${left}: live Trail did not create repeated Frost placements`);
+  const span=Math.max(...casts.map((q:any)=>q.x))-Math.min(...casts.map((q:any)=>q.x))+
+    Math.max(...casts.map((q:any)=>q.z))-Math.min(...casts.map((q:any)=>q.z));
+  assert(span>1.15,`${left}: live travelled segment is still visually collapsed (${span.toFixed(2)})`);
+  assert(casts.every((q:any)=>dist(q,projected)>1.5),
+    `${left}: Trail leaked into future telegraph geometry instead of travelled space`);
+}
+
 // 3) CARRIER: B casts from several actual moving Orbit blades.
 {
   const sim=fixture('orbit_blades','frost_ring','carrier');
@@ -185,6 +209,8 @@ for(const cat of catalystOrder){
 
 assert(!catalystPairCompatible('reverse','rail_spear','chain_arc'),
   'Reverse still advertises target-seeking Chain Arc even though Arc cannot follow a prescribed return path');
+assert(!catalystPairCompatible('carrier','sentry','orbit_blades'),
+  'Emitter still advertises multiple A objects into a single global Orbit center');
 
 // 8) Exhaustive pair smoke: every pair advertised as compatible must physically fire the
 // right Phenomenon through the Catalyst, not merely pass a catalogue predicate. This is the
@@ -216,9 +242,14 @@ for(const cat of catalystOrder){
       assert(casts.some((q:any)=>cue.points.some((p:any)=>dist(q,p)<.9)),`${cat} ${left}->${right}: B is not cast from an A carrier`);
     } else if(cat==='trail'){
       assert(casts.length>=2,`${cat} ${left}->${right}: path did not create repeated B placements`);
+      const moving=left==='mass_driver'||left==='shard_fan';
       const span=Math.max(...casts.map((q:any)=>q.x))-Math.min(...casts.map((q:any)=>q.x))+
         Math.max(...casts.map((q:any)=>q.z))-Math.min(...casts.map((q:any)=>q.z));
-      assert(span>1.2,`${cat} ${left}->${right}: repeated B placements collapsed to one point`);
+      if(!moving)
+        assert(span>1.2,`${cat} ${left}->${right}: repeated B placements collapsed to one point`);
+      else
+        assert(casts.every((q:any)=>cue.points.some((p:any)=>dist(q,p)<1.0)),
+          `${cat} ${left}->${right}: zero-time moving Trail left its actually travelled segment`);
     } else if(cat==='reverse'){
       const first=cue.points[0], second=cue.points[1]??cue.points[0], cast=casts[0];
       assert(first&&dist(first,cast)<1.0,`${cat} ${left}->${right}: B did not begin at reversed path head`);
