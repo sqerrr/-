@@ -1499,6 +1499,10 @@ export const initialCatalystReserve: (CatalystId | null)[] = ['reverse', 'collap
  * compatibility, but they are not offered: a Catalyst slot is reserved for visible A→B choreography.
  */
 export const catalystOrder: CatalystId[] = ['source', 'carrier', 'trail', 'reverse', 'collapse'];
+export const legacyCatalystOrder: CatalystId[] = [
+  'capacitor','anchor','reservoir','echo_shard','relay','conduit','overflow','aegis_relay','backflow',
+  'recoil','focus','surge','glut','stagger','splinter','brand','rime','harvest','vault','handoff'
+];
 
 export type ChoreographySignal = 'terminal' | 'path' | 'carrier' | 'area';
 export type ChoreographyOperator = 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse';
