@@ -149,9 +149,11 @@ for (const left of ['mass_driver','shard_fan'] as SkillId[]) {
     casts=sim.events.filter((e:any)=>e.type==='SkillActivated'&&e.skill==='mass_driver'),
     ev=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='reverse');
   assert(ev&&ps.length>=2&&casts.length>=2,'Reverse Mass Driver did not create staged playback');
-  assert(casts[0].x>7,'Reverse Mass Driver did not begin at Rail far endpoint');
-  assert(casts.at(-1).x<casts[0].x-3,'Reverse Mass Driver sequence did not walk back toward Rail origin');
-  assert(ps.every((p:any)=>p.vx<0),'Reverse Mass Driver contains a projectile travelling forward instead of back');
+  assert(ev.points.length===casts.length,'Reverse Mass Driver cue/cast sequence length drifted');
+  assert(dist(casts[0],ev.points[0])<.9,'Reverse Mass Driver did not begin at the actual reversed Rail endpoint');
+  assert(dist(casts.at(-1),{x:0,z:0})<dist(casts[0],{x:0,z:0})-1.5,
+    'Reverse Mass Driver sequence did not walk back toward Rail origin');
+  assert(ps.every((p:any)=>p.vx<-.05),'Reverse Mass Driver contains a projectile travelling forward instead of back');
 }
 
 // 5b) REVERSE is a staged playback, not just one cast from A's endpoint.
