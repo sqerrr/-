@@ -1520,7 +1520,7 @@ export const phenomenonChoreography: Record<SkillId, PhenomenonChoreographyDef> 
   rail_spear:    { emits:['terminal','path'],              accepts:['source','carrier','trail','reverse','collapse'] },
   cleaver:       { emits:['terminal','area'],              accepts:['source','carrier','trail','reverse','collapse'] },
   chain_arc:     { emits:['terminal','path'],              accepts:['source','carrier','trail','collapse'] },
-  orbit_blades:  { emits:['carrier','area'],               accepts:['source','carrier','collapse'] },
+  orbit_blades:  { emits:['carrier','area'],               accepts:['source','collapse'] },
   mortar_bloom:  { emits:['terminal','path','area'],       accepts:['source','carrier','trail','reverse','collapse'] },
   sentry:        { emits:['carrier','area'],               accepts:['source','carrier','trail','reverse','collapse'] },
   toxic_mist:    { emits:['area'],                         accepts:['source','carrier','trail','collapse'] },
