@@ -55,7 +55,8 @@ let aim = { x: 1, z: -1 };
 let chainSignature = '',
   plannerSignature = '';
 let eliteAlertToken = 0,
-  rareAlertUntil = 0;
+  rareAlertUntil = 0,
+  threatFocusId = 0;
 const seenCatalystTriggers = new Set<string>();
 const seenRivalCasts = new Set<string>();
 type CombatFloat = {
@@ -390,6 +391,55 @@ const affixRole: Record<string,string> = {
   temporal:'заранее отмечает точку скачка и бьёт после перемещения',
   brood:'периодически вызывает подкрепление',
   crowned:'чаще использует собственные механики'
+};
+const chassisGlyph: Record<string,string> = {
+  marshal:'⚑', hunter:'➤', bulwark:'▣', architect:'⌗', harvester:'⌒',
+  shepherd:'Ψ', broodmaker:'∴', archivist:'▥', warden:'⬢'
+};
+const chassisShortRule: Record<string,string> = {
+  marshal:'КОМАНДУЕТ СТАЕЙ',
+  hunter:'ПЕРЕХВАТЫВАЕТ ТРАЕКТОРИЮ',
+  bulwark:'МЕНЯЙ ИСТОЧНИК УРОНА',
+  architect:'СТАВИТ ЗАВЕСЫ',
+  harvester:'ПОГЛОЩАЕТ ПРОИЗВОДНЫЕ',
+  shepherd:'ПЕРЕСТРАИВАЕТ СТАЮ',
+  broodmaker:'ПОРОЖДАЕТ КОПИИ',
+  archivist:'КОПИРУЕТ РОЛИ',
+  warden:'ПАТТЕРНЫ ФИНАЛА'
+};
+const affixGlyph: Record<string,string> = {
+  none:'', swift:'≡', dense:'■', volatile:'▲', regenerating:'✚',
+  shielded:'⬟', vanguard:'»', temporal:'⌛', brood:'∴', crowned:'♛'
+};
+const affixShortRule: Record<string,string> = {
+  none:'', swift:'БЫСТРЕЕ', dense:'ТЯЖЁЛЫЙ', volatile:'ВЗРЫВ ПОСЛЕ СМЕРТИ',
+  regenerating:'РЕГЕН БЕЗ УРОНА', shielded:'ЩИТ ПО НАПРАВЛЕНИЮ',
+  vanguard:'ВЕДЁТ СТАЮ', temporal:'СКАЧОК + УДАР', brood:'ВЫЗЫВАЕТ СТАЮ',
+  crowned:'ЧАЩЕ ИСПОЛЬЗУЕТ ПРИЁМЫ'
+};
+const chassisUiTint: Record<string,string> = {
+  marshal:'#ffc36a', hunter:'#ff79b8', bulwark:'#79d6ff', architect:'#9eeaff',
+  harvester:'#74ead3', shepherd:'#9bea7d', broodmaker:'#ed82cb',
+  archivist:'#8eb5ff', warden:'#f4e7c8'
+};
+const affixUiTint: Record<string,string> = {
+  swift:'#eef5ff', dense:'#aaa4b1', volatile:'#ffad5c', regenerating:'#79ee9b',
+  shielded:'#78d8ff', vanguard:'#ffb15e', temporal:'#b69aff', brood:'#f58abd',
+  crowned:'#ffe477', none:'#ffffff'
+};
+const eliteActionLabel: Record<string,string> = {
+  predator:'ПЕРЕХВАТ', predator_dash:'ПЕРЕХВАТ', veil:'СМЕЩЕНИЕ',
+  replicate:'ВЫБРОС КОПИИ', prism:'ФРОНТАЛЬНЫЙ УДАР',
+  null:'ЖАТВА', metamorph:'КОМАНДНЫЙ ИМПУЛЬС'
+};
+const eliteActionHint: Record<string,string> = {
+  predator:'СМЕНИ ТРАЕКТОРИЮ',
+  predator_dash:'УЙДИ С ЛИНИИ РЫВКА',
+  veil:'НЕ СТОЙ В ТОЧКЕ СМЕЩЕНИЯ',
+  replicate:'ВЫЙДИ ИЗ КРУГА',
+  prism:'ЗАЙДИ ЗА ФРОНТ ЩИТА',
+  null:'ВЫЙДИ ИЗ СЕКТОРА',
+  metamorph:'ОТОРВИСЬ ОТ СТАИ'
 };
 function eventText(e: GameEvent) {
   if (e.type === 'EntitySpawned' && e.kind === 'elite')
@@ -914,7 +964,7 @@ function drawMinimap(s: Snapshot) {
   ctx.globalAlpha=1;
   for(const r of s.relics){const x=tx(r.x),y=ty(r.z);ctx.fillStyle=relicMinimapTint[r.category]??'#fff';ctx.beginPath();ctx.moveTo(x,y-5);ctx.lineTo(x+5,y);ctx.lineTo(x,y+5);ctx.lineTo(x-5,y);ctx.closePath();ctx.fill();if(r.contested){ctx.strokeStyle='#ff4b4b';ctx.lineWidth=1.7;ctx.strokeRect(x-7,y-7,14,14);}}
   for(const q of s.pickups){if(q.kind!=='heal'&&q.kind!=='mutation'&&q.kind!=='core')continue;const x=tx(q.x),y=ty(q.z);ctx.strokeStyle=q.kind==='heal'?'#7bffae':q.kind==='mutation'?'#d59cff':'#75e5ff';ctx.lineWidth=2;if(q.kind==='heal'){ctx.beginPath();ctx.moveTo(x-4,y);ctx.lineTo(x+4,y);ctx.moveTo(x,y-4);ctx.lineTo(x,y+4);ctx.stroke();}else{ctx.strokeRect(x-3,y-3,6,6);}}
-  for(const e of s.entities){if(!e.elite)continue;ctx.fillStyle=e.boss?'#ff344c':e.guardianPoi!==0?'#fff06c':'#ffd75a';const x=tx(e.x),y=ty(e.z),r=e.boss?7:5;ctx.beginPath();ctx.moveTo(x,y-r);ctx.lineTo(x+r,y);ctx.lineTo(x,y+r);ctx.lineTo(x-r,y);ctx.closePath();ctx.fill();}
+  for(const e of s.entities){if(!e.elite)continue;const x=tx(e.x),y=ty(e.z);drawEliteMapMarker(ctx,e,x,y,e.boss?7:5);if(e.affix&&e.affix!=='none'){ctx.fillStyle=affixUiTint[e.affix]??'#fff';ctx.fillRect(x+5,y-7,3,3);}}
   // Player is an arrow, not another ambiguous map dot.
   const px=tx(s.player.x),py=ty(s.player.z),a=Math.atan2(s.player.aimZ,s.player.aimX),rr=6;
   ctx.fillStyle='#8ffff0';ctx.beginPath();ctx.moveTo(px+Math.cos(a)*rr,py+Math.sin(a)*rr);ctx.lineTo(px+Math.cos(a+2.5)*4,py+Math.sin(a+2.5)*4);ctx.lineTo(px+Math.cos(a-2.5)*4,py+Math.sin(a-2.5)*4);ctx.closePath();ctx.fill();
@@ -987,6 +1037,62 @@ const rarityTint: Record<string, string> = {
 function eliteTint(e: Snapshot['entities'][number]): string {
   return rarityTint[e.eliteRarity ?? 'common'] ?? rarityTint.common;
 }
+function drawEliteMapMarker(
+  ctx: CanvasRenderingContext2D,
+  e: Snapshot['entities'][number],
+  x: number,
+  y: number,
+  r = 7
+) {
+  const ch=e.chassis??'marshal', c=chassisUiTint[ch]??'#fff';
+  ctx.save();
+  ctx.strokeStyle=c; ctx.fillStyle=c; ctx.lineWidth=Math.max(1.5,r*0.24);
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  if(ch==='hunter'){
+    ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x-r*.75,y-r*.72);ctx.lineTo(x-r*.35,y);ctx.lineTo(x-r*.75,y+r*.72);ctx.closePath();ctx.fill();
+  } else if(ch==='bulwark'){
+    ctx.strokeRect(x-r*.72,y-r*.72,r*1.44,r*1.44);ctx.beginPath();ctx.moveTo(x,y-r*.72);ctx.lineTo(x,y+r*.72);ctx.stroke();
+  } else if(ch==='architect'){
+    ctx.beginPath();ctx.moveTo(x,y-r);ctx.lineTo(x+r,y);ctx.lineTo(x,y+r);ctx.lineTo(x-r,y);ctx.closePath();ctx.stroke();
+    ctx.strokeRect(x-r*.28,y-r*.28,r*.56,r*.56);
+  } else if(ch==='harvester'){
+    ctx.beginPath();ctx.arc(x,y,r*.76,-Math.PI*.72,Math.PI*.72);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x+r*.55,y-r*.58);ctx.lineTo(x+r*.95,y-r*.9);ctx.stroke();
+  } else if(ch==='shepherd'){
+    ctx.beginPath();ctx.moveTo(x,y+r);ctx.lineTo(x,y-r);ctx.moveTo(x,y-r*.35);ctx.lineTo(x-r*.7,y-r*.85);ctx.moveTo(x,y-r*.35);ctx.lineTo(x+r*.7,y-r*.85);ctx.stroke();
+  } else if(ch==='broodmaker'){
+    for(const [dx,dy] of [[0,-.62],[-.58,.45],[.58,.45]] as const){ctx.beginPath();ctx.arc(x+dx*r,y+dy*r,r*.27,0,Math.PI*2);ctx.fill();}
+  } else if(ch==='archivist'){
+    ctx.strokeRect(x-r*.82,y-r*.72,r*.67,r*1.44);ctx.strokeRect(x+r*.15,y-r*.72,r*.67,r*1.44);
+  } else if(ch==='warden'){
+    ctx.beginPath();for(let i=0;i<8;i++){const a=-Math.PI/8+i*Math.PI/4,px=x+Math.cos(a)*r,py=y+Math.sin(a)*r;i?ctx.lineTo(px,py):ctx.moveTo(px,py);}ctx.closePath();ctx.stroke();
+  } else {
+    ctx.beginPath();ctx.moveTo(x-r*.35,y+r);ctx.lineTo(x-r*.35,y-r);ctx.moveTo(x-r*.35,y-r*.82);ctx.lineTo(x+r*.75,y-r*.45);ctx.lineTo(x-r*.35,y-.05*r);ctx.stroke();
+  }
+  const rarity=e.boss?'legendary':(e.eliteRarity??'common');
+  if(rarity!=='common'){
+    ctx.strokeStyle=rarity==='legendary'?'#ffe06a':'#67b7ff';
+    ctx.lineWidth=Math.max(1.2,r*.18);
+    ctx.beginPath();ctx.arc(x,y,r*1.35,-Math.PI*.82,-Math.PI*.18);ctx.stroke();
+    ctx.beginPath();ctx.arc(x,y,r*1.35,Math.PI*.18,Math.PI*.82);ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawAffixBadge2d(
+  ctx: CanvasRenderingContext2D,
+  affix: string,
+  x: number,
+  y: number,
+  size = 16
+) {
+  if(!affix || affix==='none') return;
+  ctx.save();
+  ctx.fillStyle='rgba(5,9,13,.9)';ctx.strokeStyle=affixUiTint[affix]??'#fff';ctx.lineWidth=1.5;
+  ctx.fillRect(x-size/2,y-size/2,size,size);ctx.strokeRect(x-size/2+.5,y-size/2+.5,size-1,size-1);
+  ctx.fillStyle=affixUiTint[affix]??'#fff';ctx.font=`900 ${Math.max(10,size*.68)}px system-ui`;
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(affixGlyph[affix]??'?',x,y+.5);
+  ctx.restore();
+}
 // D13: the cards an elite took from the hero read on the elite itself.
 // A card the hero turned down is only a cost if he can see it being used against him.
 // Glyphs alone proved unreadable: six different directions of growth all drew the same
@@ -1008,40 +1114,19 @@ function drawRefusalRow(
   cy: number,
   tint: string
 ) {
-  const n = Math.min(icons.length, 6);
-  if (!n) return;
-  const size = 18,
-    rowH = 20,
-    pad = 5;
-  ctx.save();
-  ctx.textBaseline = 'middle';
-  ctx.font = '700 11px system-ui';
-  let widest = 0;
-  for (let i = 0; i < n; i++) widest = Math.max(widest, ctx.measureText(titles[i] ?? '').width);
-  const boxW = size + pad + widest + pad * 2;
-  // Stacked upwards so the newest row never covers the elite's own label.
-  for (let i = 0; i < n; i++) {
-    const y = cy - (n - 1 - i) * rowH,
-      x = cx - boxW / 2,
-      kindTint = refusalKindTint[kinds[i]] ?? tint;
-    ctx.fillStyle = '#05080bdd';
-    ctx.fillRect(x, y - rowH / 2, boxW, rowH - 2);
-    ctx.strokeStyle = kindTint;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x + 0.5, y - rowH / 2 + 0.5, boxW - 1, rowH - 3);
-    const token = icons[i] ?? '',
-      img = token.indexOf('/') >= 0 ? hudImage(token) : null;
-    if (img) ctx.drawImage(img, x + pad, y - size / 2, size, size);
-    else {
-      ctx.fillStyle = kindTint;
-      ctx.font = '800 9px system-ui';
-      ctx.textAlign = 'center';
-      ctx.fillText(token.slice(0, 4), x + pad + size / 2, y);
-    }
-    ctx.fillStyle = '#e8eef7';
-    ctx.font = '700 11px system-ui';
-    ctx.textAlign = 'left';
-    ctx.fillText(titles[i] ?? '', x + pad + size + pad, y);
+  // Combat only shows the repertoire as compact pictograms. Full names are inspection-layer
+  // information; stacking text over an elite defeats the "recognise, don't read" contract.
+  const n=Math.min(icons.length,5);
+  if(!n) return;
+  const size=18,gap=4,total=n*size+(n-1)*gap,start=cx-total/2+size/2;
+  ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';
+  for(let i=0;i<n;i++){
+    const x=start+i*(size+gap), kindTint=refusalKindTint[kinds[i]]??tint, token=icons[i]??'',
+      img=token.indexOf('/')>=0?hudImage(token):null;
+    ctx.fillStyle='rgba(5,8,12,.9)';ctx.fillRect(x-size/2,cy-size/2,size,size);
+    ctx.strokeStyle=kindTint;ctx.lineWidth=1.2;ctx.strokeRect(x-size/2+.5,cy-size/2+.5,size-1,size-1);
+    if(img) ctx.drawImage(img,x-size/2+2,cy-size/2+2,size-4,size-4);
+    else {ctx.fillStyle=kindTint;ctx.font='900 9px system-ui';ctx.fillText((token||titles[i]||'•').slice(0,2),x,cy+.5);}
   }
   ctx.restore();
 }
@@ -1128,53 +1213,43 @@ function drawCombatHud(s: Snapshot) {
       if (e.elite) {
         const x = Math.max(margin, Math.min(w - margin, p.x)),
           y = Math.max(margin, Math.min(h - margin, p.y)),
-          r = e.boss ? 10 : 7;
-        ctx.fillStyle = e.boss ? '#ff4057' : eliteTint(e);
-        ctx.beginPath();
-        ctx.moveTo(x, y - r);
-        ctx.lineTo(x + r, y);
-        ctx.lineTo(x, y + r);
-        ctx.lineTo(x - r, y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.font = e.boss ? '900 11px system-ui' : '800 9px system-ui';
-        ctx.fillStyle = '#fff';
-        ctx.fillText(
-          e.boss ? 'ХРАНИТЕЛЬ' : chassisName[e.chassis ?? 'marshal'].toUpperCase(),
-          x,
-          y + r + 10
-        );
+          r = e.boss ? 11 : 8;
+        drawEliteMapMarker(ctx,e,x,y,r);
+        if(e.affix&&e.affix!=='none') drawAffixBadge2d(ctx,e.affix,x+r+7,y-r-2,12);
       }
       continue;
     }
     const show = e.elite || e.hp < e.maxHp * 0.995;
     if (!show) continue;
-    const bw = e.boss ? 170 : e.elite ? 92 : 44,
-      bh = e.boss ? 9 : e.elite ? 6 : 4,
-      y = p.y - (e.boss ? 142 : e.elite ? 95 : 54);
+    const bw = e.boss ? 180 : e.elite ? 106 : 44,
+      bh = e.boss ? 10 : e.elite ? 7 : 4,
+      y = p.y - (e.boss ? 142 : e.elite ? 98 : 54);
     ctx.fillStyle = '#05080bd9';
     ctx.fillRect(p.x - bw / 2, y, bw, bh);
-    const tint = e.boss ? '#ff3c50' : e.elite ? eliteTint(e) : '#df5262';
+    const tint = e.boss ? '#f4e7c8' : e.elite ? (chassisUiTint[e.chassis??'marshal']??eliteTint(e)) : '#df5262';
     ctx.fillStyle = tint;
     ctx.fillRect(p.x - bw / 2 + 1, y + 1, (bw - 2) * Math.max(0, e.hp / e.maxHp), bh - 2);
+    if(e.elite){
+      const rarity=e.boss?'legendary':(e.eliteRarity??'common'),
+        rc=rarity==='legendary'?'#ffe06a':rarity==='uplifted'?'#67b7ff':'#6d7f8c';
+      ctx.strokeStyle=rc;ctx.lineWidth=rarity==='legendary'?2.3:1;
+      ctx.strokeRect(p.x-bw/2-.5,y-.5,bw+1,bh+1);
+      if(rarity!=='common'){
+        const cap=rarity==='legendary'?12:8;
+        ctx.beginPath();ctx.moveTo(p.x-bw/2,y-4);ctx.lineTo(p.x-bw/2+cap,y-4);
+        ctx.moveTo(p.x+bw/2-cap,y-4);ctx.lineTo(p.x+bw/2,y-4);ctx.stroke();
+      }
+      drawEliteMapMarker(ctx,e,p.x-bw/2-15,y+bh/2,e.boss?9:7);
+      if(e.affix&&e.affix!=='none') drawAffixBadge2d(ctx,e.affix,p.x+bw/2+14,y+bh/2,e.boss?18:15);
+      drawRefusalRow(ctx,e.refusalIcons??[],e.refusalTitles??[],e.refusalKinds??[],p.x,y-15,tint);
+    }
     if (e.elite && e.affix === 'shielded') {
-      const sy=y+bh+3, st=e.shieldState==='broken'?'#ff6464':e.shieldState==='commit'?'#ffc261':'#73d9ff';
+      const sy=y+bh+4, st=e.shieldState==='broken'?'#9fa9b6':e.shieldState==='commit'?'#ffc261':'#73d9ff';
       ctx.fillStyle='#05080bd9';ctx.fillRect(p.x-bw/2,sy,bw,4);
       ctx.fillStyle=st;ctx.fillRect(p.x-bw/2+1,sy+1,(bw-2)*Math.max(0,Math.min(1,e.shieldStability/100)),2);
     }
-    if (e.elite) {
-      ctx.font = e.boss ? '800 14px system-ui' : '700 11px system-ui';
-      ctx.fillStyle = e.boss ? '#fff' : tint;
-      ctx.fillText(e.boss ? 'ХРАНИТЕЛЬ' : eliteName(e), p.x, y - 9);
-      drawRefusalRow(
-        ctx,
-        e.refusalIcons ?? [],
-        e.refusalTitles ?? [],
-        e.refusalKinds ?? [],
-        p.x,
-        y - 30,
-        tint
-      );
+    if(e.boss){
+      ctx.font='900 12px system-ui';ctx.fillStyle='#fff';ctx.fillText('ХРАНИТЕЛЬ',p.x,y-28);
     }
   }
   const now = s.time;
@@ -1208,31 +1283,63 @@ const elitePatternLabel: Record<string,string> = {
   bulwark:'ФРОНТАЛЬНЫЙ УДАР', harvester:'ЖАТВА', shepherd:'КОМАНДНЫЙ ИМПУЛЬС',
   warden:'АТАКА ХРАНИТЕЛЯ'
 };
+function eliteIsDangerous(e: Snapshot['entities'][number]) {
+  const preparing=e.echoPhase==='tell'||e.telegraph>0|| (!!e.eliteAction&&e.eliteAction!=='predator_dash'),
+    active=e.echoPhase==='active'||e.eliteAction==='predator_dash'||(e.boss&&!!e.bossPattern&&e.adaptationStage===1);
+  return {preparing,active,dangerous:preparing||active};
+}
 function updateThreatPanel(s: Snapshot) {
-  const box = $('threatPanel'),
-    boss = s.entities.find((e) => e.boss),
-    elites = s.entities.filter((e) => e.elite && !e.boss);
-  const e = boss ?? elites.sort((a,b)=>Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0];
-  if (!e) { box.classList.remove('visible','danger'); return; }
+  const box=$('threatPanel'),
+    boss=s.entities.find(e=>e.boss),
+    elites=s.entities.filter(e=>e.elite&&!e.boss),
+    byDistance=(a:typeof elites[number],b:typeof elites[number])=>
+      Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z),
+    dangerous=[...elites].filter(e=>eliteIsDangerous(e).dangerous).sort(byDistance),
+    current=elites.find(e=>e.id===threatFocusId),
+    currentDistance=current?Math.hypot(current.x-s.player.x,current.z-s.player.z):Infinity,
+    nearest=[...elites].sort(byDistance)[0];
+
+  // Focus is sticky in calm combat so the panel does not become an unreadable ticker. An
+  // imminent attack may pre-empt it, and the boss always owns the panel.
+  const e=boss??dangerous[0]??(current&&currentDistance<44?current:nearest);
+  if(!e){threatFocusId=0;box.classList.remove('visible','danger');return;}
+  threatFocusId=e.id;
   box.classList.add('visible');
-  const chassisTell = !!e.eliteAction && e.eliteAction !== 'predator_dash',
-    chassisActive = e.eliteAction === 'predator_dash',
-    preparing = e.echoPhase === 'tell' || e.telegraph > 0 || chassisTell,
-    activeEcho = e.echoPhase === 'active',
-    dangerous = preparing || activeEcho || chassisActive || (e.boss && e.bossPattern && e.adaptationStage === 1);
-  box.classList.toggle('danger', !!dangerous);
-  const pattern = e.echoPhase === 'tell'
-    ? `ОТРАЖЕНИЕ · ${e.echoSkill ? skills[e.echoSkill].name.toUpperCase() : 'АТАКА'}`
-    : elitePatternLabel[e.chassis ?? ''] ?? 'ОПАСНЫЙ ПРИЁМ';
-  $('threatTitle').textContent = dangerous
-    ? `⚠ ${preparing ? 'ГОТОВИТ' : 'АТАКУЕТ'}: ${pattern}`
-    : e.boss ? `ХРАНИТЕЛЬ · ФАЗА ${e.bossPhase}` : eliteName(e);
-  $('threatBody').textContent = dangerous
-    ? 'Красная зона — опасность. Выйди из геометрии до завершения подготовки.'
-    : e.boss
-      ? 'Следи за красной геометрией; после тяжёлых атак появляется окно для ответа.'
-      : `${chassisRole[e.chassis ?? 'marshal']}${e.affix && e.affix !== 'none' ? ` · Аффикс: ${affixRole[e.affix] ?? affixName[e.affix]}` : ''}`;
-  $('threatHp').style.width = `${Math.max(0,(e.hp/e.maxHp)*100)}%`;
+
+  const state=eliteIsDangerous(e),
+    ch=e.chassis??'marshal',
+    aff=e.affix??'none',
+    echoTell=e.echoPhase==='tell',
+    pattern=echoTell
+      ? `ОТРАЖЕНИЕ · ${e.echoSkill?skills[e.echoSkill].name.toUpperCase():'АТАКА'}`
+      : e.eliteAction
+        ? (eliteActionLabel[e.eliteAction]??elitePatternLabel[ch]??'ОПАСНЫЙ ПРИЁМ')
+        : elitePatternLabel[ch]??'ОПАСНЫЙ ПРИЁМ',
+    hint=echoTell
+      ? 'ВЫЙДИ ИЗ КРАСНОЙ ГЕОМЕТРИИ'
+      : e.eliteAction
+        ? (eliteActionHint[e.eliteAction]??'ВЫЙДИ ИЗ КРАСНОЙ ГЕОМЕТРИИ')
+        : e.boss
+          ? 'СМОТРИ НА ФОРМУ КРАСНОЙ АТАКИ'
+          : 'ВЫЙДИ ИЗ КРАСНОЙ ГЕОМЕТРИИ';
+
+  box.classList.toggle('danger',state.dangerous);
+  $('threatChassisGlyph').textContent=chassisGlyph[ch]??'◆';
+  $('threatChassisGlyph').style.color=chassisUiTint[ch]??'#fff';
+  $('threatAffixGlyph').textContent=affixGlyph[aff]??'';
+  $('threatAffixGlyph').style.color=affixUiTint[aff]??'#fff';
+  $('threatTitle').textContent=state.dangerous
+    ? `${state.preparing?'ГОТОВИТ':'АТАКУЕТ'} · ${pattern}`
+    : e.boss?`ХРАНИТЕЛЬ · ФАЗА ${e.bossPhase}`:chassisName[ch].toUpperCase();
+  $('threatRule').textContent=state.dangerous?'КРАСНЫЙ = НЕМЕДЛЕННАЯ ОПАСНОСТЬ':chassisShortRule[ch]??'';
+  $('threatBody').textContent=state.dangerous
+    ? hint
+    : aff!=='none'
+      ? `${affixGlyph[aff]??'◇'} ${affixShortRule[aff]??affixName[aff]}`
+      : e.refusalIcons?.length
+        ? `УСВОЕНО ОТ ТЕБЯ: ${e.refusalIcons.length}`
+        : 'БЕЗ ДОПОЛНИТЕЛЬНОГО АФФИКСА';
+  $('threatHp').style.width=`${Math.max(0,(e.hp/e.maxHp)*100)}%`;
 }
 function updateUi(s: Snapshot) {
   const mm = Math.floor(s.time / 60),
@@ -1257,11 +1364,15 @@ function updateUi(s: Snapshot) {
     phase = progress < .25 ? 'РАЗГОН' : progress < .55 ? 'НАРАСТАНИЕ' : progress < .85 ? 'ДАВЛЕНИЕ' : 'ФИНАЛ',
     nearestPoi = s.world.pois.filter(p=>p.state!=='cleared').sort((a,b)=>Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z))[0],
     route = nearestPoi ? `${poiLabel(nearestPoi.kind)} ${Math.round(Math.hypot(nearestPoi.x-s.player.x,nearestPoi.z-s.player.z))}м` : 'узлы очищены';
-  $('objective').textContent = s.world.bossSpawned
-    ? s.world.bossDefeated
-      ? 'ХРАНИТЕЛЬ УНИЧТОЖЕН'
-      : `ФИНАЛ · ХРАНИТЕЛЬ${bossSupport ? ` · стражей: ${bossSupport}` : ''}`
-    : `${phase} · узлы ${cleared}/${s.world.pois.length} · ближайшее: ${route} · финал через ${Math.floor(remaining/60)}:${Math.floor(remaining%60).toString().padStart(2,'0')}`;
+  if(s.world.bossSpawned){
+    $('phaseBadge').textContent=s.world.bossDefeated?'ЗАВЕРШЕНО':'ФИНАЛ';
+    $('routeBadge').textContent=s.world.bossDefeated?'ХРАНИТЕЛЬ УНИЧТОЖЕН':'ХРАНИТЕЛЬ';
+    $('finalBadge').textContent=s.world.bossDefeated?'':(bossSupport?`СТРАЖЕЙ ${bossSupport}`:'БЕЗ СТРАЖЕЙ');
+  } else {
+    $('phaseBadge').textContent=`${phase} · ${cleared}/${s.world.pois.length}`;
+    $('routeBadge').textContent=route;
+    $('finalBadge').textContent=`ФИНАЛ ${Math.floor(remaining/60)}:${Math.floor(remaining%60).toString().padStart(2,'0')}`;
+  }
   updateThreatPanel(s);
   drawMinimap(s);
   drawCombatHud(s);

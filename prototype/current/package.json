@@ -1,6 +1,6 @@
 {
   "name": "roguelike-web-prototype-v0-12-catalyst-choreography",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "private": true,
   "type": "module",
   "scripts": {

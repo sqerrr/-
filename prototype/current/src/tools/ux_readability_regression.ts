@@ -46,11 +46,31 @@ const renderer=readFileSync('src/renderer/webgl2.ts','utf8');
 assert(!renderer.includes("e.orderActive && e.squadTask"),'squad routing lines leaked back into combat presentation');
 assert(renderer.includes("archive=texture(u_floor"),'archive floor is no longer the dominant background texture');
 assert(renderer.includes("shield_commit/.test"),'shield telegraph is outside hostile-red visual language');
+assert(renderer.includes('drawEliteIdentityOverlay(s)'),'elite identity pass is missing');
+assert(renderer.indexOf('this.drawEliteIdentityOverlay(s)') < renderer.indexOf('this.drawDangerOverlay(s)'),
+  'persistent elite identity must render before final danger overlay');
+assert(renderer.includes('Red is forbidden here'),'persistent elite identity no longer reserves red for immediate danger');
+assert(renderer.includes("case 'hunter'") && renderer.includes("case 'bulwark'") && renderer.includes("case 'broodmaker'"),
+  'chassis visual grammar collapsed back to one generic marker');
 
 const ui=readFileSync('src/platform/main.ts','utf8');
 assert(ui.includes("itemGlyph[r.item"),'ground relics do not expose per-item pictograms');
 assert(ui.includes("classList.toggle('danger'"),'threat panel lacks imminent-danger state');
 assert(ui.includes("Базовый урон"),'build sheet does not expose derived player growth');
+assert(ui.includes('drawEliteMapMarker'),'minimap/offscreen elites do not use chassis-specific shapes');
+assert(ui.includes('drawAffixBadge2d'),'affix identity lacks its own compact visual channel');
+assert(ui.includes('threatFocusId'),'nearest-elite threat panel is not sticky and will flicker between targets');
+assert(ui.includes('eliteActionHint'),'active elite patterns lack short action-specific dodge language');
+assert(!ui.includes("ctx.fillText(e.boss ? 'ХРАНИТЕЛЬ' : eliteName(e)"),
+  'combat HUD leaked full chassis/affix names back over every elite');
+
+const html=readFileSync('public/index.html','utf8');
+assert(html.includes('threatChassisGlyph') && html.includes('threatAffixGlyph'),
+  'threat panel does not separate chassis and affix channels');
+assert(html.includes('phaseBadge') && html.includes('routeBadge') && html.includes('finalBadge'),
+  'live objective fell back to one long sentence');
+assert(html.includes('формы = тип элиты · красный = атака сейчас'),
+  'minimap legend does not teach the new shape/red grammar');
 
 const simulation=readFileSync('src/core/simulation.ts','utf8');
 for(const token of [
