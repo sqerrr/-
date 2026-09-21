@@ -277,6 +277,14 @@ for(const cat of catalystOrder){
           const dx=center.x-q.x,dz=center.z-q.z,m=Math.hypot(dx,dz)||1;
           return q.aimX*dx/m+q.aimZ*dz/m>.45;
         }),`${cat} ${left}->${right}: directional spokes do not converge`);
+      } else if(right==='sentry'){
+        // Collapse Sentry is intentionally infrastructure: several perimeter batteries face
+        // inward instead of pretending a single ordinary non-directional cast at the centroid.
+        assert(casts.length>=3,`${cat} ${left}->${right}: Sentry did not build perimeter batteries`);
+        assert(casts.every((q:any)=>{
+          const dx=center.x-q.x,dz=center.z-q.z,m=Math.hypot(dx,dz)||1;
+          return dist(q,center)>1.0 && q.aimX*dx/m+q.aimZ*dz/m>.35;
+        }),`${cat} ${left}->${right}: Sentry batteries do not surround and face the convergence center`);
       } else {
         assert(casts.some((q:any)=>dist(q,center)<1.0),`${cat} ${left}->${right}: radial B is not centered on A area`);
       }
