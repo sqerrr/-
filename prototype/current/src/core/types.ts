@@ -287,6 +287,8 @@ export interface OrbitSnapshot {
   active: boolean;
   count: number;
   radius: number;
+  centerX: number;
+  centerZ: number;
   mutation: MutationId | null;
   apotheosis: MutationId | null;
 }
