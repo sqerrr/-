@@ -745,6 +745,9 @@ export class WebGLRenderer {
     this.drawWorldShapes(s, aim, presentation);
     this.drawLines(s, aim);
     this.drawSprites(s, presentation);
+    // Persistent identity lives above the sprite layer: chassis uses authored shape language,
+    // affixes use a separate badge channel, and rarity uses edge ticks. None of these reuse red.
+    this.drawEliteIdentityOverlay(s);
     // Lethal elite preparation is the final world pass. It cannot disappear under the hero's
     // own VFX, projectiles or sprites just because the scene is busy.
     this.drawDangerOverlay(s);
@@ -896,128 +899,32 @@ export class WebGLRenderer {
         shapes.push({ x: e.x, z: e.z, r: e.radius + 0.56, mode: 1, color: rgba('#7be86c', 0.52) });
       if (e.status.exposed)
         shapes.push({ x: e.x, z: e.z, r: e.radius + 0.76, mode: 1, color: rgba('#ffe16f', 0.78) });
-      // Chassis influence must be visible even before the player reads any UI.
-      if (e.elite && e.chassis === 'marshal')
-        shapes.push({ x: e.x, z: e.z, r: 7.0, mode: 1, color: rgba('#ffb448', 0.24) });
-      if (e.elite && e.chassis === 'hunter')
-        shapes.push({ x: e.x, z: e.z, r: 1.75, mode: 1, color: rgba('#ff466f', 0.38) });
-      if (e.elite && e.chassis === 'bulwark') {
-        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.48, mode: 1, color: rgba('#62bfff', 0.72) });
-        shapes.push({ x: e.x, z: e.z, r: e.radius + 1.05, mode: 1, color: rgba('#b8e8ff', 0.26) });
-      }
-      if (e.elite && e.chassis === 'architect')
-        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.55, mode: 1, color: rgba('#9d84d8', 0.62) });
-      if (e.elite && e.chassis === 'harvester') {
-        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.45, mode: 1, color: rgba('#75dfd2', 0.58) });
-        for (let q = 0; q < Math.min(5, e.adaptationStage); q++)
-          shapes.push({
-            x: e.x,
-            z: e.z,
-            r: e.radius + 0.82 + q * 0.24,
-            mode: 1,
-            color: rgba('#7affee', 0.28)
-          });
-      }
-      if (e.elite && e.chassis === 'shepherd') {
-        const rr = e.bossPattern ? e.radius + 1.1 : e.radius + 0.42;
-        shapes.push({
-          x: e.x,
-          z: e.z,
-          r: rr + 0.12 * Math.sin(s.time * 5),
-          mode: 1,
-          color: rgba('#58e5c2', e.bossPattern ? 0.64 : 0.34)
-        });
-      }
-      if (e.elite && e.chassis === 'broodmaker') {
-        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.52, mode: 1, color: rgba('#e05a9c', 0.62) });
-        for (let q = 0; q < 3; q++) {
-          const a = s.time * 1.2 + (q * Math.PI * 2) / 3;
-          shapes.push({
-            x: e.x + Math.cos(a) * 1.25,
-            z: e.z + Math.sin(a) * 1.25,
-            r: 0.14,
-            mode: 0,
-            color: rgba('#ff92c8', 0.72)
-          });
-        }
-      }
-      if (e.elite && e.chassis === 'archivist')
-        shapes.push({ x: e.x, z: e.z, r: 6.0, mode: 1, color: rgba('#7aa8ff', 0.2) });
+      // Persistent elite identity is intentionally NOT authored here as concentric rings.
+      // Chassis / affix / rarity are screen-space physical marks in drawEliteIdentityOverlay().
+      // World-space shapes below are kept only when they describe real combat geometry.
       if (e.boss) {
         shapes.push({
           x: e.x,
           z: e.z,
-          r: 2.3 + 0.16 * Math.sin(s.time * 4.2),
+          r: 8.5,
           mode: 1,
-          color: rgba('#ff525e', 0.92)
+          color: rgba('#ff525e', 0.13)
         });
-        shapes.push({ x: e.x, z: e.z, r: 8.5, mode: 1, color: rgba('#ff525e', 0.15) });
-      }
-      if (e.elite && e.affix === 'volatile') {
-        // Volatile identity is amber while stable; the actual death burst uses the universal red tell.
-        const pulse=0.5+0.5*Math.sin(s.time*10+e.id);
-        for(let i=0;i<3;i++){const a=s.time*1.8+i*Math.PI*2/3;shapes.push({x:e.x+Math.cos(a)*(e.radius+0.55),z:e.z+Math.sin(a)*(e.radius+0.55),r:0.12+0.05*pulse,mode:0,color:rgba('#ff9b45',0.84)});}
-        shapes.push({x:e.x,z:e.z,r:e.radius+0.7+0.08*pulse,mode:1,color:rgba('#ffb05b',0.52)});
-      }
-      if (e.elite && e.affix === 'regenerating') {
-        const a=e.regenerating?0.82:0.32,pulse=1+0.08*Math.sin(s.time*5+e.id);
-        shapes.push({x:e.x,z:e.z,r:(e.radius+0.65)*pulse,mode:1,color:rgba('#77ef95',a)});
-        if(e.regenerating) shapes.push({x:e.x,z:e.z,r:e.radius+1.05,mode:1,color:rgba('#c2ffd0',0.46)});
-      }
-      // Compatibility-only affixes remain visually distinct for old seeded replays/saves.
-      if (e.elite && e.affix === 'swift')
-        shapes.push({x:e.x,z:e.z,r:e.radius+0.55+0.11*Math.sin(s.time*12),mode:1,color:rgba('#f2f2ff',0.52)});
-      if (e.elite && e.affix === 'dense') {
-        shapes.push({x:e.x,z:e.z,r:e.radius+0.42,mode:0,color:rgba('#756d7c',0.28)});
-        shapes.push({x:e.x,z:e.z,r:e.radius+0.78,mode:1,color:rgba('#b1a8b9',0.42)});
       }
       if (e.elite && e.affix === 'shielded') {
         const sx = e.x + Math.cos(e.shieldAngle) * 1.1,
           sz = e.z + Math.sin(e.shieldAngle) * 1.1,
-          sc = e.shieldState === 'broken' ? '#ff6464' : e.shieldState === 'commit' ? '#ffc261' : '#8bdcff',
-          sa = e.shieldState === 'broken' ? 0.34 : 0.84;
+          sc = e.shieldState === 'broken' ? '#9fa9b6' : e.shieldState === 'commit' ? '#ffc261' : '#8bdcff',
+          sa = e.shieldState === 'broken' ? 0.26 : 0.86;
+        // Directional plate is real gameplay information: unlike a generic aura it says which
+        // side is protected and where the punish window opens.
         shapes.push({ x: sx, z: sz, r: 1.05 + (e.shieldState === 'commit' ? 0.18 : 0), mode: 1, color: rgba(sc, sa) });
-        if (e.shieldState === 'broken')
-          shapes.push({ x: e.x, z: e.z, r: e.radius + 1.15 + 0.1 * Math.sin(s.time * 12), mode: 1, color: rgba('#ff6464', 0.48) });
       }
       if (e.elite && e.affix === 'vanguard') {
-        shapes.push({ x: e.x, z: e.z, r: 7.5, mode: 1, color: rgba('#ff9c4a', 0.34) });
-        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.52, mode: 1, color: rgba('#ffc06b', 0.78) });
+        // Vanguard is the one persistent affix that owns an area around itself. Keep only one
+        // faint world-space boundary; the affix identity itself is the double-chevron badge.
+        shapes.push({ x: e.x, z: e.z, r: 7.5, mode: 1, color: rgba('#ffb15e', 0.17) });
       }
-      if (e.elite && e.affix === 'temporal') {
-        shapes.push({
-          x: e.x,
-          z: e.z,
-          r: e.radius + 0.48 + 0.12 * Math.sin(s.time * 5.2),
-          mode: 1,
-          color: rgba('#8b7cff', 0.78)
-        });
-        shapes.push({
-          x: e.x,
-          z: e.z,
-          r: e.radius + 1.03 - 0.08 * Math.sin(s.time * 5.2),
-          mode: 1,
-          color: rgba('#c0a8ff', 0.46)
-        });
-      }
-      if (e.elite && e.affix === 'brood') {
-        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.7, mode: 1, color: rgba('#e45f9e', 0.72) });
-        for (let i = 0; i < 3; i++) {
-          const a = s.time * 0.85 + (i * Math.PI * 2) / 3;
-          shapes.push({
-            x: e.x + Math.cos(a) * 1.35,
-            z: e.z + Math.sin(a) * 1.35,
-            r: 0.18,
-            mode: 0,
-            color: rgba('#ff86ba', 0.82)
-          });
-        }
-      }
-      if (e.elite && e.affix === 'crowned') {
-        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.82, mode: 1, color: rgba('#ffd45d', 0.78) });
-        shapes.push({ x: e.x, z: e.z, r: 7.0, mode: 1, color: rgba('#ffd45d', 0.12) });
-      }
-    }
     for (const f of this.fx) {
       const t = (s.time - f.start) / f.ttl;
       if (t < 0 || t > 1 || f.kind === 'beam' || f.kind === 'slash') continue;
@@ -1075,6 +982,191 @@ export class WebGLRenderer {
       gl.DYNAMIC_DRAW
     );
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, shapes.length);
+    gl.bindVertexArray(null);
+  }
+
+  /**
+   * Elite visual grammar. This pass is deliberately screen-space and shape-first:
+   *
+   *   chassis  -> large physical motif around the body
+   *   affix    -> one small badge at the upper-right shoulder
+   *   rarity   -> edge ticks / crown rays
+   *   action   -> body pose + the final red danger pass
+   *
+   * Red is forbidden here. It belongs exclusively to immediate hostile danger.
+   */
+  private drawEliteIdentityOverlay(s: Snapshot) {
+    const verts: number[] = [],
+      line = (x1:number,y1:number,x2:number,y2:number,w:number,c:[number,number,number,number]) =>
+        this.pushLine(verts,x1,y1,x2,y2,w,c),
+      rect = (x:number,y:number,w:number,h:number,c:[number,number,number,number]) =>
+        this.pushRect(verts,x,y,w,h,c),
+      tri = (a:{x:number;y:number},b:{x:number;y:number},c:{x:number;y:number},color:[number,number,number,number]) =>
+        this.pushTri(verts,a,b,c,color),
+      diamond = (x:number,y:number,r:number,w:number,c:[number,number,number,number]) => {
+        line(x,y-r,x+r,y,w,c); line(x+r,y,x,y+r,w,c);
+        line(x,y+r,x-r,y,w,c); line(x-r,y,x,y-r,w,c);
+      },
+      chassisColor:Record<string,[number,number,number,number]>={
+        marshal:rgba('#ffc36a',0.92),
+        hunter:rgba('#ff79b8',0.94),
+        bulwark:rgba('#79d6ff',0.94),
+        architect:rgba('#9eeaff',0.92),
+        harvester:rgba('#74ead3',0.92),
+        shepherd:rgba('#9bea7d',0.92),
+        broodmaker:rgba('#ed82cb',0.92),
+        archivist:rgba('#8eb5ff',0.92),
+        warden:rgba('#f4e7c8',0.96)
+      },
+      affixColor:Record<string,[number,number,number,number]>={
+        swift:rgba('#eef5ff',0.92), dense:rgba('#a9a4b1',0.92),
+        volatile:rgba('#ffad5c',0.96), regenerating:rgba('#79ee9b',0.96),
+        shielded:rgba('#78d8ff',0.96), vanguard:rgba('#ffb15e',0.96),
+        temporal:rgba('#b69aff',0.96), brood:rgba('#f58abd',0.96),
+        crowned:rgba('#ffe477',0.98), none:rgba('#ffffff',0)
+      };
+
+    for(const e of s.entities){
+      if(!e.elite) continue;
+      const p=this.worldToScreen(e.x,e.z,s),
+        fp=this.worldToScreen(e.x+e.facingX,e.z+e.facingZ,s),
+        dl=Math.hypot(fp.x-p.x,fp.y-p.y)||1,
+        fx=(fp.x-p.x)/dl, fy=(fp.y-p.y)/dl,
+        sx=-fy, sy=fx,
+        rarity=e.boss?'legendary':(e.eliteRarity??'common'),
+        scale=(e.boss?1.36:rarity==='legendary'?1.18:rarity==='uplifted'?1.08:1),
+        cx=p.x, cy=p.y-(e.boss?78:50),
+        c=chassisColor[e.chassis??'marshal']??chassisColor.marshal,
+        P=(f:number,side:number,y=0)=>({x:cx+fx*f+sx*side,y:cy+fy*f+sy*side+y}),
+        L=(af:number,as:number,bf:number,bs:number,w=2.4,color=c,y=0)=>{
+          const a=P(af,as,y),b=P(bf,bs,y); line(a.x,a.y,b.x,b.y,w*scale,color);
+        };
+
+      switch(e.chassis){
+        case 'hunter':
+          // Paired forward blades: the silhouette itself points where the interceptor commits.
+          L(-7,-18,15,-7,3.0); L(-7,18,15,7,3.0);
+          L(15,-7,6,-1,2.1); L(15,7,6,1,2.1);
+          break;
+        case 'bulwark': {
+          // A broad frontal plate, clearly directional rather than another halo.
+          const a=P(17,-24),b=P(22,-12),d=P(22,12),q=P(17,24);
+          line(a.x,a.y,b.x,b.y,5.1*scale,c); line(b.x,b.y,d.x,d.y,5.1*scale,c);
+          line(d.x,d.y,q.x,q.y,5.1*scale,c);
+          L(-3,-19,13,-19,2.0); L(-3,19,13,19,2.0);
+          break;
+        }
+        case 'architect':
+          // Orthogonal gate / drafting brackets. Static geometry reads differently from danger corners.
+          L(-16,-22,-16,-7,2.6); L(-16,-22,2,-22,2.6);
+          L(-16,22,-16,7,2.6); L(-16,22,2,22,2.6);
+          L(8,-22,20,-22,2.6); L(20,-22,20,-7,2.6);
+          L(8,22,20,22,2.6); L(20,22,20,7,2.6);
+          break;
+        case 'harvester':
+          // Two hooked harvesting arms.
+          L(-13,-21,8,-19,2.8); L(8,-19,19,-8,2.8); L(19,-8,13,-4,2.8);
+          L(-13,21,8,19,2.8); L(8,19,19,8,2.8); L(19,8,13,4,2.8);
+          break;
+        case 'shepherd':
+          // Command staff/trident: role is leadership, not a colored ring.
+          L(-16,0,20,0,2.7); L(20,0,12,-13,2.5); L(20,0,12,13,2.5);
+          L(14,0,7,-8,1.8); L(14,0,7,8,1.8);
+          break;
+        case 'broodmaker': {
+          // Three egg/clone diamonds. They rotate slowly but remain discrete physical objects.
+          for(let i=0;i<3;i++){
+            const a=s.time*0.72+i*Math.PI*2/3+e.id*0.11,
+              x=cx+Math.cos(a)*30*scale, y=cy+Math.sin(a)*15*scale;
+            diamond(x,y,5.2*scale,2.2*scale,c);
+          }
+          break;
+        }
+        case 'archivist':
+          // Open-book pages, one on each side.
+          L(-8,-4,-16,-24,2.3); L(-16,-24,3,-20,2.3); L(3,-20,7,-3,2.3);
+          L(-8,4,-16,24,2.3); L(-16,24,3,20,2.3); L(3,20,7,3,2.3);
+          break;
+        case 'warden':
+          // A permanent crown/gate. Boss danger itself is still red and drawn later.
+          L(-11,-26,4,-18,3.0); L(4,-18,14,-7,3.0); L(14,-7,20,0,3.0);
+          L(20,0,14,7,3.0); L(14,7,4,18,3.0); L(4,18,-11,26,3.0);
+          break;
+        case 'marshal':
+        default:
+          // Banner + pennant; immediately reads as the formation leader.
+          L(-17,-15,19,-15,2.6); L(17,-15,17,10,2.2);
+          { const a=P(17,-15,-25),b=P(17,10,-18),d=P(6,-15,-10); tri(a,b,d,[c[0],c[1],c[2],0.52]); }
+          break;
+      }
+
+      // Rarity/evolution channel: never another name prefix.
+      if(rarity==='uplifted'){
+        const rc=rgba('#67b7ff',0.96);
+        line(cx-34*scale,cy+27*scale,cx-20*scale,cy+27*scale,3*scale,rc);
+        line(cx+20*scale,cy+27*scale,cx+34*scale,cy+27*scale,3*scale,rc);
+      } else if(rarity==='legendary'){
+        const rc=rgba('#ffe06a',0.98), rr=35*scale;
+        for(let i=0;i<4;i++){
+          const a=-Math.PI/2+i*Math.PI/2, x1=cx+Math.cos(a)*(rr-7),y1=cy+Math.sin(a)*(rr*0.62-4),
+            x2=cx+Math.cos(a)*rr,y2=cy+Math.sin(a)*(rr*0.62);
+          line(x1,y1,x2,y2,4*scale,rc);
+        }
+      }
+
+      // Affix channel: one stable badge at the shoulder. The symbol, not its colour, carries identity.
+      const aff=e.affix??'none';
+      if(aff!=='none'){
+        const ac=affixColor[aff]??rgba('#ffffff',0.9),
+          ax=cx+39*scale, ay=cy-31*scale, r=7*scale;
+        rect(ax-r-3,ay-r-3,(r+3)*2,(r+3)*2,rgba('#05090d',0.72));
+        if(aff==='volatile'){
+          tri({x:ax,y:ay-r},{x:ax+r,y:ay+r},{x:ax-r,y:ay+r},ac);
+          line(ax,ay-r-5,ax+4,ay-r-9,2.2*scale,ac);
+        } else if(aff==='regenerating'){
+          line(ax-r,ay,ax+r,ay,3.2*scale,ac); line(ax,ay-r,ax,ay+r,3.2*scale,ac);
+        } else if(aff==='shielded'){
+          line(ax-r,ay-r*0.55,ax,ay-r,2.4*scale,ac); line(ax,ay-r,ax+r,ay-r*0.55,2.4*scale,ac);
+          line(ax+r,ay-r*0.55,ax+r*0.72,ay+r*0.55,2.4*scale,ac);
+          line(ax+r*0.72,ay+r*0.55,ax,ay+r,2.4*scale,ac);
+          line(ax,ay+r,ax-r*0.72,ay+r*0.55,2.4*scale,ac);
+          line(ax-r*0.72,ay+r*0.55,ax-r,ay-r*0.55,2.4*scale,ac);
+        } else if(aff==='vanguard'){
+          line(ax-r,ay-r*0.65,ax,ay,2.8*scale,ac); line(ax,ay,ax-r,ay+r*0.65,2.8*scale,ac);
+          line(ax,ay-r*0.65,ax+r,ay,2.8*scale,ac); line(ax+r,ay,ax,ay+r*0.65,2.8*scale,ac);
+        } else if(aff==='temporal'){
+          line(ax-r,ay-r,ax+r,ay-r,2.1*scale,ac); line(ax-r,ay+r,ax+r,ay+r,2.1*scale,ac);
+          line(ax-r,ay-r,ax+r,ay+r,2.1*scale,ac); line(ax+r,ay-r,ax-r,ay+r,2.1*scale,ac);
+        } else if(aff==='brood'){
+          diamond(ax,ay-r*0.6,r*0.48,1.8*scale,ac);
+          diamond(ax-r*0.65,ay+r*0.5,r*0.42,1.8*scale,ac);
+          diamond(ax+r*0.65,ay+r*0.5,r*0.42,1.8*scale,ac);
+        } else if(aff==='crowned'){
+          line(ax-r,ay+r*0.55,ax+r,ay+r*0.55,2.4*scale,ac);
+          line(ax-r,ay+r*0.55,ax-r*0.6,ay-r,2.4*scale,ac);
+          line(ax-r*0.6,ay-r,ax,ay-r*0.1,2.4*scale,ac);
+          line(ax,ay-r*0.1,ax+r*0.6,ay-r,2.4*scale,ac);
+          line(ax+r*0.6,ay-r,ax+r,ay+r*0.55,2.4*scale,ac);
+        } else if(aff==='swift'){
+          line(ax-r,ay-r*0.65,ax+r,ay-r*0.65,2*scale,ac);
+          line(ax-r*0.65,ay,ax+r,ay,2*scale,ac);
+          line(ax-r*0.3,ay+r*0.65,ax+r,ay+r*0.65,2*scale,ac);
+        } else if(aff==='dense'){
+          rect(ax-r,ay-r,r*2,r*2,[ac[0],ac[1],ac[2],0.32]);
+          line(ax-r,ay-r,ax+r,ay-r,2.5*scale,ac); line(ax+r,ay-r,ax+r,ay+r,2.5*scale,ac);
+          line(ax+r,ay+r,ax-r,ay+r,2.5*scale,ac); line(ax-r,ay+r,ax-r,ay-r,2.5*scale,ac);
+        }
+      }
+    }
+
+    if(!verts.length) return;
+    const gl=this.gl,p=this.lineProgram;
+    gl.useProgram(p);
+    gl.uniform2f(gl.getUniformLocation(p,'u_resolution'),this.cssW,this.cssH);
+    gl.bindVertexArray(this.lineVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER,this.lineBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(verts),gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.TRIANGLES,0,verts.length/6);
     gl.bindVertexArray(null);
   }
 
@@ -1612,6 +1704,28 @@ export class WebGLRenderer {
         w = v.w,
         h = v.h,
         tint = v.tint;
+      // Authored chassis actions also change the actor, so the player can read intent from
+      // body language even before looking at the red telegraph. This is deliberately separate
+      // from the persistent chassis/affix marks.
+      if (e.elite && e.eliteAction) {
+        if (e.eliteAction === 'predator_dash') {
+          x += e.facingX * 0.24; z += e.facingZ * 0.24; w *= 1.18; h *= 0.96;
+        } else if (e.eliteAction === 'prism') {
+          w *= 1.14; h *= 0.9;
+        } else if (e.eliteAction === 'veil') {
+          h *= 1.12; w *= 0.96;
+        } else if (e.eliteAction === 'replicate') {
+          const broodPulse=1+0.055*Math.sin(s.time*18); w*=broodPulse; h*=broodPulse;
+        } else if (e.eliteAction === 'null') {
+          w *= 1.08; h *= 0.93; x += e.facingX*0.08; z += e.facingZ*0.08;
+        } else if (e.eliteAction === 'metamorph') {
+          h *= 1.08; w *= 1.05;
+        } else {
+          w *= 1.06; h *= 0.94;
+        }
+        tint=[Math.min(1.55,tint[0]*1.08),Math.min(1.55,tint[1]*1.08),Math.min(1.55,tint[2]*1.08),tint[3]];
+      }
+
       // Echo phases change the elite's body language as well as the ground telegraph.
       // Tell compresses/charges, active lunges, recovery visibly slumps: gameplay state is readable on the actor.
       if (e.elite && e.echoPhase && e.echoPhase !== 'none') {
