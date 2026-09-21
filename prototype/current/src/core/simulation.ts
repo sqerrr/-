@@ -990,7 +990,16 @@ export class Simulation {
   }
 
   private spawnProjectile(p: Omit<Projectile, 'id' | 'guarded'>) {
-    this.projectiles.push({ id: this.nextId++, guarded: false, ...p });
+    const id = this.nextId++;
+    this.projectiles.push({ id, guarded: false, ...p });
+    if (
+      this.currentChoreography &&
+      p.faction === 'hero' &&
+      p.sourceSlot === this.currentSlot &&
+      p.source === this.currentChoreography.skill
+    )
+      this.currentChoreography.carriers.push({ kind: 'projectile', id });
+    return id;
   }
 
   private projectileOwner(p: Projectile) {
@@ -1106,6 +1115,16 @@ export class Simulation {
 
   private scheduleStrike(strike: Omit<DelayedStrike, 'id'>) {
     this.delayedStrikes.push({ id: this.nextId++, ...strike });
+    if (
+      this.currentChoreography &&
+      strike.faction === 'hero' &&
+      strike.sourceSlot === this.currentSlot
+    ) {
+      const p = { x: strike.x, z: strike.z };
+      this.currentChoreography.scheduled.push(p);
+      this.tracePoint(p.x, p.z, true);
+      this.traceArea(p.x, p.z, strike.radius);
+    }
     this.events.push({
       type: 'CombatShape',
       tick: this.tick,
@@ -4873,6 +4892,7 @@ export class Simulation {
     shape: CombatShape,
     intent: 'damage' | 'control' | 'field' = 'damage'
   ) {
+    this.traceCombatShape(shape);
     this.events.push({ type: 'CombatShape', tick: this.tick, source, intent, shape });
   }
 
