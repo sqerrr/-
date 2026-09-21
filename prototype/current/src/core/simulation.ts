@@ -2,6 +2,7 @@ import {
   activeSkillOrder,
   catalystOrder,
   catalysts,
+  catalystPairCompatible,
   doctrineOrder,
   doctrines,
   effectGrammar,
@@ -350,6 +351,24 @@ type CastSource = {
   vz: number;
 };
 
+type ChoreographyPoint = { x: number; z: number };
+type ChoreographyCarrier =
+  | { kind: 'projectile'; id: number }
+  | { kind: 'construct'; id: number }
+  | { kind: 'orbit'; index: number };
+type ChoreographyTrace = {
+  skill: SkillId;
+  origin: ChoreographyPoint;
+  aimX: number;
+  aimZ: number;
+  terminal: ChoreographyPoint | null;
+  points: ChoreographyPoint[];
+  areaPoints: ChoreographyPoint[];
+  paths: ChoreographyPoint[][];
+  carriers: ChoreographyCarrier[];
+  scheduled: ChoreographyPoint[];
+};
+
 export interface SimConfig {
   seed: number;
   hz: 30 | 60;
@@ -632,6 +651,11 @@ export class Simulation {
   private overflowConsumed = false;
   private aegisCharge = 0;
   private backflowBonus = new Map<number, number>();
+  private currentChoreography: ChoreographyTrace | null = null;
+  private orbitChoreoUntil = -1;
+  private orbitChoreoX = 0;
+  private orbitChoreoZ = 0;
+  private orbitChoreoCarrier: ChoreographyCarrier | null = null;
   private lastContext: {
     skill: SkillId | null;
     damage: number;
@@ -642,6 +666,7 @@ export class Simulation {
     hitIds: number[];
     x: number;
     z: number;
+    trace: ChoreographyTrace | null;
   } = {
     skill: null,
     damage: 0,
@@ -651,7 +676,8 @@ export class Simulation {
     state: '',
     hitIds: [],
     x: 0,
-    z: 0
+    z: 0,
+    trace: null
   };
   private damageBySource = new Map<string, number>();
   // Mirror of damageBySource for blows that landed on the player. Feeds the "what hit me"
