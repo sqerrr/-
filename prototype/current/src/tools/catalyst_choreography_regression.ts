@@ -141,15 +141,17 @@ for (const left of ['mass_driver','shard_fan'] as SkillId[]) {
   assert(turrets.some((q:any)=>Math.hypot(q.x,q.z)>7),'Trail Sentry never leaves hero vicinity');
 }
 
-// 5) REVERSE: B starts at A's endpoint and travels back toward A origin.
+// 5) REVERSE: B is staged from A's far endpoint back toward A origin.
 {
   const sim=fixture('rail_spear','mass_driver','reverse');
   sim.activateSlot(0); sim.events.length=0; sim.activateSlot(1);
-  const p=sim.projectiles.filter((q:any)=>q.source==='mass_driver').at(-1);
-  const ev=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='reverse');
-  assert(ev&&p,'Reverse Mass Driver missing');
-  assert(p.x>7,'Reverse Mass Driver did not start at Rail endpoint');
-  assert(p.vx<0,'Reverse Mass Driver does not travel back toward the Rail origin');
+  const ps=sim.projectiles.filter((q:any)=>q.source==='mass_driver'),
+    casts=sim.events.filter((e:any)=>e.type==='SkillActivated'&&e.skill==='mass_driver'),
+    ev=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='reverse');
+  assert(ev&&ps.length>=2&&casts.length>=2,'Reverse Mass Driver did not create staged playback');
+  assert(casts[0].x>7,'Reverse Mass Driver did not begin at Rail far endpoint');
+  assert(casts.at(-1).x<casts[0].x-3,'Reverse Mass Driver sequence did not walk back toward Rail origin');
+  assert(ps.every((p:any)=>p.vx<0),'Reverse Mass Driver contains a projectile travelling forward instead of back');
 }
 
 // 5b) REVERSE is a staged playback, not just one cast from A's endpoint.
