@@ -4761,29 +4761,68 @@ export class Simulation {
     const outer = previous.areaPoints.slice(0, 16);
     if (!outer.length) return false;
     const center = {
-      x: outer.reduce((a, p) => a + p.x, 0) / outer.length,
-      z: outer.reduce((a, p) => a + p.z, 0) / outer.length
-    };
+        x: outer.reduce((a, p) => a + p.x, 0) / outer.length,
+        z: outer.reduce((a, p) => a + p.z, 0) / outer.length
+      },
+      collapseRadius = Math.max(
+        1.2,
+        ...outer.map((p) => Math.hypot(p.x - center.x, p.z - center.z))
+      ),
+      spokes =
+        outer.length <= 4
+          ? outer.slice(0, 3)
+          : [
+              outer[0],
+              outer[Math.floor(outer.length / 3)],
+              outer[Math.floor((outer.length * 2) / 3)]
+            ];
+
+    // Collapse must be readable even when A is a hero-centred persistent area (Frost/Orbit/Toxic),
+    // where simply recasting a radial B at the same center would be almost indistinguishable from
+    // two independent skills. Pull the actual crowd occupying A's recorded area before B resolves.
+    // This is simulation state, not decorative VFX, and uses ordinary world collision resolution.
+    let collapsed = 0;
+    for (const e of this.ents) {
+      if (e.hp <= 0) continue;
+      const dx = center.x - e.x,
+        dz = center.z - e.z,
+        d = Math.hypot(dx, dz);
+      if (d > collapseRadius + e.radius || d < 0.08) continue;
+      const move = Math.min(2.2, d * 0.55),
+        p = this.freeOf(e.x + (dx / d) * move, e.z + (dz / d) * move, e.radius);
+      e.x = p.x;
+      e.z = p.z;
+      e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.72);
+      collapsed++;
+    }
+    if (collapsed) {
+      this.currentActivationControl += collapsed * 0.45;
+      this.noteState('displaced');
+    }
+
     if (id === 'orbit_blades') {
       this.setOrbitChoreography(center.x, center.z);
       this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
-    } else if (skills[id].directional) {
-      const spokes = outer.length <= 4
-        ? outer.slice(0, 3)
-        : [outer[0], outer[Math.floor(outer.length / 3)], outer[Math.floor((outer.length * 2) / 3)]];
+    } else if (id === 'sentry') {
+      // A collapse Sentry is not "one battery at the centroid". Build three inward-facing
+      // batteries from A's perimeter so the resulting structure visibly participates in the
+      // convergence and can immediately become a real Gravity Grid / Living Circuit network.
       for (const p of spokes)
-        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, center.x - p.x, center.z - p.z));
+        this.castWithTrace(
+          id,
+          st,
+          slot,
+          this.choreographySource(p.x, p.z, center.x - p.x, center.z - p.z)
+        );
+    } else if (skills[id].directional) {
+      for (const p of spokes)
+        this.castWithTrace(
+          id,
+          st,
+          slot,
+          this.choreographySource(p.x, p.z, center.x - p.x, center.z - p.z)
+        );
     } else {
-      for (const eid of this.lastContext.hitIds) {
-        const e = this.ents.find((q) => q.id === eid && q.hp > 0);
-        if (!e) continue;
-        const dx = center.x - e.x,
-          dz = center.z - e.z,
-          d = Math.hypot(dx, dz) || 1;
-        e.x += (dx / d) * Math.min(1.1, d * 0.35);
-        e.z += (dz / d) * Math.min(1.1, d * 0.35);
-        e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.55);
-      }
       this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
     }
     this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [...outer, center]);
