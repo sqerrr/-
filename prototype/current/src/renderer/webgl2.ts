@@ -118,11 +118,15 @@ const cellFor: Record<string, number> = {
 const TEX_ATLAS = 0;
 const TEX_ACTORS = 1;
 const ACTOR_SOURCES: { key: string; url: string }[] = [
-  { key: 'player_idle', url: '/assets/player.png' },
+  { key: 'player_idle', url: '/assets/v07_player.png' },
   { key: 'player_run_0', url: '/assets/player_run_0.png' },
   { key: 'player_run_1', url: '/assets/player_run_1.png' },
   { key: 'player_run_2', url: '/assets/player_run_2.png' },
   { key: 'player_run_3', url: '/assets/player_run_3.png' },
+  { key: 'player_cast_0', url: '/assets/player_cast_0.png' },
+  { key: 'player_cast_1', url: '/assets/player_cast_1.png' },
+  { key: 'player_cast_2', url: '/assets/player_cast_2.png' },
+  { key: 'player_cast_3', url: '/assets/player_cast_3.png' },
   { key: 'elite_hunter', url: '/assets/v07_hunter.png' },
   { key: 'elite_architect', url: '/assets/v07_architect.png' },
   { key: 'elite_broodmaker', url: '/assets/v07_broodmaker.png' },
@@ -134,6 +138,7 @@ const ACTOR_SOURCES: { key: string; url: string }[] = [
   { key: 'elite_warden', url: '/assets/enemy_elite.png' }
 ];
 const PLAYER_RUN_FRAMES = 4;
+const PLAYER_CAST_FRAMES = 4;
 /** One colour per relic category, so what is lying there reads before the label does. */
 const relicTint: Record<string, string> = {
   guard: '#7fe4ff',
@@ -254,13 +259,48 @@ export class WebGLRenderer {
     sheet.height = sheetH;
     const ctx = sheet.getContext('2d');
     if (!ctx) throw new Error('2D контекст недоступен для сборки листа актёров.');
+
+    // Dedicated actor frames have very different transparent margins. Rendering the full
+    // PNG rectangle made the same hero visibly change size between idle/run/cast and also
+    // distorted elite scale comparisons. Build UVs from the actual alpha silhouette instead.
+    const alphaBox = (img: HTMLImageElement) => {
+      const probe = document.createElement('canvas');
+      probe.width = img.width;
+      probe.height = img.height;
+      const c = probe.getContext('2d', { willReadFrequently: true });
+      if (!c) return { x0: 0, y0: 0, x1: img.width, y1: img.height };
+      c.drawImage(img, 0, 0);
+      const data = c.getImageData(0, 0, img.width, img.height).data;
+      let x0 = img.width,
+        y0 = img.height,
+        x1 = -1,
+        y1 = -1;
+      for (let y = 0; y < img.height; y++)
+        for (let x = 0; x < img.width; x++) {
+          if (data[(y * img.width + x) * 4 + 3] < 8) continue;
+          if (x < x0) x0 = x;
+          if (y < y0) y0 = y;
+          if (x > x1) x1 = x;
+          if (y > y1) y1 = y;
+        }
+      if (x1 < x0 || y1 < y0) return { x0: 0, y0: 0, x1: img.width, y1: img.height };
+      const trimPad = 2;
+      return {
+        x0: Math.max(0, x0 - trimPad),
+        y0: Math.max(0, y0 - trimPad),
+        x1: Math.min(img.width, x1 + 1 + trimPad),
+        y1: Math.min(img.height, y1 + 1 + trimPad)
+      };
+    };
+
     for (const p of placed) {
       ctx.drawImage(p.img, p.x, p.y);
+      const box = alphaBox(p.img);
       this.actorFrames.set(p.key, {
-        u0: p.x / sheetW,
-        v0: p.y / sheetH,
-        u1: (p.x + p.img.width) / sheetW,
-        v1: (p.y + p.img.height) / sheetH
+        u0: (p.x + box.x0) / sheetW,
+        v0: (p.y + box.y0) / sheetH,
+        u1: (p.x + box.x1) / sheetW,
+        v1: (p.y + box.y1) / sheetH
       });
     }
     const gl = this.gl,
@@ -1635,9 +1675,34 @@ export class WebGLRenderer {
       0,
       Math.min(1, this.playerMoveBlend + (moved ? animDt * 8.0 : -animDt * 10.0))
     );
-    const heroW = 96 * playerPulse,
-      heroH = 120 * playerPulse;
-    if (this.playerMoveBlend > 0.02) {
+    const heroW = 108 * playerPulse,
+      heroH = 126 * playerPulse;
+    if (dashing || invulnerable) {
+      // Dash uses the already-authored casting gesture: it fits the Archivist fantasy and
+      // avoids freezing the body in idle while the trail says the hero is moving violently.
+      const phase = (s.time * 12.5) % PLAYER_CAST_FRAMES,
+        frame = Math.floor(phase),
+        next = (frame + 1) % PLAYER_CAST_FRAMES,
+        w = phase - frame;
+      addActor(
+        s.player.x,
+        s.player.z,
+        heroW,
+        heroH,
+        'player_cast_' + frame,
+        [heroR, heroG, heroB, 1 - w * 0.35],
+        flip
+      );
+      addActor(
+        s.player.x,
+        s.player.z,
+        heroW,
+        heroH,
+        'player_cast_' + next,
+        [heroR, heroG, heroB, w * 0.35],
+        flip
+      );
+    } else if (this.playerMoveBlend > 0.02) {
       if (this.playerMoveBlend < 0.98)
         addActor(
           s.player.x,
@@ -1648,8 +1713,6 @@ export class WebGLRenderer {
           [heroR, heroG, heroB, 1 - this.playerMoveBlend],
           flip
         );
-      // Four dedicated frames replace the two atlas cells the hero used to share.
-      // Cadence matches the old ping-pong: 4.4 steps a second, two steps per cycle.
       const phase = (s.time * 8.8) % PLAYER_RUN_FRAMES,
         frame = Math.floor(phase),
         next = (frame + 1) % PLAYER_RUN_FRAMES,
