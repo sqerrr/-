@@ -52,7 +52,8 @@ for(const id of activeSkillOrder){
   const toxic=sim.fields.filter((f:any)=>f.source==='toxic_mist').at(-1);
   assert(toxic,'source did not create Toxic Mist');
   assert(Math.hypot(toxic.x,toxic.z)>8,'Source left Toxic Mist near the hero instead of Rail terminal');
-  assert(dist(toxic,{x:ev.centerX,z:ev.centerZ})<1.2,'Source visual anchor disagrees with physical Toxic Mist');
+  const destination=ev.points.at(-1);
+  assert(destination&&dist(toxic,destination)<1.2,'Source visual destination disagrees with physical Toxic Mist');
 }
 
 // 3) CARRIER: B casts from several actual moving Orbit blades.
