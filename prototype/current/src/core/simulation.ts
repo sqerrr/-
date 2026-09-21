@@ -4393,6 +4393,11 @@ export class Simulation {
       z: shape.z + shape.aimZ * shape.radius
     };
     this.traceSegment({ x: shape.x, z: shape.z }, tip);
+    // A sector is a physical area, not only its two side rays. Keeping the forward tip in
+    // areaPoints gives Collapse enough real contour to build inward structures (especially
+    // Sentry batteries) without inventing geometry unrelated to A.
+    if (!this.currentChoreography.areaPoints.some((q) => this.sameChoreographyPoint(q, tip)))
+      this.currentChoreography.areaPoints.push({ ...tip });
     const base = Math.atan2(shape.aimZ, shape.aimX);
     for (const off of [-shape.halfAngle, shape.halfAngle]) {
       const a = base + off;
