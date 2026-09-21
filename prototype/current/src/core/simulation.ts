@@ -4437,8 +4437,9 @@ export class Simulation {
     z: number,
     carrier: ChoreographyCarrier | null = null
   ) {
-    this.orbitChoreoX = x;
-    this.orbitChoreoZ = z;
+    const safe = this.safeChoreographyPoint(x, z, 0.45);
+    this.orbitChoreoX = safe.x;
+    this.orbitChoreoZ = safe.z;
     this.orbitChoreoCarrier = carrier;
     this.orbitChoreoUntil = this.time + Math.max(1.0, this.cycleDuration() * 1.35);
   }
@@ -4457,15 +4458,25 @@ export class Simulation {
   private finishChoreographyTrace() {
     const t = this.currentChoreography;
     if (!t) return null;
+    const resolvedHits: ChoreographyPoint[] = [];
     for (const eid of this.currentHits) {
       const e = this.ents.find((q) => q.id === eid);
-      if (e) this.tracePoint(e.x, e.z);
+      if (e) {
+        const p = { x: e.x, z: e.z };
+        resolvedHits.push(p);
+        this.tracePoint(p.x, p.z);
+      }
     }
     if (t.scheduled.length >= 2) {
       for (let i = 1; i < t.scheduled.length; i++)
         this.traceSegment(t.scheduled[i - 1], t.scheduled[i]);
     }
-    if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
+    // "Источник" means the place where A physically finished doing useful work, not the
+    // abstract maximum range of its telegraph. This matters especially for Rail: a mist or
+    // turret should appear at the last pierced body, not eighteen empty metres behind it.
+    if (t.scheduled.length) t.terminal = { ...t.scheduled[t.scheduled.length - 1] };
+    else if (resolvedHits.length) t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
+    else if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
     const out: ChoreographyTrace = {
       ...t,
       origin: { ...t.origin },
@@ -4563,19 +4574,26 @@ export class Simulation {
     return { x: fallbackX / m, z: fallbackZ / m };
   }
 
+  private safeChoreographyPoint(x: number, z: number, radius = 0.28) {
+    x = Math.max(this.world.minX + radius, Math.min(this.world.maxX - radius, x));
+    z = Math.max(this.world.minZ + radius, Math.min(this.world.maxZ - radius, z));
+    return this.freeOf(x, z, radius);
+  }
+
   private choreographySource(x: number, z: number, aimX?: number, aimZ?: number): CastSource {
-    const aim =
-      aimX !== undefined && aimZ !== undefined
-        ? (() => {
-            const m = Math.hypot(aimX, aimZ) || 1;
-            return { x: aimX / m, z: aimZ / m };
-          })()
-        : this.choreographyAim(x, z);
+    const safe = this.safeChoreographyPoint(x, z),
+      aim =
+        aimX !== undefined && aimZ !== undefined
+          ? (() => {
+              const m = Math.hypot(aimX, aimZ) || 1;
+              return { x: aimX / m, z: aimZ / m };
+            })()
+          : this.choreographyAim(safe.x, safe.z);
     return {
       faction: 'hero',
       owner: null,
-      x,
-      z,
+      x: safe.x,
+      z: safe.z,
       aimX: aim.x,
       aimZ: aim.z,
       vx: this.playerVX,
@@ -4730,7 +4748,7 @@ export class Simulation {
       return true;
     }
 
-    const outer = previous.areaPoints.slice(0, 4);
+    const outer = previous.areaPoints.slice(0, 16);
     if (!outer.length) return false;
     const center = {
       x: outer.reduce((a, p) => a + p.x, 0) / outer.length,
@@ -4740,7 +4758,10 @@ export class Simulation {
       this.setOrbitChoreography(center.x, center.z);
       this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
     } else if (skills[id].directional) {
-      for (const p of outer.slice(0, 3))
+      const spokes = outer.length <= 4
+        ? outer.slice(0, 3)
+        : [outer[0], outer[Math.floor(outer.length / 3)], outer[Math.floor((outer.length * 2) / 3)]];
+      for (const p of spokes)
         this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, center.x - p.x, center.z - p.z));
     } else {
       for (const eid of this.lastContext.hitIds) {
