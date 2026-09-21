@@ -4526,7 +4526,7 @@ export class Simulation {
   }
 
   private sampleChoreographyPath(path: ChoreographyPoint[], count = 3) {
-    if (path.length <= count) return path.map((p) => ({ ...p }));
+    if (path.length <= 1 || count <= 1) return path.slice(0,1).map((p) => ({ ...p }));
     const seg: number[] = [0];
     let total = 0;
     for (let i = 1; i < path.length; i++) {
