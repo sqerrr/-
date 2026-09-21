@@ -72,6 +72,15 @@ assert(renderer.includes("f.faction === 'rival'"),'hostile persistent fields are
 assert(renderer.includes("c.mutationApotheosis==='sentry_walker'"),'construct mutations are flattened in renderer');
 for(const affix of ['volatile','regenerating','shielded','vanguard','temporal','brood','crowned','swift','dense'])
   assert(renderer.includes(`e.affix === '${affix}'`),`renderer has no visual branch for elite affix ${affix}`);
+
+// Hero animation frames must share one visual family and use silhouette-trimmed UVs,
+// otherwise idle/run/cast visibly jump in apparent size despite identical world-space size.
+assert(renderer.includes("{ key: 'player_idle', url: '/assets/v07_player.png' }"),'hero idle art regressed to the undersized legacy sprite');
+for(const i of [0,1,2,3])
+  assert(renderer.includes(`player_cast_${i}`),`hero cast frame ${i} is not loaded/used`);
+assert(renderer.includes('const alphaBox = (img: HTMLImageElement)'), 'actor UVs no longer trim transparent margins');
+assert(renderer.includes('dashing || invulnerable') && renderer.includes("'player_cast_' + frame"), 'dash no longer uses authored cast/body animation');
+
 const html=readFileSync('public/index.html','utf8'), platform=readFileSync('src/platform/main.ts','utf8');
 assert(!html.includes('legacy-hidden')&&!html.includes('id="eventLog"'),'retired legacy HUD DOM returned');
 assert(!platform.includes("\$('eventLog')")&&!platform.includes("\$('perf')")&&!platform.includes("\$('gpuName')"),'platform still updates retired hidden HUD nodes');
