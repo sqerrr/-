@@ -32,7 +32,7 @@ export const skillChoiceArt: Record<SkillId, SkillChoiceArt> = {
 
 export const catalystGlyph: Record<CatalystId, string> = {
   // Catalyst 2.0: the glyphs describe spatial verbs rather than rarity/stat families.
-  source:'◎', carrier:'⛓', trail:'∿', reverse:'↫', collapse:'⇢',
+  source:'◎', carrier:'✣', trail:'∿', reverse:'↫', collapse:'⇥',
   // Catalyst 1.x compatibility glyphs.
   capacitor:'×', anchor:'⌾', reservoir:'▣', echo_shard:'◈', relay:'⚡', conduit:'⇄', overflow:'↩',
   aegis_relay:'⬡', backflow:'↶', recoil:'↤', focus:'◆', surge:'↟', glut:'⬢', stagger:'⌁',
