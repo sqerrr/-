@@ -1268,7 +1268,9 @@ export class Simulation {
   }
   private generateCatalystDiscovery() {
     const owned = this.allOwnedCatalysts(),
-      pool = catalystOrder.filter((id) => !owned.includes(id));
+      unowned = catalystOrder.filter((id) => !owned.includes(id)),
+      useful = unowned.filter((id) => this.catalystCompatibleEdges(id).length > 0),
+      pool = useful.length ? useful : unowned;
     if (!pool.length) {
       this.generateLevelOffers();
       return;
@@ -5857,13 +5859,34 @@ export class Simulation {
       ...new Set([...this.catalysts, ...this.catalystReserve].filter(Boolean) as CatalystId[])
     ];
   }
+  private catalystCompatibleEdges(id: CatalystId) {
+    const out: number[] = [];
+    for (let i = 0; i < this.catalysts.length; i++) {
+      const left = this.slots[i],
+        right = this.slots[i + 1];
+      if (left && right && catalystPairCompatible(id, left, right)) out.push(i);
+    }
+    return out;
+  }
   private makeCatalystAdd(id: CatalystId): RewardOffer {
+    const edges = this.catalystCompatibleEdges(id),
+      examples = edges
+        .slice(0, 2)
+        .map((edge) => {
+          const left = this.slots[edge]!,
+            right = this.slots[edge + 1]!;
+          return `${skills[left].shortName} → ${skills[right].shortName}`;
+        });
     return {
       id: `addcat:${id}:${this.rng.nextU32()}`,
       kind: 'catalyst_add',
       title: catalysts[id].name,
-      subtitle: `${catalysts[id].scope.toUpperCase()} · готовое правило`,
-      description: catalysts[id].desc,
+      subtitle: `${catalysts[id].scope.toUpperCase()} · ХОРЕОГРАФИЯ`,
+      description:
+        catalysts[id].desc +
+        (examples.length
+          ? ` Сейчас совместим: ${examples.join(' · ')}.`
+          : ' Совместимость зависит от физической формы соседних феноменов.'),
       catalyst: id
     };
   }
@@ -5983,7 +6006,9 @@ export class Simulation {
   }
   private generateEliteCache() {
     const owned = this.allOwnedCatalysts(),
-      unowned = catalystOrder.filter((id) => !owned.includes(id));
+      allUnowned = catalystOrder.filter((id) => !owned.includes(id)),
+      usefulUnowned = allUnowned.filter((id) => this.catalystCompatibleEdges(id).length > 0),
+      unowned = usefulUnowned.length ? usefulUnowned : allUnowned;
     let offers: RewardOffer[] = [];
     const hasSpace = this.catalystReserve.some((x) => !x) || this.catalysts.some((x) => !x);
     if (unowned.length && hasSpace) {
@@ -6023,7 +6048,10 @@ export class Simulation {
     this.choiceSerial++;
   }
   private placeCatalyst(id: CatalystId) {
-    let edge = this.catalysts.findIndex((c, i) => !c && !!this.slots[i] && !!this.slots[i + 1]);
+    let edge = this.catalysts.findIndex((c, i) => {
+      const left=this.slots[i], right=this.slots[i+1];
+      return !c && !!left && !!right && catalystPairCompatible(id,left,right);
+    });
     if (edge >= 0) this.catalysts[edge] = id;
     else {
       const reserve = this.catalystReserve.findIndex((x) => !x);
