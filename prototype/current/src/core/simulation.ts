@@ -4519,6 +4519,29 @@ export class Simulation {
     return out;
   }
 
+  private movingChoreographyPath(
+    trace: ChoreographyTrace,
+    carriers: { ref: ChoreographyCarrier; x: number; z: number }[]
+  ) {
+    // Mass Driver and Returner are physical actors that are still travelling when the next
+    // Chain beat usually fires. Their old static telegraph endpoint is a *future* position,
+    // so using it made Source/Trail/Reverse visibly happen ahead of A. Use the leading live
+    // body and the segment it has actually travelled so far.
+    if (
+      (trace.skill === 'mass_driver' || trace.skill === 'shard_fan') &&
+      carriers.length
+    ) {
+      const lead = [...carriers].sort(
+        (a, b) =>
+          Math.hypot(b.x - trace.origin.x, b.z - trace.origin.z) -
+          Math.hypot(a.x - trace.origin.x, a.z - trace.origin.z)
+      )[0];
+      if (lead && !this.sameChoreographyPoint(trace.origin, lead, 0.2))
+        return [{ ...trace.origin }, { x: lead.x, z: lead.z }];
+    }
+    return this.tracePath(trace);
+  }
+
   private tracePath(trace: ChoreographyTrace) {
     let best: ChoreographyPoint[] = [];
     let bestLen = 0;
@@ -4685,11 +4708,15 @@ export class Simulation {
       return false;
 
     const mode = incoming as 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse',
-      path = this.tracePath(previous),
-      carriers = this.traceCarriers(previous);
+      carriers = this.traceCarriers(previous),
+      path = this.movingChoreographyPath(previous, carriers);
 
     if (mode === 'source') {
-      const p = previous.terminal ?? path[path.length - 1];
+      const movingLead =
+          (previous.skill === 'mass_driver' || previous.skill === 'shard_fan') && path.length >= 2
+            ? path[path.length - 1]
+            : null,
+        p = movingLead ?? previous.terminal ?? path[path.length - 1];
       if (!p) return false;
       if (id === 'orbit_blades') {
         this.setOrbitChoreography(p.x, p.z);
