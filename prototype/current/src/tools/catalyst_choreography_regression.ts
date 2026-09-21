@@ -58,6 +58,20 @@ for(const id of activeSkillOrder){
   assert(destination&&dist(toxic,destination)<1.2,'Source visual destination disagrees with physical Toxic Mist');
 }
 
+// 2a) Gravity Anchor owns a literal world anchor: Source must start from that anchor,
+// not from whichever dragged enemy happened to be processed last.
+{
+  const sim=fixture('tether_drag','toxic_mist','source');
+  sim.activateSlot(0);
+  const anchorPoint=sim.lastContext.trace?.terminal;
+  assert(anchorPoint,'Gravity Anchor emitted no terminal');
+  sim.events.length=0;
+  sim.activateSlot(1);
+  const toxic=sim.fields.filter((q:any)=>q.source==='toxic_mist').at(-1);
+  assert(toxic,'Gravity Anchor Source did not create Toxic Mist');
+  assert(dist(toxic,anchorPoint)<1.0,'Source detached from the physical Gravity Anchor');
+}
+
 // 2b) SOURCE on a moving Phenomenon must use the body that is visibly travelling now,
 // not the far telegraph endpoint that it may reach several seconds later.
 for (const left of ['mass_driver','shard_fan'] as SkillId[]) {
