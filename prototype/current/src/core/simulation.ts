@@ -6542,9 +6542,9 @@ export class Simulation {
       })),
       orbit: (() => {
         const st=this.skillsRuntime.get('orbit_blades');
-        if(!st||!this.isActiveSkill('orbit_blades')) return {active:false,count:0,radius:0,mutation:null,apotheosis:null};
-        const p=this.orbitProfile(st);
-        return {active:true,count:p.count,radius:p.radius,mutation:st.mutation,apotheosis:st.mutationApotheosis};
+        if(!st||!this.isActiveSkill('orbit_blades')) return {active:false,count:0,radius:0,centerX:this.px,centerZ:this.pz,mutation:null,apotheosis:null};
+        const center=this.orbitCenter(),p=this.orbitProfile(st,center);
+        return {active:true,count:p.count,radius:p.radius,centerX:center.x,centerZ:center.z,mutation:st.mutation,apotheosis:st.mutationApotheosis};
       })(),
       world: {
         ...this.world,
@@ -6590,7 +6590,7 @@ export class Simulation {
    * folded into the hash, so a stale baseline fails loudly instead of silently matching
    * a different layout. Never change the layout without bumping.
    */
-  static readonly CANONICAL_SCHEMA_VERSION = 4;
+  static readonly CANONICAL_SCHEMA_VERSION = 5;
 
   /**
    * Explicit, ordered schema of everything that defines a run.
@@ -6623,6 +6623,7 @@ export class Simulation {
 
     put('chain.beat', this.beat, this.cycle);
     put('chain.charges', this.capacitorCharge, this.overflowCharge, this.aegisCharge);
+    put('chain.orbitChoreo', this.orbitChoreoUntil, this.orbitChoreoX, this.orbitChoreoZ, this.orbitChoreoCarrier?.kind ?? '-', this.orbitChoreoCarrier && 'id' in this.orbitChoreoCarrier ? this.orbitChoreoCarrier.id : this.orbitChoreoCarrier?.kind === 'orbit' ? this.orbitChoreoCarrier.index : -1);
 
     put('growth.tempo', this.tempo);
     put('growth.power', this.globalPower);
