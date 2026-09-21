@@ -348,6 +348,24 @@ assert(renderer.includes('s.orbit.centerX')&&renderer.includes('s.orbit.centerZ'
     'Trail Grid exists visually but never creates real connecting control links');
 }
 
+// 10b) Quantity must enrich a Sentry Trail without erasing its early nodes via the global cap.
+{
+  const sim=fixture('rail_spear','sentry','trail');
+  sim.doctrines.quantity=6;
+  sim.resonance.multiplicity=4;
+  const st=sim.skillsRuntime.get('sentry');
+  st.count=3;
+  sim.activateSlot(0); sim.events.length=0; sim.activateSlot(1);
+  const turrets=sim.constructs.filter((q:any)=>q.skill==='sentry');
+  assert(turrets.length>=6&&turrets.length<=18,`Quantity Sentry Trail produced implausible node count: ${turrets.length}`);
+  const xs=turrets.map((q:any)=>q.x), span=Math.max(...xs)-Math.min(...xs);
+  assert(span>5,'Quantity Sentry Trail lost route coverage to local construct-cap churn');
+  const cue=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='trail');
+  assert(cue&&cue.points.length>=3,'Quantity Sentry Trail lost its choreography route');
+  assert(cue.points.slice(0,-1).every((p:any)=>turrets.some((q:any)=>dist(p,q)<4.2)),
+    'Quantity Sentry Trail discarded early physical nodes');
+}
+
 // 11) Catalyst-created world origins obey the same solid-world rules as ordinary actors.
 {
   const sim=fixture('rail_spear','toxic_mist','source');
