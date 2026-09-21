@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import {
   activeSkillOrder,
+  catalysts,
   catalystOrder,
   catalystPairCompatible,
   phenomenonChoreography,
@@ -107,6 +108,51 @@ for(const id of activeSkillOrder){
   }
 }
 
+// 6b) COLLAPSE must remain visible even when A and B are both hero-centred radial Phenomena.
+// The crowd itself must physically converge; otherwise Frost -> Toxic would look almost identical
+// to two independent casts despite the fancy Catalyst overlay.
+{
+  const sim=fixture('frost_ring','toxic_mist','collapse');
+  sim.activateSlot(0);
+  const before=new Map(sim.ents.map((e:any)=>[e.id,{x:e.x,z:e.z}]));
+  sim.events.length=0;
+  sim.activateSlot(1);
+  const ev=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='collapse');
+  assert(ev,'radial Collapse event missing');
+  let moved=0, inward=0;
+  for(const e of sim.ents){
+    const b=before.get(e.id) as any;
+    if(!b)continue;
+    const delta=Math.hypot(e.x-b.x,e.z-b.z);
+    if(delta>.12){
+      moved++;
+      const db=Math.hypot(b.x-ev.centerX,b.z-ev.centerZ),
+        da=Math.hypot(e.x-ev.centerX,e.z-ev.centerZ);
+      if(da<db-.1)inward++;
+    }
+  }
+  assert(moved>=2&&inward===moved,`radial Collapse did not visibly move the crowd inward: ${inward}/${moved}`);
+}
+
+// 6c) Sentry Collapse must build an actual inward field, not one ordinary battery at the centroid.
+{
+  const sim=fixture('frost_ring','sentry','collapse');
+  const st=sim.skillsRuntime.get('sentry');
+  st.mutationApotheosis='sentry_gravity_grid';
+  sim.activateSlot(0); sim.events.length=0; sim.activateSlot(1);
+  const ev=sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode==='collapse');
+  const turrets=sim.constructs.filter((q:any)=>q.skill==='sentry');
+  assert(ev,'Sentry Collapse event missing');
+  assert(turrets.length>=3,`Sentry Collapse did not build perimeter batteries: ${turrets.length}`);
+  const xs=turrets.map((q:any)=>q.x),zs=turrets.map((q:any)=>q.z);
+  assert(Math.max(...xs)-Math.min(...xs)>2.2||Math.max(...zs)-Math.min(...zs)>2.2,
+    'Sentry Collapse batteries collapsed into one local clump');
+  sim.events.length=0;
+  for(let i=0;i<20;i++)sim.updateConstructs();
+  assert(sim.events.some((e:any)=>e.type==='CombatShape'&&e.source==='sentry_gravity_grid'),
+    'Sentry Collapse created visible turrets but no real Gravity Grid links');
+}
+
 // 7) Pair space is intentionally partial, never fake-universal.
 const matrix:any={};
 for(const cat of catalystOrder){
@@ -172,9 +218,13 @@ assert(pairAudit.length>200,`too few Catalyst 2.0 pairs exercised: ${pairAudit.l
 // 9) Renderer must have a dedicated visual grammar for each choreography, not a generic catalyst flash.
 const renderer=readFileSync('src/renderer/webgl2.ts','utf8');
 const bridge=readFileSync('src/presentation/bridge.ts','utf8');
+assert(catalysts.carrier.name==='Излучатель','Carrier still exposes misleading attachment/network naming');
 assert(renderer.includes("e.type === 'choreography'"),'renderer ignores physical choreography cue');
 for(const mode of ['source','carrier','trail','reverse','collapse'])
   assert(renderer.includes(`e.mode === '${mode}'`)||renderer.includes(`e.mode === 'trail' || e.mode === 'reverse'`),`renderer has no distinct visual branch for ${mode}`);
+const emitterBlock=renderer.slice(renderer.indexOf("e.mode === 'carrier'"),renderer.indexOf("e.mode === 'trail' || e.mode === 'reverse'"));
+assert(!emitterBlock.includes("kind:'bolt'"),'Emitter presentation still falsely connects A carriers into a network');
+assert(emitterBlock.includes("for(let arm=0;arm<4;arm++)"),'Emitter has no per-object outward launch signature');
 assert(bridge.includes("e.type === 'CatalystChoreography'"),'presentation bridge drops choreography event');
 assert(renderer.includes('s.orbit.centerX')&&renderer.includes('s.orbit.centerZ'),'relocated Orbit still renders around hero');
 
