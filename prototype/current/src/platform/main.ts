@@ -122,7 +122,7 @@ function modalState() {
 }
 async function copyDebugLog() {
   const text = [
-    'Black Archive v0.11.4 · debug',
+    'Black Archive v0.12 · debug',
     navigator.userAgent,
     location.href,
     '',
