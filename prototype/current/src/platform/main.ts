@@ -596,7 +596,7 @@ function pushEvents(events: readonly GameEvent[]) {
         label = catalysts[e.catalyst].shortName.toUpperCase(),
         explanation =
           e.mode === 'source'
-            ? 'Правый феномен возник из точки, где закончился левый.'
+            ? 'Правый феномен запустился из фактической точки левого эффекта в этот момент.'
             : e.mode === 'carrier'
               ? 'Каждый живой объект левого стал точкой запуска правого феномена.'
               : e.mode === 'trail'
