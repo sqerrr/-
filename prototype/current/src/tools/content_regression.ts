@@ -2,7 +2,10 @@ import {
   activeSkillOrder,
   legacySkillOrder,
   catalystOrder,
+  legacyCatalystOrder,
   catalysts,
+  phenomenonChoreography,
+  catalystPairCompatible,
   mutationChildren,
   mutationRoots,
   resonance,
@@ -50,14 +53,37 @@ for (const id of Object.keys(skills) as SkillId[]) {
   if (md.length) fail(`${id}: duplicate mutation ids ${md.join(', ')}`);
 }
 
-if (catalystOrder.length < 4) fail(`operator roster collapsed: ${catalystOrder.length}`);
-const catalystDupes = duplicates(catalystOrder);
-if (catalystDupes.length) fail(`duplicate Catalysts: ${catalystDupes.join(', ')}`);
-for (const id of catalystOrder) {
-  const c = catalysts[id];
-  if (!c?.name || !c.desc) fail(`${id}: incomplete Catalyst`);
+const expectedChoreography:CatalystId[]=['source','carrier','trail','reverse','collapse'];
+if(catalystOrder.join('|')!==expectedChoreography.join('|'))
+  fail(`Catalyst 2.0 active roster drifted: ${catalystOrder.join(', ')}`);
+const catalystDupes = duplicates([...catalystOrder,...legacyCatalystOrder]);
+if (catalystDupes.length) fail(`duplicate Catalyst ids across live/legacy: ${catalystDupes.join(', ')}`);
+if(legacyCatalystOrder.length!==20) fail(`unexpected Catalyst 1.x compatibility roster: ${legacyCatalystOrder.length}`);
+for (const id of [...catalystOrder,...legacyCatalystOrder]) {
+  const d = catalysts[id];
+  if (!d?.name || !d.desc) fail(`${id}: incomplete Catalyst`);
 }
-for (const id of Object.keys(catalysts) as CatalystId[]) if (!catalystOrder.includes(id)) fail(`Catalyst ${id} can never be offered`);
+for(const id of Object.keys(catalysts) as CatalystId[])
+  if(!catalystOrder.includes(id)&&!legacyCatalystOrder.includes(id)) fail(`Catalyst ${id} belongs to neither active nor compatibility roster`);
+
+const banned=/damage|stacks?|kills?|hits?|last\s+\d|wounds?|chance|урон|убий|попадан|стак|ранен|шанс/i;
+for(const id of catalystOrder)
+  if(banned.test(catalysts[id].desc)) fail(`${id}: active choreography fell back to proc/numeric language: ${catalysts[id].desc}`);
+
+for(const id of activeSkillOrder){
+  const p=phenomenonChoreography[id];
+  if(!p||!p.emits.length||!p.accepts.length) fail(`${id}: missing physical choreography contract`);
+}
+for(const id of catalystOrder){
+  let compatible=0,total=0;
+  for(const left of activeSkillOrder)for(const right of activeSkillOrder){
+    if(left===right)continue;
+    total++;
+    if(catalystPairCompatible(id,left,right))compatible++;
+  }
+  const ratio=compatible/Math.max(1,total);
+  if(ratio<0.18||ratio>0.72) fail(`${id}: compatibility ${(ratio*100).toFixed(1)}% is not selective enough`);
+}
 if (resonanceOrder.join('|') !== expectedAxes.join('|')) fail(`unexpected core axes: ${resonanceOrder.join(',')}`);
 for (const id of resonanceOrder) if (!resonance[id]) fail(`missing growth direction ${id}`);
 
@@ -66,5 +92,6 @@ console.log('content-regression OK', {
   legacyDefinitions: legacySkillOrder.length,
   activeMutations: activeSkillOrder.reduce((n,id)=>n+skills[id].mutations.length,0),
   apotheoses: activeSkillOrder.reduce((n,id)=>n+skills[id].mutations.filter(m=>m.apotheosis).length,0),
-  catalysts: catalystOrder.length
+  catalysts: catalystOrder.length,
+  legacyCatalysts: legacyCatalystOrder.length
 });
