@@ -4781,15 +4781,24 @@ export class Simulation {
 
     if (mode === 'reverse') {
       if (path.length < 2) return false;
-      const start = path[0],
-        end = path[path.length - 1],
-        dx = start.x - end.x,
-        dz = start.z - end.z;
-      if (id === 'orbit_blades') {
-        this.setOrbitChoreography(end.x, end.z);
-        this.castWithTrace(id, st, slot, this.choreographySource(end.x, end.z, dx, dz));
-      } else this.castWithTrace(id, st, slot, this.choreographySource(end.x, end.z, dx, dz));
-      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [...path].reverse());
+      const total = path.reduce(
+          (sum, p, i) =>
+            i ? sum + Math.hypot(p.x - path[i - 1].x, p.z - path[i - 1].z) : sum,
+          0
+        ),
+        sampleCount = total > 9 ? 4 : total > 3.2 ? 3 : 2,
+        samples = this.sampleChoreographyPath(path, sampleCount).reverse();
+      // Reverse is a real replay, not merely "Source + turn 180°". Each step starts on the
+      // already-travelled A path and faces the next earlier point, so a zig-zag A produces
+      // a visibly staged backward B sequence.
+      for (let i = 0; i < samples.length; i++) {
+        const p = samples[i],
+          toward = samples[i + 1] ?? path[0],
+          dx = toward.x - p.x,
+          dz = toward.z - p.z;
+        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, dx, dz));
+      }
+      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, samples);
       return true;
     }
 
