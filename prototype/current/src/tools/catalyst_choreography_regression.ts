@@ -197,7 +197,21 @@ assert(renderer.includes('s.orbit.centerX')&&renderer.includes('s.orbit.centerZ'
     'Trail Grid exists visually but never creates real connecting control links');
 }
 
-// 11) Sentry base placement must be spatial even without a Catalyst.
+// 11) Catalyst-created world origins obey the same solid-world rules as ordinary actors.
+{
+  const sim=fixture('rail_spear','toxic_mist','source');
+  sim.obstacles=[{id:9001,x:5,z:0,radius:2,hp:-1,maxHp:-1,destructible:false}];
+  sim.buildObstacleGrid();
+  const safe=sim.safeChoreographyPoint(5,0,.28);
+  assert(Math.hypot(safe.x-5,safe.z)>=2.27,
+    `choreography origin remained inside solid cover: ${JSON.stringify(safe)}`);
+  const edge=sim.safeChoreographyPoint(999,-999,.28);
+  assert(edge.x<=sim.world.maxX-.27&&edge.x>=sim.world.minX+.27&&
+         edge.z<=sim.world.maxZ-.27&&edge.z>=sim.world.minZ+.27,
+    `choreography origin escaped arena bounds: ${JSON.stringify(edge)}`);
+}
+
+// 12) Sentry base placement must be spatial even without a Catalyst.
 {
   const sim=fixture('sentry','rail_spear','source');
   sim.catalysts=[null]; sim.activateSlot(0);
