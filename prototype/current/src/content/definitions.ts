@@ -89,7 +89,7 @@ export const skills: Record<SkillId, SkillDef> = {
     baseCrit: 0.24,
     axes: ['tempo', 'precision', 'multiplicity', 'conductivity'],
     identity: 'Очень частая точная атака с высоким естественным шансом крита.',
-    weakness: 'Почти не решает плотную толпу без синергии.',
+    weakness: 'Плохо справляется с плотной толпой без помощи других эффектов.',
     description: 'Точная одиночная атака: высокий шанс критического удара, узкая линия и быстрое переключение цели.',
     upgradePool: ['power', 'range', 'count', 'statusPotency', 'crit'],
     mutations: [
@@ -162,7 +162,7 @@ export const skills: Record<SkillId, SkillDef> = {
       {
         id: 'frost_rim',
         name: 'Ледяной обод',
-        tag: 'геометрия',
+        tag: 'форма',
         description: 'Основной урон переносится на внешний край.'
       },
       {
@@ -479,7 +479,7 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'mortar_airburst',
         parent: 'mortar_cluster',
         name: 'Воздушный разрыв',
-        tag: 'геометрия',
+        tag: 'форма',
         description: 'Взрыв шире, но центр слабее и длительного поля не остаётся.'
       },
       {
@@ -649,7 +649,7 @@ export const skills: Record<SkillId, SkillDef> = {
       {
         id: 'repulse_relay',
         parent: 'repulse_gravity',
-        name: 'Кинетический релей',
+        name: 'Передача импульса',
         tag: 'связка',
         description: 'Чем сильнее сдвинуты враги, тем больше заряд следующего феномена.'
       },
@@ -657,7 +657,7 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'repulse_rings',
         parent: 'repulse_front',
         name: 'Компрессионные кольца',
-        tag: 'геометрия',
+        tag: 'форма',
         description: 'Две последовательные меньшие волны вместо одной.'
       },
       {
@@ -709,7 +709,7 @@ export const skills: Record<SkillId, SkillDef> = {
         id: 'mass_cargo',
         parent: 'mass_snowball',
         name: 'Груз',
-        tag: 'комбо',
+        tag: 'связка',
         description: 'Тела и созданные объекты на линии усиливают удар.'
       },
       {
@@ -1364,7 +1364,7 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
   },
   relay: {
     id: 'relay',
-    name: 'Реле убийств',
+    name: 'Цепь убийств',
     shortName: 'УБИЙ→',
     desc: 'Несколько убийств левым феноменом вызывают дополнительное ослабленное срабатывание правого.',
     color: '#ffe27a',
@@ -1486,7 +1486,7 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     id: 'handoff',
     name: 'Передача',
     shortName: 'ПРД',
-    desc: 'Следующий узел цепочки получает два дополнительных проявления.',
+    desc: 'Следующий феномен срабатывает два дополнительных раза.',
     color: '#ff9de2',
     scope: 'связь'
   }
@@ -1606,7 +1606,7 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
     name: 'Катализаторы',
     shortName: 'СВЯЗЬ',
     description:
-      'Катализаторам нужно меньше условий для срабатывания, а передаваемые эффекты становятся сильнее.',
+      'Катализаторы срабатывают легче и сильнее передают эффекты между феноменами.',
     color: '#75f0d2'
   },
   mobility: {
