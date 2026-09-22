@@ -4366,8 +4366,7 @@ export class Simulation {
     const incoming = this.incomingCatalyst(slot),
       conduct = 1 + this.resonance.conductivity * 0.16,
       previousContext = this.lastContext,
-      choreographyId = this.isPhysicalCatalyst(incoming),
-      choreographyReady = false;
+      choreographyId = this.isPhysicalCatalyst(incoming);
 
     // Compatibility-only Catalyst 1.x operators remain executable for old saves/replays.
     // Current Discovery never offers them; the active five are handled below as physical choreography.
