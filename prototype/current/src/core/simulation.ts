@@ -27,6 +27,7 @@ import { EncounterDirector } from './encounterDirector.js';
 import { EntityStore } from './entityStore.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { Rng } from './rng.js';
+import { StatusSystem } from './statusSystem.js';
 import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, pointAlongPolyline, polylineLength, sweepCircleT } from './geometry.js';
 import {
   HERO_HIT_RADIUS,
@@ -383,6 +384,7 @@ export class Simulation {
   private currentChoreography: ChoreographyTrace | null = null;
   // Catalyst 2.1 lifecycle owns activation ids, causal queues and retirement bookkeeping.
   private physical = new PhysicalLifecycle();
+  private statusSystem = new StatusSystem();
   private orbitChoreoUntil = -1;
   private orbitChoreoX = 0;
   private orbitChoreoZ = 0;
@@ -2827,13 +2829,12 @@ export class Simulation {
   }
 
   private updateDots() {
-    for (const e of this.ents) {
-      if (e.hp <= 0) continue;
-      if (e.woundUntil > this.time && e.woundDps > 0)
-        this.damage(e, e.woundDps * this.dt, 'wound_dot', false, e.x, e.z);
-      if (e.hp > 0 && e.toxinUntil > this.time && e.toxinDps > 0)
-        this.damage(e, e.toxinDps * this.dt, 'toxin_dot', false, e.x, e.z);
-    }
+    this.statusSystem.updateDamageOverTime(
+      this.ents,
+      this.time,
+      this.dt,
+      (entity, amount, source) => this.damage(entity, amount, source, false, entity.x, entity.z)
+    );
   }
 
   private updatePickups() {
@@ -4763,47 +4764,13 @@ export class Simulation {
     this.metrics.reactions++;
   }
 
-  private stateActive(e: Ent, state: string) {
-    if (state === 'ignite') return e.igniteUntil > this.time;
-    if (state === 'chill') return e.chillUntil > this.time;
-    if (state === 'wound') return e.woundUntil > this.time;
-    if (state === 'toxin') return e.toxinUntil > this.time;
-    if (state === 'mark') return e.markUntil > this.time;
-    if (state === 'exposed') return e.exposedUntil > this.time;
-    if (state === 'embed') return e.embedded > 0;
-    if (state === 'displaced') return e.displacedUntil > this.time;
-    return false;
-  }
-  private consumeState(e: Ent, state: string) {
-    if (state === 'ignite') e.igniteUntil = 0;
-    else if (state === 'chill') e.chillUntil = 0;
-    else if (state === 'wound') {
-      e.woundUntil = 0;
-      e.woundDps = 0;
-    } else if (state === 'toxin') {
-      e.toxinUntil = 0;
-      e.toxinDps = 0;
-    } else if (state === 'mark') e.markUntil = 0;
-    else if (state === 'exposed') e.exposedUntil = 0;
-    else if (state === 'embed') e.embedded = Math.max(0, e.embedded - 1);
-    else if (state === 'displaced') e.displacedUntil = 0;
-  }
   private applyState(e: Ent, state: string, potency = 1) {
-    const dur = 2.6 * Math.max(0.35, potency) * this.memoryFactor();
-    if (state === 'ignite') e.igniteUntil = Math.max(e.igniteUntil, this.time + dur);
-    else if (state === 'chill') e.chillUntil = Math.max(e.chillUntil, this.time + dur);
-    else if (state === 'wound') {
-      e.woundUntil = Math.max(e.woundUntil, this.time + dur * 1.45);
-      e.woundDps = Math.max(e.woundDps, 7 * potency * (1 + this.globalPower));
-    } else if (state === 'toxin') {
-      e.toxinUntil = Math.max(e.toxinUntil, this.time + dur * 1.6);
-      e.toxinDps = Math.max(e.toxinDps, 6 * potency * (1 + this.globalPower));
-    } else if (state === 'mark') e.markUntil = Math.max(e.markUntil, this.time + dur * 1.4);
-    else if (state === 'exposed') e.exposedUntil = Math.max(e.exposedUntil, this.time + dur);
-    else if (state === 'embed')
-      e.embedded = Math.min(8, e.embedded + Math.max(1, Math.round(potency)));
-    else if (state === 'displaced')
-      e.displacedUntil = Math.max(e.displacedUntil, this.time + 1.2 * this.memoryFactor());
+    this.statusSystem.apply(e, state, {
+      time: this.time,
+      potency,
+      memoryFactor: this.memoryFactor(),
+      globalPower: this.globalPower
+    });
   }
   private noteState(state: string) {
     if (!this.currentProducedState) this.currentProducedState = state;
@@ -5563,9 +5530,7 @@ export class Simulation {
         e.revived = true;
         e.hp = e.maxHp * 0.42;
         e.speed *= 1.32;
-        e.chillUntil = 0;
-        e.woundUntil = 0;
-        e.toxinUntil = 0;
+        this.statusSystem.clearForRevive(e);
         alive.push(e);
         this.events.push({ type: 'EnemyRevived', tick: this.tick, entity: e.id, x: e.x, z: e.z });
         continue;
