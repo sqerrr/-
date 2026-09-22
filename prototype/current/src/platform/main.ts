@@ -182,11 +182,11 @@ startSelect.disabled = runMode === 'showcase';
 modeSelect.addEventListener('change', () => {
   runMode = modeSelect.value as RunMode;
   startSelect.disabled = runMode === 'showcase';
-  pushLog('Режим изменён. Нажмите «Рестарт», чтобы начать новый забег.');
+  pushLog('Режим изменён. Нажмите «Перезапустить», чтобы начать новый забег.');
 });
 startSelect.addEventListener('change', () => {
   startingSkill = startSelect.value as SkillId;
-  pushLog(`Стартовый феномен: ${skills[startingSkill].name}. Применится после рестарта.`);
+  pushLog(`Стартовый феномен: ${skills[startingSkill].name}. Применится после перезапуска.`);
 });
 function esc(s: string) {
   return String(s).replace(
@@ -455,7 +455,7 @@ function eventText(e: GameEvent) {
     return e.supports
       ? `ХРАНИТЕЛЬ: финальный бой начался. Неочищенные узлы привели стражей: ${e.supports}.`
       : 'ХРАНИТЕЛЬ: финальный бой начался без поддержки узлов.';
-  if (e.type === 'BossPhase') return `ХРАНИТЕЛЬ: фаза ${e.phase}. Паттерны ускорились.`;
+  if (e.type === 'BossPhase') return `ХРАНИТЕЛЬ: фаза ${e.phase}. Атаки ускорились.`;
   if (e.type === 'BossPattern')
     return `Хранитель: ${e.pattern === 'sweep' ? 'СЕКТОРНЫЙ ВЗМАХ' : e.pattern === 'rupture' ? 'РАЗЛОМ ПО ЛИНИИ' : 'ТАРАН'}.`;
   if (e.type === 'EntityDied' && e.boss) return 'Хранитель уничтожен. Забег завершён.';
@@ -529,7 +529,7 @@ function eliteAlert(e: GameEvent): [string, string] | null {
   if (e.type === 'BossPhase')
     return [
       'ХРАНИТЕЛЬ · ФАЗА 2',
-      'Паттерны быстрее, появляются подкрепления. Окна после атак всё ещё уязвимы.'
+      'Атаки быстрее, появляются подкрепления. После атак Хранитель всё ещё уязвим.'
     ];
   if (e.type === 'BossPattern')
     return [
@@ -670,7 +670,7 @@ function pushEvents(events: readonly GameEvent[]) {
       if (!seenCatalystTriggers.has(e.catalyst)) {
         seenCatalystTriggers.add(e.catalyst);
         showEliteAlert(
-          `ХОРЕОГРАФИЯ · ${label}`,
+          `СВЯЗКА · ${label}`,
           `${from ? skills[from].name : '?'} → ${to ? skills[to].name : '?'}. ${explanation}`
         );
       }
@@ -720,7 +720,7 @@ function updateChain(s: Snapshot) {
       const slot = document.createElement('div');
       slot.className = 'slot' + (id ? '' : ' empty');
       slot.dataset.slot = String(i);
-      slot.title = 'Для перестановки нажмите Tab.';
+      slot.title = 'Для перестановки нажмите ↹.';
       if (id) {
         const st = rt.get(id)!,
           md = st.mutation ? mutationDef(id, st.mutation) : null,
@@ -759,7 +759,7 @@ function updateChain(s: Snapshot) {
     .querySelectorAll<HTMLElement>('#chain .edge')
     .forEach((x) => x.classList.toggle('active', Number(x.dataset.edge) === s.chain.beat - 1));
   $('chainInfo').textContent =
-    `цикл ${s.chain.cycle + 1} · темп +${Math.round(s.chain.tempo * 100)}% · Tab = сборка`;
+    `цикл ${s.chain.cycle + 1} · темп +${Math.round(s.chain.tempo * 100)}% · ↹ = сборка`;
 }
 function attachPlannerDnD(el: HTMLElement) {
   el.addEventListener('dragstart', (e) => {
@@ -928,7 +928,7 @@ function updatePlanner(s: Snapshot) {
     ['Длительность', `×${duration.toFixed(2)}`],
     ['Доп. сущности', quantity ? `+${quantity}` : '—'],
     ['Темп ядра', r.tempo.toFixed(2)],
-    ['Проводимость', r.conductivity.toFixed(2)]
+    ['Катализаторы', r.conductivity.toFixed(2)]
   ].map(([k,v])=>`<div class="sheet-stat"><span>${esc(String(k))}</span><b>${esc(String(v))}</b></div>`).join('');
 }
 
@@ -1478,12 +1478,12 @@ function offerKind(o: RewardOffer) {
           : o.kind === 'mutation_target'
             ? 'ЯДРО МУТАЦИИ'
             : o.kind === 'resonance'
-              ? 'ОСЬ ЯДРА'
+              ? 'УСИЛЕНИЕ ЯДРА'
               : o.kind === 'elite'
                 ? 'ТАЙНИК ЭЛИТЫ'
                 : o.kind === 'doctrine'
-                  ? 'ДОКТРИНА'
-                  : 'ОБЩИЙ СТАТ';
+                  ? 'СПЕЦИАЛИЗАЦИЯ'
+                  : 'ОБЩЕЕ УСИЛЕНИЕ';
 }
 function offerCategory(o: RewardOffer) {
   if (o.kind === 'skill_add' || o.kind === 'skill_swap') return 'phenomenon';
@@ -1551,8 +1551,8 @@ function syncChoiceUI(s: Snapshot, force = false) {
       ? 'Финальная трансформация: выбирай новое поведение, а не процент.'
       : 'Выбор ветки меняет поведение феномена; подробности можно открыть без спешки.';
     $('choiceFoot').textContent = m.refusalAvailable
-      ? 'Один раз за ран можно заменить один из предложенных вариантов.'
-      : 'Токен отказа уже использован.';
+      ? 'Один раз за забег можно заменить один из предложенных вариантов.'
+      : 'Замена варианта уже использована.';
     cards.className = m.choices.length > 2 ? 'cards three' : 'cards two';
     m.choices.forEach((id, i) => {
       const d = mutationDef(m.skill, id),
@@ -1605,7 +1605,7 @@ function syncChoiceUI(s: Snapshot, force = false) {
     $('choiceFoot').textContent =
       elite || discovery
         ? 'Этот выбор нельзя пропустить или перероллить.'
-        : `Переброс: ${s.rerolls} · Пропуск сохраняет ~30% требования опыта.`;
+        : `Обновления: ${s.rerolls} · Пропуск сохраняет ~30% требования опыта.`;
     cards.className = `cards ${s.rewardOffers.length === 2 ? 'two' : ''}`;
     s.rewardOffers.forEach((o, i) => {
       const card = document.createElement('div'),
@@ -1630,7 +1630,7 @@ function syncChoiceUI(s: Snapshot, force = false) {
     });
     if (!elite && !discovery) {
       const rr = document.createElement('button');
-      rr.textContent = `Перероллить (${s.rerolls})`;
+      rr.textContent = `Обновить варианты (${s.rerolls})`;
       rr.disabled = s.rerolls <= 0;
       rr.addEventListener('click', () => refreshChoiceAction('reroll', () => sim.rerollRewards()));
       const skip = document.createElement('button');
@@ -1707,7 +1707,7 @@ async function start() {
     requestAnimationFrame(frame);
   } catch (err) {
     $('loading').innerHTML =
-      `<div class="loadbox"><b>Не удалось запустить WebGL2.</b><span>${esc(String(err))}</span></div>`;
+      `<div class="loadbox"><b>Не удалось запустить графику.</b><span>${esc(String(err))}</span></div>`;
     console.error(err);
   }
 }
