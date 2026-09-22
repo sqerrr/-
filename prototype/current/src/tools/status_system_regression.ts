@@ -27,7 +27,7 @@ const statuses = new StatusSystem();
   assert(e.woundDps === 17.5, 'wound DPS formula changed');
   assert(statuses.active(e, 'wound', 10), 'fresh wound is not active');
   statuses.consume(e, 'wound');
-  assert(e.woundUntil === 0 && e.woundDps === 0, 'wound consumption did not clear its payload');
+  assert(Number(e.woundUntil) === 0 && Number(e.woundDps) === 0, 'wound consumption did not clear its payload');
 }
 
 {
@@ -35,7 +35,7 @@ const statuses = new StatusSystem();
   statuses.apply(e, 'embed', { time: 0, potency: 20, memoryFactor: 1, globalPower: 0 });
   assert(e.embedded === 8, 'embed cap changed');
   statuses.consume(e, 'embed');
-  assert(e.embedded === 7, 'embed consumption changed');
+  assert(Number(e.embedded) === 7, 'embed consumption changed');
 }
 
 {
