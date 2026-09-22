@@ -1521,7 +1521,8 @@ export const phenomenonChoreography: Record<SkillId, PhenomenonChoreographyDef> 
   cleaver:       { emits:['terminal','area'],              accepts:['source','carrier','trail','reverse','collapse'] },
   chain_arc:     { emits:['terminal','path'],              accepts:['source','carrier','trail','reverse','collapse'] },
   orbit_blades:  { emits:['carrier','area'],               accepts:['source','carrier','collapse'] },
-  mortar_bloom:  { emits:['terminal','path','area'],       accepts:['source','carrier','trail','reverse','collapse'] },
+  // Mortar is a delayed impact actor, not a ground-travelling ray: impact is its Carrier.
+  mortar_bloom:  { emits:['terminal','carrier','area'],    accepts:['source','carrier','trail','reverse','collapse'] },
   sentry:        { emits:['carrier','area'],               accepts:['source','carrier','trail','reverse','collapse'] },
   toxic_mist:    { emits:['area'],                         accepts:['source','carrier','trail','collapse'] },
   mass_driver:   { emits:['terminal','path','carrier'],    accepts:['source','carrier','trail','reverse','collapse'] },
