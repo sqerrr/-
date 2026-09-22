@@ -4977,11 +4977,14 @@ export class Simulation {
     }
 
     if (binding.mode === 'reverse' && e.kind === 'terminal') {
-      const path = binding.path.length >= 2 ? binding.path : [binding.origin, { x: e.x, z: e.z }],
-        end = path[path.length - 1],
-        prev = path[Math.max(0, path.length - 2)],
-        dx = prev.x - end.x,
-        dz = prev.z - end.z;
+      // Reverse consumes a traversed route. A terminal without path data is teleport-like
+      // information and must never be converted into an imaginary line.
+      if(binding.path.length<2){binding.done=true;return;}
+      const path=binding.path,
+        end=path[path.length-1],
+        prev=path[path.length-2],
+        dx=prev.x-end.x,
+        dz=prev.z-end.z;
       if (this.castCatalystPayload(binding, end.x, end.z, dx, dz)) {
         binding.firedCount = 1;
         binding.done = true;
