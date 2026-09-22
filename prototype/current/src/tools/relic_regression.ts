@@ -5,9 +5,10 @@
  */
 import { itemOrder, items } from '../content/items.js';
 import { Simulation } from '../core/simulation.js';
+import { SimulationHarness } from '../testing/simulationHarness.js';
 import type { ItemCategory } from '../core/types.js';
 
-function assert(cond: boolean, msg: string) {
+function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error('relic-regression: ' + msg);
 }
 
@@ -28,23 +29,25 @@ for (const [cat, n] of byCategory) assert(n >= 2, `category ${cat} has only ${n}
 
 // --- taking one changes the taker ----------------------------------------
 {
-  const sim: any = new Simulation({ seed: 4242, hz: 60 });
+  const h = SimulationHarness.create({ seed: 4242, hz: 60 });
+  const sim = h.sim;
   const before = sim.armor;
-  sim.takeRelic({ id: 1, x: 0, z: 0, item: 'plating', bornAt: 0 });
+  h.takeRelic({ id: 1, x: 0, z: 0, item: 'plating', bornAt: 0 });
   assert(sim.armor > before, 'plating did not add armour');
-  assert(sim.heldItems.length === 1, 'the haul did not record the relic');
+  assert(Number(sim.heldItems.length) === 1, 'the haul did not record the relic');
   const hpBefore = sim.maxHp;
-  sim.takeRelic({ id: 2, x: 0, z: 0, item: 'vitality', bornAt: 0 });
+  h.takeRelic({ id: 2, x: 0, z: 0, item: 'vitality', bornAt: 0 });
   assert(sim.maxHp > hpBefore, 'vitality did not raise the ceiling');
   // D14 forbids slots, so a second copy of the same relic must still count.
-  sim.takeRelic({ id: 3, x: 0, z: 0, item: 'plating', bornAt: 0 });
-  assert(sim.heldItems.length === 3, 'a repeated relic was swallowed instead of stacking');
+  h.takeRelic({ id: 3, x: 0, z: 0, item: 'plating', bornAt: 0 });
+  assert(Number(sim.heldItems.length) === 3, 'a repeated relic was swallowed instead of stacking');
 }
 
 // --- an elite that reaches one first is changed too -----------------------
 {
-  const sim: any = new Simulation({ seed: 777, hz: 60 });
-  let elite: any = null;
+  const h = SimulationHarness.create({ seed: 777, hz: 60 });
+  const sim = h.sim;
+  let elite = h.entities.find((e) => e.kind === 'elite');
   // A standing driver is dead long before the first elite arrives, so it has to keep moving.
   for (let i = 0; i < 60 * 90 && !elite; i++) {
     const t = i / 60;
@@ -55,14 +58,14 @@ for (const [cat, n] of byCategory) assert(n >= 2, `category ${cat} has only ${n}
       aimZ: Math.sin(t * 0.7)
     });
     if (sim.hasChoice) sim.chooseReward(0);
-    elite = sim.ents.find((e: any) => e.kind === 'elite');
+    elite = h.entities.find((e) => e.kind === 'elite');
   }
-  assert(!!elite, 'no elite appeared in ninety seconds');
+  assert(elite, 'no elite appeared in ninety seconds');
   const hpBefore = elite.maxHp;
-  sim.giveEliteRelic(elite, { id: 9, x: elite.x, z: elite.z, item: 'plating', bornAt: 0 });
+  h.giveEliteRelic(elite, { id: 9, x: elite.x, z: elite.z, item: 'plating', bornAt: 0 });
   assert(elite.maxHp > hpBefore, 'plating did not increase elite durability');
   const seekBefore = elite.relicSeekMul ?? 1;
-  sim.giveEliteRelic(elite, { id: 10, x: elite.x, z: elite.z, item: 'beacon', bornAt: 0 });
+  h.giveEliteRelic(elite, { id: 10, x: elite.x, z: elite.z, item: 'beacon', bornAt: 0 });
   assert((elite.relicSeekMul ?? 1) > seekBefore, 'beacon did not make the elite hunt relics harder');
 
   // Every catalogue item must have a concrete enemy-side consequence. Categories are only
@@ -75,14 +78,15 @@ for (const [cat, n] of byCategory) assert(n >= 2, `category ${cat} has only ${n}
   });
   for (const id of itemOrder) {
     const before=sig();
-    sim.giveEliteRelic(elite, { id: 11, x: elite.x, z: elite.z, item: id, bornAt: 0 });
+    h.giveEliteRelic(elite, { id: 11, x: elite.x, z: elite.z, item: id, bornAt: 0 });
     assert(sig() !== before, id + ' gave the elite no mechanical consequence');
   }
 }
 
 // --- they appear, they stay put, and they are reachable -------------------
 {
-  const sim: any = new Simulation({ seed: 12345, hz: 60 });
+  const h = SimulationHarness.create({ seed: 12345, hz: 60 });
+  const sim = h.sim;
   let seen = 0;
   let maxAtOnce = 0;
   let takenByElites = 0;
@@ -92,10 +96,10 @@ for (const [cat, n] of byCategory) assert(n >= 2, `category ${cat} has only ${n}
     // reaches a single one and the hero side of the shared source goes untested.
     let mx = Math.cos(t * 0.7),
       mz = Math.sin(t * 0.7);
-    if (sim.relics.length) {
-      let best = sim.relics[0],
+    if (h.relics.length) {
+      let best = h.relics[0],
         bd = Infinity;
-      for (const r of sim.relics) {
+      for (const r of h.relics) {
         const d = Math.hypot(r.x - sim.px, r.z - sim.pz);
         if (d < bd) {
           bd = d;
@@ -109,8 +113,8 @@ for (const [cat, n] of byCategory) assert(n >= 2, `category ${cat} has only ${n}
     sim.step({ moveX: mx, moveZ: mz, aimX: mx, aimZ: mz });
     if (sim.hasChoice) sim.chooseReward(0);
     for (const e of sim.events) if (e.type === 'RelicAppeared') seen++;
-    for (const r of sim.relics) assert(!sim.blocked(r.x, r.z, 0.9), 'a relic sat inside a rock');
-    maxAtOnce = Math.max(maxAtOnce, sim.relics.length);
+    for (const r of h.relics) assert(!h.blocked(r.x, r.z, 0.9), 'a relic sat inside a rock');
+    maxAtOnce = Math.max(maxAtOnce, h.relics.length);
     if (sim.php <= 0) break;
   }
   takenByElites = sim.metrics.relicsTakenByElites;

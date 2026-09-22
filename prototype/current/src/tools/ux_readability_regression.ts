@@ -1,21 +1,20 @@
 declare const process: { exit(code?: number): never };
 import { readFileSync } from 'node:fs';
-import { Simulation } from '../core/simulation.js';
+import { EncounterDirector } from '../core/encounterDirector.js';
+import { Rng } from '../core/rng.js';
+import { SimulationHarness } from '../testing/simulationHarness.js';
 
 function assert(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error('ux-readability-regression: ' + message);
 }
 
-const scaleSim:any = new Simulation({ seed: 90125, hz: 60, runDuration: 480, mode: 'clean' });
-const samples = [120,240,360,480].map((sec) => {
-  scaleSim.tick = sec * scaleSim.hz;
-  return {
-    sec,
-    hp: scaleSim.worldScale(),
-    damage: scaleSim.damageScale(),
-    spawn: scaleSim.spawnPressure()
-  };
-});
+const pacing = new EncounterDirector(new Rng(90125));
+const samples = [120,240,360,480].map((sec) => ({
+  sec,
+  hp: pacing.worldScale(sec,480),
+  damage: pacing.damageScale(sec,480),
+  spawn: pacing.spawnPressure(sec,480)
+}));
 for (let i=1;i<samples.length;i++) {
   assert(samples[i].hp > samples[i-1].hp, 'world HP pressure must rise through the run');
   assert(samples[i].damage > samples[i-1].damage, 'enemy damage must rise through the run');
@@ -26,20 +25,19 @@ assert(Math.abs(samples[3].damage - 1.8064) < 0.01, 'end-run damage scale drifte
 
 const chassis = ['hunter','architect','broodmaker','bulwark','harvester','shepherd'] as const;
 for (const name of chassis) {
-  const sim:any = new Simulation({ seed: 4100 + name.length, hz:60, runDuration:480, mode:'clean' });
-  sim.spawnElite();
-  const e = sim.ents.find((x:any)=>x.kind==='elite');
+  const h = SimulationHarness.create({ seed: 4100 + name.length, hz:60, runDuration:480, mode:'clean' });
+  const e = h.spawnElite();
   assert(e, name + ': no elite subject');
   e.chassis=name; e.affix='none'; e.cooldown=0; e.eliteAction=undefined; e.adaptStage=0;
-  e.x=0; e.z=0; sim.px=5; sim.pz=0; sim.playerVX=0; sim.playerVZ=0;
-  sim.updateEliteAI(e,e.speed,5,1,0);
+  e.x=0; e.z=0; h.setPlayerPosition(5,0); h.setPlayerVelocity(0,0);
+  h.updateEliteAI(e,e.speed,5,1,0);
   assert(e.eliteAction || e.adaptStage>0, name + ': chassis has no authored active pattern');
 }
 
-const affixSim:any = new Simulation({seed:77123,hz:60,runDuration:480,mode:'clean'});
-affixSim.tick = 360 * affixSim.hz;
+const affixHarness = SimulationHarness.create({seed:77123,hz:60,runDuration:480,mode:'clean'});
+affixHarness.setTime(360);
 const late = new Set<string>();
-for(let i=0;i<32;i++) late.add(affixSim.rollEliteAffix('uplifted'));
+for(let i=0;i<32;i++) late.add(affixHarness.rollEliteAffix('uplifted'));
 assert([...late].some(x=>x!=='none'),'late uplifted elites still never receive affixes');
 
 const renderer=readFileSync('src/renderer/webgl2.ts','utf8');
