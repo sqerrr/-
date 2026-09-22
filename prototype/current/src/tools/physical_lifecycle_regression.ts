@@ -178,6 +178,29 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   }
 }
 
+// A Catalyst-created activation stores the resolved world origin, not a pre-freeOf point inside cover.
+{
+  const sim:any=new Simulation({seed:96555,hz:60,benchmark:true,mode:'clean'});
+  sim.configureBenchmarkLoadout({slots:['cleaver','rail_spear','toxic_mist'],catalysts:['source','source'],level:7});
+  sim.px=0;sim.pz=0;sim.aimX=1;sim.aimZ=0;sim.ents=[];
+  sim.obstacles=[{id:99101,x:5,z:0,radius:2,hp:-1,maxHp:-1,destructible:false}];
+  sim.buildObstacleGrid();
+  const parent:any={
+    producerActivationId:1,fromSlot:0,toSlot:1,fromSkill:'cleaver',toSkill:'rail_spear',
+    mode:'source',createdAt:sim.time,expiresAt:sim.time+5,origin:{x:0,z:0},path:[],areaPoints:[],
+    nextTrailDistance:1.35,firedCount:0,carrierKeys:new Set(),pathCarrierKey:null,done:false
+  };
+  sim.events.length=0;
+  assert(sim.castCatalystPayload(parent,5,0),'cascade fixture could not cast remote B');
+  const cast=sim.events.find((e:any)=>e.type==='SkillActivated'&&e.skill==='rail_spear'),
+    child=sim.catalystBindings.find((b:any)=>b.fromSlot===1&&b.toSlot===2);
+  assert(cast&&child,'remote B did not arm its outgoing Catalyst edge');
+  assert(Math.hypot(child.origin.x-cast.x,child.origin.z-cast.z)<0.01,
+    'B->C lineage origin differs from B resolved world position');
+  assert(Math.hypot(child.origin.x-5,child.origin.z)>=2.27,
+    'B->C lineage retained a point inside solid cover');
+}
+
 // The scheduled right-hand chain beat is consumed; it must not duplicate the reactive payload.
 {
   const sim=fixture('rail_spear','toxic_mist','source');
