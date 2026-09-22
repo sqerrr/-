@@ -1299,7 +1299,10 @@ export class Simulation {
           x:q.x,
           z:q.z,
           radius:q.radius,
-          areaPoints
+          areaPoints,
+          shape:{...impactShape},
+          carrierKind:'impact',
+          carrierId:q.id
         });
       }
       const owner = q.ownerId ? this.ents.find((e) => e.id === q.ownerId) ?? null : null;
@@ -5080,7 +5083,9 @@ export class Simulation {
     }
     // Scheduled coordinates are telegraph/planning data, never proof that the Phenomenon
     // physically reached them. Async projectiles/impacts publish their real terminal later.
-    if (resolvedHits.length) t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
+    // Some skills have an authored spatial terminal independent from the affected bodies.
+    // Tether's anchor is the endpoint even if several enemies are pulled toward it.
+    if (resolvedHits.length && t.skill !== 'tether_drag') t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
     else if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
     if (t.skill === 'mortar_bloom' || t.skill === 'mass_driver' || t.skill === 'shard_fan') {
       t.terminal = null;
