@@ -3881,23 +3881,77 @@ export class Simulation {
   }
 
   private updateOrbitBlades() {
-    const st=this.skillsRuntime.get('orbit_blades');if(!st||!this.isActiveSkill('orbit_blades'))return;
-    this.orbitAcc+=this.dt;if(this.orbitAcc<0.13)return;this.orbitAcc-=0.13;
-    const center=this.orbitCenter(), mut=st.mutation, profile=this.orbitProfile(st,center);
-    const dmg=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36*profile.damageMul;
+    const st=this.skillsRuntime.get('orbit_blades');
+    if(!st||!this.isActiveSkill('orbit_blades'))return;
+    const center=this.orbitCenter(), mut=st.mutation, profile=this.orbitProfile(st,center),
+      damage=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36*profile.damageMul,
+      angularSpeed=mut==='orbit_saw'?2.55:3.4,
+      bladeRadius=mut==='orbit_saw'?0.58:0.42,
+      slot=this.slots.indexOf('orbit_blades');
+
+    // Gameplay uses the same discrete blade positions the renderer uses. There is no hidden
+    // annulus any more: standing on the orbit radius between blades is safe until a blade arrives.
+    const blades:{x:number;z:number;index:number}[]=[];
+    for(let i=0;i<profile.count;i++){
+      const a=this.time*angularSpeed+(i*Math.PI*2)/profile.count;
+      blades.push({
+        x:center.x+Math.cos(a)*profile.radius,
+        z:center.z+Math.sin(a)*profile.radius,
+        index:i
+      });
+    }
     for(const e of this.ents){
-      if(e.hp<=0||this.time-e.orbitHitAt<profile.hitInterval)continue;
-      const d=Math.hypot(e.x-center.x,e.z-center.z);
-      if(Math.abs(d-profile.radius)<0.62){
-        e.orbitHitAt=this.time;let m=dmg;
-        if(mut==='orbit_saw'&&e.kind==='elite')m*=1.9;
-        this.damage(e,m,'orbit_blades',false,center.x,center.z,this.slots.indexOf('orbit_blades'));
-        this.closeDamage+=m;
-        if(this.mutationIs(st,'orbit_sanguine_crown')&&profile.crowd>=5)this.grantBarrier(Math.min(3.2,m*0.02));
+      if(e.hp<=0)continue;
+      const blade=blades.find(b=>circleIntersectsCircle(b.x,b.z,bladeRadius,e.x,e.z,e.radius));
+      if(!blade)continue;
+      if(this.time-e.orbitHitAt<profile.hitInterval)continue;
+      e.orbitHitAt=this.time;
+      let m=damage;
+      if(mut==='orbit_saw'&&e.kind==='elite')m*=1.9;
+      this.damage(e,m,'orbit_blades',false,blade.x,blade.z,slot);
+      this.closeDamage+=m;
+      if(this.orbitActivationId){
+        this.queuePhysicalEvent({
+          activationId:this.orbitActivationId,
+          slot,
+          skill:'orbit_blades',
+          kind:'contact',
+          x:blade.x,
+          z:blade.z,
+          radius:bladeRadius,
+          carrierKind:'orbit',
+          carrierId:blade.index,
+          targetId:e.id
+        });
+      }
+      if(this.mutationIs(st,'orbit_sanguine_crown')&&profile.crowd>=5)
+        this.grantBarrier(Math.min(3.2,m*0.02));
+    }
+    if(this.mutationIs(st,'orbit_aegis_crown')&&this.aegisCharge>=6){
+      this.aegisCharge=0;this.grantBarrier(16);
+      const rr=profile.radius+1.8,shape:CombatShape={kind:'circle',x:center.x,z:center.z,radius:rr};
+      this.combatShape('orbit_aegis_crown',shape,'control');
+      for(const e of this.ents){
+        if(e.hp<=0||!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;
+        const dx=e.x-center.x,dz=e.z-center.z,d=Math.hypot(dx,dz)||1;
+        this.damage(e,22*this.powerBucket(st),'orbit_blades',false,center.x,center.z);
+        e.x+=dx/d*0.75;e.z+=dz/d*0.75;
+      }
+      this.events.push({type:'RareEvent',tick:this.tick,title:'КОРОНА ЭГИДЫ',detail:'Перехваты выпущены ударной волной',x:center.x,z:center.z});
+    }
+    if(this.mutationIs(st,'orbit_phoenix')&&this.time>=this.orbitPhoenixAt){
+      this.orbitPhoenixAt=this.time+1.35;
+      const t=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number((b.markUntil>this.time)||b.kind==='elite')-Number((a.markUntil>this.time)||a.kind==='elite')||Math.hypot(a.x-center.x,a.z-center.z)-Math.hypot(b.x-center.x,b.z-center.z))[0];
+      if(t){
+        const dx=t.x-center.x,dz=t.z-center.z,m=Math.hypot(dx,dz)||1;
+        this.spawnProjectile({
+          x:center.x+dx/m*profile.radius,z:center.z+dz/m*profile.radius,vx:dx/m*8.5,vz:dz/m*8.5,
+          radius:0.28,ttl:2.8,damage:skills.orbit_blades.baseDamage*this.powerBucket(st)*1.25,coverDamage:16,
+          faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:slot,mutation:st.mutation,
+          apotheosis:'orbit_phoenix',rivalConcentration:1,behavior:'returner',returnAt:1.3,phase:0,hitIds:[]
+        });
       }
     }
-    if(this.mutationIs(st,'orbit_aegis_crown')&&this.aegisCharge>=6){this.aegisCharge=0;this.grantBarrier(16);const rr=profile.radius+1.8;this.combatShape('orbit_aegis_crown',{kind:'circle',x:center.x,z:center.z,radius:rr},'control');for(const e of this.ents){const dx=e.x-center.x,dz=e.z-center.z,d=Math.hypot(dx,dz)||1;if(d<rr+e.radius){this.damage(e,22*this.powerBucket(st),'orbit_blades',false,center.x,center.z);e.x+=dx/d*0.75;e.z+=dz/d*0.75;}}this.events.push({type:'RareEvent',tick:this.tick,title:'КОРОНА ЭГИДЫ',detail:'Перехваты выпущены ударной волной',x:center.x,z:center.z});}
-    if(this.mutationIs(st,'orbit_phoenix')&&this.time>=this.orbitPhoenixAt){this.orbitPhoenixAt=this.time+1.35;const t=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number((b.markUntil>this.time)||b.kind==='elite')-Number((a.markUntil>this.time)||a.kind==='elite')||Math.hypot(a.x-center.x,a.z-center.z)-Math.hypot(b.x-center.x,b.z-center.z))[0];if(t){const dx=t.x-center.x,dz=t.z-center.z,m=Math.hypot(dx,dz)||1;this.spawnProjectile({x:center.x+dx/m*profile.radius,z:center.z+dz/m*profile.radius,vx:dx/m*8.5,vz:dz/m*8.5,radius:0.28,ttl:2.8,damage:skills.orbit_blades.baseDamage*this.powerBucket(st)*1.25,coverDamage:16,faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:this.slots.indexOf('orbit_blades'),mutation:st.mutation,apotheosis:'orbit_phoenix',rivalConcentration:1,behavior:'returner',returnAt:1.3,phase:0,hitIds:[]});}}
   }
 
   private effectiveTempo() {
@@ -5626,8 +5680,10 @@ export class Simulation {
   }
 
   private castOrbit(st: SkillRuntime, slot: number, src: CastSource) {
-    // The hero owns a continuously simulated orbit; a rival cannot borrow that global loop.
-    // D41 therefore mirrors the function as a readable ring pulse around the elite.
+    // A hero orbit is a set of continuously simulated blade hitboxes. The activation id tells
+    // Catalyst Carrier which actual blade contact belongs to this chain beat.
+    if(src.faction==='hero' && st.mutation!=='orbit_outbound') this.orbitActivationId=this.currentActivationId;
+    // A rival cannot borrow the hero's global orbit loop; its echo remains an authored pulse.
     if (src.faction === 'rival' || st.mutation === 'orbit_outbound') {
       const r = this.skillRadius(st, src.faction === 'rival' ? 2.8 : 4.6, slot);
       this.combatShape('orbit_blades', { kind: 'circle', x: src.x, z: src.z, radius: r });
