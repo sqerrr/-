@@ -2987,7 +2987,7 @@ export class Simulation {
           if (combatShapeIntersectsCircle(shape,this.px,this.pz,HERO_HIT_RADIUS)) {
             this.damageHero(
               f.dps * 0.25,
-              f.source ?? (f.kind + '_field'),
+              (f.source ?? (f.kind + '_field')) as DamageSourceId,
               owner,
               f.rivalConcentration ?? 1
             );
