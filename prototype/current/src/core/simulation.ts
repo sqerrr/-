@@ -701,7 +701,6 @@ export class Simulation {
   private currentActivationId = 0;
   private orbitActivationId = 0;
   private catalystBindings: CatalystBinding[] = [];
-  private catalystDeferredCycle = new Map<number, number>();
   private physicalEvents: PhysicalEvent[] = [];
   private drainingPhysicalEvents = false;
   private activationPending = new Map<number, number>();
@@ -4299,12 +4298,17 @@ export class Simulation {
     const st = this.skillsRuntime.get(id);
     if (!st) return;
 
-    // A live Catalyst 2.x edge turns the right node into a physical payload for this cycle.
-    // Its ordinary beat is consumed, but the payload itself fires from a real contact/impact/path event.
-    if (this.catalystDeferredCycle.get(slot) === this.cycle) {
-      this.catalystDeferredCycle.delete(slot);
+    // A compatible physical Catalyst owns the right node completely. B is a payload of A,
+    // not an independent clocked cast. This must hold across cycle boundaries: a slow projectile
+    // may reach its terminal long after the beat that armed the edge.
+    const incomingPhysical = this.incomingCatalyst(slot),
+      producerSkill = slot > 0 ? this.slots[slot - 1] : undefined;
+    if (
+      this.isPhysicalCatalyst(incomingPhysical) &&
+      producerSkill &&
+      catalystPairCompatible(incomingPhysical, producerSkill, id)
+    )
       return;
-    }
 
     this.currentSlot = slot;
     this.currentHits.clear();
@@ -4644,7 +4648,6 @@ export class Simulation {
       done: false
     };
     this.catalystBindings.push(binding);
-    this.catalystDeferredCycle.set(toSlot, this.cycle);
   }
 
   private registerAsyncPhysical(activationId: number) {
