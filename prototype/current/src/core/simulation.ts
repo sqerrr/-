@@ -3712,6 +3712,19 @@ export class Simulation {
           }
           try {
             this.damage(t, dmg, 'sentry', true, c.x, c.z, c.sourceSlot);
+            if(c.faction==='hero'&&c.activationId){
+              this.queuePhysicalEvent({
+                activationId:c.activationId,
+                slot:c.sourceSlot,
+                skill:'sentry',
+                kind:'contact',
+                x:c.x,
+                z:c.z,
+                carrierKind:'construct',
+                carrierId:c.id,
+                targetId:t.id
+              });
+            }
           } finally {
             this.castOwner = prevOwner;
             this.castRivalConcentration = prevC;
@@ -3782,7 +3795,8 @@ export class Simulation {
           source: 'sentry',
           sourceSlot: battery[0].sourceSlot,
           intent: 'damage',
-          telegraph: 'sentry_battery_beacon'
+          telegraph: 'sentry_battery_beacon',
+          activationId: battery[0].activationId
         });
       }
     }
