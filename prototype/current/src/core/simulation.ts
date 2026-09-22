@@ -402,6 +402,7 @@ type CatalystBinding = {
   mode: 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse';
   createdAt: number;
   expiresAt: number;
+  origin: ChoreographyPoint;
   path: ChoreographyPoint[];
   areaPoints: ChoreographyPoint[];
   nextTrailDistance: number;
@@ -4608,11 +4609,16 @@ export class Simulation {
     this.currentActivationId = id;
     this.activationMeta.set(id, { skill, slot });
     this.activationLastPoint.set(id, { x: this.px, z: this.pz });
-    this.armOutgoingPhysicalCatalyst(slot, skill, id);
+    this.armOutgoingPhysicalCatalyst(slot, skill, id, {x:this.px,z:this.pz});
     return id;
   }
 
-  private armOutgoingPhysicalCatalyst(fromSlot: number, fromSkill: SkillId, activationId: number) {
+  private armOutgoingPhysicalCatalyst(
+    fromSlot: number,
+    fromSkill: SkillId,
+    activationId: number,
+    origin: ChoreographyPoint
+  ) {
     const catalyst = this.catalysts[fromSlot] ?? null,
       toSlot = fromSlot + 1,
       toSkill = this.slots[toSlot];
@@ -4627,6 +4633,7 @@ export class Simulation {
       mode: catalyst,
       createdAt: this.time,
       expiresAt: this.time + Math.max(6, this.cycleDuration() * 5),
+      origin:{...origin},
       path: [],
       areaPoints: [],
       nextTrailDistance: toSkill === 'sentry' ? 1.8 : 1.35,
@@ -4727,7 +4734,7 @@ export class Simulation {
     this.activationMeta.set(activationId, { skill: binding.toSkill, slot: binding.toSlot });
     this.activationLastPoint.set(activationId, { x, z });
     this.beginChoreographyTrace(binding.toSkill);
-    this.armOutgoingPhysicalCatalyst(binding.toSlot, binding.toSkill, activationId);
+    this.armOutgoingPhysicalCatalyst(binding.toSlot, binding.toSkill, activationId, {x,z});
     this.metrics.activations++;
     const src = this.choreographySource(x, z, aimX, aimZ);
     this.castWithTrace(binding.toSkill, st, binding.toSlot, src);
@@ -4877,7 +4884,7 @@ export class Simulation {
       if (this.castCatalystPayload(binding, e.x, e.z)) {
         binding.firedCount = 1;
         binding.done = true;
-        const origin = binding.path[0] ?? { x: e.x, z: e.z };
+        const origin = binding.path[0] ?? binding.origin;
         this.emitChoreography('source', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [origin, { x: e.x, z: e.z }]);
       }
       return;
@@ -4916,7 +4923,7 @@ export class Simulation {
     }
 
     if (binding.mode === 'reverse' && e.kind === 'terminal') {
-      const path = binding.path.length >= 2 ? binding.path : [{ x: e.x, z: e.z }, { x: e.x - this.aimX, z: e.z - this.aimZ }],
+      const path = binding.path.length >= 2 ? binding.path : [binding.origin, { x: e.x, z: e.z }],
         end = path[path.length - 1],
         prev = path[Math.max(0, path.length - 2)],
         dx = prev.x - end.x,
