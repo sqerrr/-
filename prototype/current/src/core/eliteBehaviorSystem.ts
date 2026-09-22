@@ -40,7 +40,7 @@ export interface EliteBehaviorPort {
 export class EliteBehaviorSystem {
   constructor(private readonly port: EliteBehaviorPort) {}
 
-  private patternCooldown(base: number, entity: Ent) {
+  patternCooldown(base: number, entity: Ent) {
     const t = Math.min(1, this.port.time() / this.port.runDuration);
     const rarity = entity.rarity === 'legendary' ? 0.72 : entity.rarity === 'uplifted' ? 0.86 : 1;
     return Math.max(1.2, base * (1 - 0.22 * t) * rarity * (entity.relicGapMul ?? 1));
