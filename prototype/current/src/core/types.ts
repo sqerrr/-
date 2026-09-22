@@ -104,6 +104,7 @@ export type BossPatternId = 'sweep' | 'rupture' | 'charge';
 export type DamageSourceId =
   | SkillId
   | `echo_${SkillId}`
+  | `${'ink' | 'fire' | 'frost' | 'arc' | 'toxic' | 'architect'}_field`
   | 'contact'
   | 'temporal_shift'
   | 'brood_pulse'
