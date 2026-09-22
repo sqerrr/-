@@ -48,7 +48,7 @@ Consequences:
 - **Source** waits for a real terminal.
 - **Carrier** fires on an actual projectile/blade/turret/impact contact, not actor creation.
 - **Trail** grows behind an actually travelled route and cannot place B ahead of a moving A.
-- **Reverse** waits for a real endpoint and uses that activation's real origin/path.
+- **Reverse** requires a real traversed path plus terminal; if A has no path (currently Mortar), the edge is incompatible rather than fabricated.
 - **Collapse** uses exact circle/sector hitboxes instead of one bounding circle over disconnected areas.
 
 `src/core/geometry.ts` is the shared source of truth for circle/ray/sector overlap, swept moving-circle collision and polyline sampling.
@@ -58,6 +58,10 @@ Mortar has no simulated shell path in the current core, so it truthfully emits *
 Orbit gameplay now uses the same discrete blade positions that presentation shows. Standing on the orbit radius between blades is not a hit.
 
 The legacy next-beat `executeChoreography()` path was removed.
+
+Compatible B nodes are event-owned across cycle boundaries. Persistent producers keep Catalyst lineage for the lifetime of their real physical actors, not a fixed timeout.
+
+The physical lifecycle suite also exhausts **240 mutation × advertised-signal cases** so a mutation cannot silently break a base Phenomenon's Catalyst contract.
 
 ## Catalyst 2.x
 
@@ -69,7 +73,7 @@ Current Discovery contains five physical operators:
 - **Обратный ход** — B begins at A's actual terminal and faces back;
 - **Схлопывание** — B consumes A's exact physical area and converges inward.
 
-Compatibility is intentionally partial. The exhaustive lifecycle regression currently exercises **280 compatible ordered pairs**, and it never manually invokes the right-hand Phenomenon to manufacture success.
+Compatibility is intentionally partial. The exhaustive lifecycle regression currently exercises **266 compatible ordered pairs**, and it never manually invokes the right-hand Phenomenon to manufacture success.
 
 Old Catalyst 1.x definitions remain executable only for old save/replay compatibility and are not offered by Discovery.
 
