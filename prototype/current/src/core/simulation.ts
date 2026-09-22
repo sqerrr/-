@@ -28,6 +28,9 @@ import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCir
 import { items, itemOrder, itemCategoryName, itemRivalEffect } from '../content/items.js';
 import type {
   ItemId,
+  BossPatternId,
+  DamageSourceId,
+  EliteActionId,
   DoctrineId,
   DoctrineRuntime,
   CatalystId,
@@ -75,7 +78,7 @@ type Ent = {
   state: EnemyState;
   stateTimer: number;
   /** Authored elite chassis action, separate from generic mob/affix state. */
-  eliteAction?: string;
+  eliteAction?: EliteActionId;
   eliteActionUntil?: number;
   cooldown: number;
   lockedX: number;
@@ -99,7 +102,11 @@ type Ent = {
   adaptCooldown: number;
   adaptStage: number;
   bossPhase: number;
-  bossPattern: string;
+  bossPattern: BossPatternId | '';
+  /** Bulwark remembers the previous hero damage family; this is not a boss attack pattern. */
+  prismMemory?: SkillId | 'derived';
+  /** Shepherd adaptation is separate from Warden attack sequencing. */
+  shepherdMode?: 'null' | 'condensed' | 'fractured' | 'migratory';
   orderX: number;
   orderZ: number;
   orderUntil: number;
@@ -2831,7 +2838,7 @@ export class Simulation {
     source: string,
     shape: CombatShape,
     duration: number,
-    order: 'predator' | 'veil' | 'replicate' | 'prism' | 'null' | 'metamorph'
+    order: EliteActionId
   ) {
     e.eliteAction = order;
     e.eliteActionUntil = this.time + duration;
@@ -3007,10 +3014,10 @@ export class Simulation {
         e.cooldown = this.elitePatternCooldown(5.0, e);
         return;
       }
-      if (e.bossPattern === 'condensed') {
+      if (e.shepherdMode === 'condensed') {
         const tx = this.px + this.playerVX * 0.35, tz = this.pz + this.playerVZ * 0.35;
         this.steerTo(e, tx, tz, speed, 1.55);
-      } else if (e.bossPattern === 'migratory') {
+      } else if (e.shepherdMode === 'migratory') {
         const side = e.id % 2 ? 1 : -1, tx = this.px - nz * side * 4.8, tz = this.pz + nx * side * 4.8;
         this.steerTo(e, tx, tz, speed, 1.22);
       } else if (d > 4.8) this.steerTo(e, this.px, this.pz, speed, 1.05);
@@ -3190,7 +3197,7 @@ export class Simulation {
     }
   }
 
-  private hitPlayer(amount: number, attacker: Ent | null = null, source = 'contact') {
+  private hitPlayer(amount: number, attacker: Ent | null = null, source: DamageSourceId = 'contact') {
     if (amount <= 0 || this.php <= 0) return;
     if (this.time < this.dashIFramesUntil) {
       if (!this.dashWindowSaved) {
@@ -5899,8 +5906,8 @@ export class Simulation {
     if (e.kind === 'elite' && !e.boss) {
       if (e.chassis === 'bulwark' && (skill || this.activationDerived)) {
         const key = skill ? skill.id : 'derived';
-        if (!e.bossPattern) {
-          e.bossPattern = key;
+        if (!e.prismMemory) {
+          e.prismMemory = key;
           this.events.push({
             type: 'EliteOrder',
             tick: this.tick,
@@ -5909,9 +5916,9 @@ export class Simulation {
             x: e.x,
             z: e.z
           });
-        } else if (e.bossPattern === key) actual *= 0.28;
+        } else if (e.prismMemory === key) actual *= 0.28;
         else {
-          e.bossPattern = key;
+          e.prismMemory = key;
           actual *= 1.34;
           e.exposedUntil = this.time + 0.45;
         }
@@ -5942,13 +5949,13 @@ export class Simulation {
           this.spawnReplicant(e);
         }
       }
-      if (e.chassis === 'shepherd' && !e.bossPattern && e.hp - actual <= e.maxHp * 0.68) {
+      if (e.chassis === 'shepherd' && !e.shepherdMode && e.hp - actual <= e.maxHp * 0.68) {
         const recent = this.damageSamples.filter((q) => q.t >= this.time - 5),
           sum = recent.reduce((a, q) => a + q.amount, 0),
           derived = recent.reduce((a, q) => a + (q.derived ? q.amount : 0), 0),
           rate = recent.length / 5,
           avg = recent.length ? sum / recent.length : 0;
-        e.bossPattern =
+        e.shepherdMode =
           derived / Math.max(1, sum) > 0.42
             ? 'null'
             : rate > 9
@@ -5956,7 +5963,7 @@ export class Simulation {
               : avg > 95 * this.corePower()
                 ? 'fractured'
                 : 'migratory';
-        if (e.bossPattern === 'fractured') {
+        if (e.shepherdMode === 'fractured') {
           for (let i = 0; i < 3; i++) this.spawnReplicant(e);
         }
         this.events.push({
@@ -5969,7 +5976,7 @@ export class Simulation {
           count: recent.length
         });
       }
-      if (e.chassis === 'shepherd' && e.bossPattern === 'null' && this.activationDerived)
+      if (e.chassis === 'shepherd' && e.shepherdMode === 'null' && this.activationDerived)
         actual *= 0.48;
     }
     if (source !== 'ember_lance' && e.markUntil > this.time) {
