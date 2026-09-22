@@ -26,6 +26,7 @@ import { fnv1a } from './hash.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
 import { EncounterDirector } from './encounterDirector.js';
 import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
+import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
 import { EntityStore } from './entityStore.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { Rng } from './rng.js';
@@ -278,6 +279,7 @@ export class Simulation {
   private encounterDirector!: EncounterDirector;
   private eliteBehavior!: EliteBehaviorSystem;
   private bossBehavior!: BossBehaviorSystem;
+  private enemyBehavior!: EnemyBehaviorSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -588,6 +590,24 @@ export class Simulation {
           x: entity.x,
           z: entity.z
         })
+    });
+    this.enemyBehavior = new EnemyBehaviorSystem({
+      time: () => this.time,
+      dt: () => this.dt,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      playerVX: () => this.playerVX,
+      playerVZ: () => this.playerVZ,
+      steerTo: (entity, x, z, speed, multiplier = 1) =>
+        this.steerTo(entity, x, z, speed, multiplier),
+      lineOfSight: (x0, z0, x1, z1, radius) =>
+        this.lineOfSight(x0, z0, x1, z1, radius),
+      getAliveEntity: (id) => this.entityStore.getAlive(id),
+      entities: () => this.ents,
+      fields: () => this.fields,
+      addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
+      randomRange: (min, max) => this.rng.range(min, max),
+      damageScale: () => this.damageScale()
     });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
@@ -2217,135 +2237,8 @@ export class Simulation {
           }
         }
       }
-      if (e.kind !== 'elite' && e.orderUntil > this.time) {
-        this.steerTo(e, e.orderX, e.orderZ, speed, 1.15);
-        dx = this.px - e.x;
-        dz = this.pz - e.z;
-        d = Math.hypot(dx, dz) || 1;
-      } else if (e.kind === 'footnote') {
-        // Baseline swarm pressure: no projectile, just a readable body entering the player's space.
-        if (d > 0.58) {
-          e.x += nx * speed * dt;
-          e.z += nz * speed * dt;
-        }
-      } else if (e.kind === 'bookmark') {
-        if (e.state === 'telegraph') {
-          if (e.stateTimer <= 0) {
-            e.state = 'dash';
-            e.stateTimer = 0.58;
-          }
-        } else if (e.state === 'dash') {
-          e.x += e.lockedX * 7.5 * dt;
-          e.z += e.lockedZ * 7.5 * dt;
-          if (e.stateTimer <= 0) {
-            e.state = 'normal';
-            e.cooldown = 2.9;
-          }
-        } else if (
-          e.cooldown <= 0 &&
-          d > 3 &&
-          d < 12 &&
-          this.lineOfSight(e.x, e.z, this.px, this.pz, 0.12)
-        ) {
-          e.state = 'telegraph';
-          e.stateTimer = 0.72;
-          e.lockedX = nx;
-          e.lockedZ = nz;
-          e.cooldown = 99;
-        } else if (d > 0.8) {
-          e.x += nx * speed * dt;
-          e.z += nz * speed * dt;
-        }
-      } else if (e.kind === 'binder') {
-        if (e.linkTimer <= 0) {
-          e.linkTimer = 1.0;
-          let best: Ent | undefined,
-            bestD = 999;
-          for (const o of this.ents) {
-            if (o === e || o.kind === 'binder' || o.hp <= 0) continue;
-            const od = Math.hypot(o.x - e.x, o.z - e.z);
-            if (od < 5.2 && od < bestD) {
-              bestD = od;
-              best = o;
-            }
-          }
-          e.linkedTo = best?.id ?? 0;
-        }
-        const target = this.entityStore.getAlive(e.linkedTo);
-        if (target) {
-          const td = Math.hypot(target.x - e.x, target.z - e.z) || 1;
-          if (td > 3) this.steerTo(e, target.x, target.z, speed);
-        } else if (d > 5) this.steerTo(e, this.px, this.pz, speed);
-      } else if (e.kind === 'redactor') {
-        let best: Field | undefined,
-          bestD = 999;
-        for (const f of this.fields) {
-          if (f.kind === 'ink' || f.kind === 'index' || f.kind === 'architect') continue;
-          const fd = Math.hypot(f.x - e.x, f.z - e.z);
-          if (fd < bestD) {
-            bestD = fd;
-            best = f;
-          }
-        }
-        if (best && bestD < 8) {
-          if (bestD > 1.4) this.steerTo(e, best.x, best.z, speed);
-          if (e.cooldown <= 0 && bestD < 2.5) {
-            best.ttl = Math.min(best.ttl, 0.25);
-            e.cooldown = 2.8;
-          }
-        } else if (d > 4) this.steerTo(e, this.px, this.pz, speed);
-      } else if (e.kind === 'indexer') {
-        if (d > 7.5) this.steerTo(e, this.px, this.pz, speed);
-        else if (d < 5.2) {
-          e.x -= nx * speed * 0.55 * dt;
-          e.z -= nz * speed * 0.55 * dt;
-        }
-        if (e.cooldown <= 0) {
-          e.cooldown = 4.2;
-          const pm = Math.hypot(this.playerVX, this.playerVZ),
-            vx = pm > 0.1 ? this.playerVX / pm : nx,
-            vz = pm > 0.1 ? this.playerVZ / pm : nz;
-          e.lockedX = this.px + vx * 3.2;
-          e.lockedZ = this.pz + vz * 3.2;
-          this.fields.push({
-            id: this.nextId++,
-            x: e.lockedX,
-            z: e.lockedZ,
-            radius: 1.25,
-            ttl: 2.8,
-            kind: 'index',
-            dps: 0,
-            tickAcc: 0
-          });
-          for (const o of this.ents) {
-            if (o === e || o.kind === 'elite' || o.hp <= 0) continue;
-            if (Math.hypot(o.x - e.x, o.z - e.z) < 7) {
-              o.orderX = e.lockedX;
-              o.orderZ = e.lockedZ;
-              o.orderUntil = this.time + 2.8;
-            }
-          }
-        }
-      } else if (e.kind === 'inkblot') {
-        if (d > 0.75) this.steerTo(e, this.px, this.pz, speed);
-        if (e.cooldown <= 0) {
-          e.cooldown = 4.0 + this.rng.range(0, 0.8);
-          this.fields.push({
-            id: this.nextId++,
-            x: e.x,
-            z: e.z,
-            radius: 1.15,
-            ttl: 3.2,
-            kind: 'ink',
-            dps: 14 * this.damageScale(),
-            tickAcc: 0
-          });
-        }
-      } else if (e.kind === 'marginwalker') {
-        const side = e.id % 2 ? 1 : -1,
-          tx = this.px - nz * side * 3.5,
-          tz = this.pz + nx * side * 3.5;
-        this.steerTo(e, tx, tz, speed, 1.08);
+      if (e.kind !== 'elite') {
+        this.enemyBehavior.update(e, speed, d, nx, nz);
       } else if (e.kind === 'elite' && !e.boss && this.steerEliteToRelic(e, speed, d)) {
         // Looting is a temporary tactical job. Contact damage below still applies if the hero intercepts it.
       } else if (e.kind === 'elite') {
