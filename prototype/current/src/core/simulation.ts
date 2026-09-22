@@ -3252,6 +3252,7 @@ export class Simulation {
     const alive: Field[] = [];
     for (const f of this.fields) {
       f.ttl -= this.dt;
+      if(f.ttl<=0)continue;
       f.tickAcc += this.dt;
       const compatibilityRival = f.kind === 'ink' || f.kind === 'architect';
       const faction: CastFaction = f.faction ?? (compatibilityRival ? 'rival' : 'hero');
@@ -3354,7 +3355,7 @@ export class Simulation {
         f.insideIds=inside;
       }
 
-      if (f.ttl > 0) alive.push(f);
+      alive.push(f);
     }
     this.fields = alive;
   }
@@ -3687,6 +3688,10 @@ export class Simulation {
     const alive: Construct[] = [];
     for (const c of this.constructs) {
       c.ttl -= this.dt;
+      if(c.ttl<=0){
+        if(c.activationId)this.finishAsyncPhysical(c.activationId,c.x,c.z);
+        continue;
+      }
       c.cooldown -= this.dt;
       const owner = c.ownerId ? this.ents.find((e) => e.id === c.ownerId) ?? null : null;
       const followX = c.faction === 'rival' && owner ? owner.x : this.px;
@@ -3799,8 +3804,7 @@ export class Simulation {
             this.grantBarrier(1.4);
         }
       }
-      if (c.ttl > 0) alive.push(c);
-      else if(c.activationId)this.finishAsyncPhysical(c.activationId,c.x,c.z);
+      alive.push(c);
     }
     this.constructs = alive;
 
