@@ -703,6 +703,7 @@ export class Simulation {
   private physicalEvents: PhysicalEvent[] = [];
   private drainingPhysicalEvents = false;
   private activationPending = new Map<number, number>();
+  private activationTerminalSeen = new Set<number>();
   private activationLastPoint = new Map<number, ChoreographyPoint>();
   private activationMeta = new Map<number, { skill: SkillId; slot: number }>();
   private orbitChoreoUntil = -1;
@@ -4653,7 +4654,7 @@ export class Simulation {
     }
     this.activationPending.delete(activationId);
     const meta = this.activationMeta.get(activationId);
-    if (meta)
+    if (meta && !this.activationTerminalSeen.has(activationId))
       this.queuePhysicalEvent({
         activationId,
         slot: meta.slot,
@@ -4667,6 +4668,7 @@ export class Simulation {
   private queuePhysicalEvent(e: PhysicalEvent) {
     if (!e.activationId) return;
     this.physicalEvents.push(e);
+    if(e.kind==='terminal') this.activationTerminalSeen.add(e.activationId);
     this.activationLastPoint.set(e.activationId, { x: e.x, z: e.z });
   }
 
