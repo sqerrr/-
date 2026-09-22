@@ -24,6 +24,7 @@ import {
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
 import { EncounterDirector } from './encounterDirector.js';
+import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
 import { EntityStore } from './entityStore.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { Rng } from './rng.js';
@@ -274,6 +275,7 @@ export class Simulation {
   };
   private rng: Rng;
   private encounterDirector!: EncounterDirector;
+  private eliteBehavior!: EliteBehaviorSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -498,6 +500,47 @@ export class Simulation {
     this.worldRng = new Rng((cfg.seed ^ 0x27d4eb2f) >>> 0);
     this.relicRng = new Rng((cfg.seed ^ 0x6a09e667) >>> 0);
     this.runDuration = cfg.runDuration ?? 480;
+    this.eliteBehavior = new EliteBehaviorSystem({
+      runDuration: this.runDuration,
+      world: this.world,
+      time: () => this.time,
+      tick: () => this.tick,
+      dt: () => this.dt,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      playerVX: () => this.playerVX,
+      playerVZ: () => this.playerVZ,
+      hasEcho: (entityId) => this.eliteEchoes.has(entityId),
+      noteContact: (entity, distance) => this.noteEliteContact(entity, distance),
+      fieldRefusals: (entity, distance) => this.fieldRefusals(entity, distance),
+      steerTo: (entity, x, z, speed, multiplier = 1) =>
+        this.steerTo(entity, x, z, speed, multiplier),
+      freeOf: (x, z, radius) => this.freeOf(x, z, radius),
+      addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
+      emitCombatShape: (source, shape, intent = 'damage') =>
+        this.events.push({ type: 'CombatShape', tick: this.tick, source, intent, shape }),
+      combatShape: (source, shape, intent = 'damage') => this.combatShape(source, shape, intent),
+      emitOrder: (entity, order) =>
+        this.events.push({
+          type: 'EliteOrder',
+          tick: this.tick,
+          entity: entity.id,
+          order,
+          x: entity.x,
+          z: entity.z
+        }),
+      hitPlayer: (amount, attacker, source) => this.hitPlayer(amount, attacker, source),
+      damageScale: () => this.damageScale(),
+      spawnReplicant: (entity) => this.spawnReplicant(entity),
+      playerInSector: (x, z, ax, az, radius, halfAngle) =>
+        this.playerInSector(x, z, ax, az, radius, halfAngle),
+      movePlayer: (dx, dz) => {
+        this.px += dx;
+        this.pz += dz;
+        this.clampWorld();
+      },
+      entities: () => this.ents
+    });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
     if (this.mode === 'clean') {
@@ -2272,205 +2315,11 @@ export class Simulation {
     }
   }
   private elitePatternCooldown(base: number, e: Ent) {
-    const t = Math.min(1, this.time / this.runDuration),
-      rarity = e.rarity === 'legendary' ? 0.72 : e.rarity === 'uplifted' ? 0.86 : 1;
-    return Math.max(1.2, base * (1 - 0.22 * t) * rarity * (e.relicGapMul ?? 1));
-  }
-
-  private beginElitePattern(
-    e: Ent,
-    source: string,
-    shape: CombatShape,
-    duration: number,
-    order: Exclude<EliteActionId, 'predator_dash'>
-  ) {
-    e.eliteAction = order;
-    e.eliteActionUntil = this.time + duration;
-    e.cooldown = 99;
-    this.events.push({ type: 'CombatShape', tick: this.tick, source, intent: 'damage', shape });
-    this.events.push({ type: 'EliteOrder', tick: this.tick, entity: e.id, order, x: e.x, z: e.z });
+    return this.eliteBehavior.patternCooldown(base, e);
   }
 
   private updateEliteAI(e: Ent, speed: number, d: number, nx: number, nz: number) {
-    this.noteEliteContact(e, d);
-    const c = e.chassis!,
-      echoBusy = this.eliteEchoes.has(e.id);
-    if (!e.eliteAction && e.state === 'normal' && !echoBusy && e.adaptStage === 0) this.fieldRefusals(e, d);
-
-    if (c === 'hunter') {
-      // PREDATOR: repeated predictive intercept with a fixed, readable red lane.
-      if (e.adaptStage === 2) {
-        e.eliteAction = 'predator_dash';
-        e.x += e.lockedX * 10.8 * this.dt;
-        e.z += e.lockedZ * 10.8 * this.dt;
-        if (this.time >= (e.eliteActionUntil ?? 0)) {
-          e.adaptStage = 0;
-          e.eliteAction = undefined;
-          e.eliteActionUntil = 0;
-          e.cooldown = this.elitePatternCooldown(3.0, e);
-          e.exposedUntil = this.time + 0.9;
-        }
-        return;
-      }
-      if (e.adaptStage === 1) {
-        if (this.time >= (e.eliteActionUntil ?? 0)) {
-          e.adaptStage = 2;
-          e.eliteAction = 'predator_dash';
-          e.eliteActionUntil = this.time + 0.46;
-        }
-        return;
-      }
-      const tx = this.px + this.playerVX * 0.58,
-        tz = this.pz + this.playerVZ * 0.58;
-      if (d > 0.9) this.steerTo(e, tx, tz, speed, 1.12);
-      if (!echoBusy && !e.eliteAction && e.cooldown <= 0) {
-        const dx = tx - e.x,
-          dz = tz - e.z,
-          m = Math.hypot(dx, dz) || 1;
-        e.lockedX = dx / m;
-        e.lockedZ = dz / m;
-        e.adaptStage = 1;
-        e.eliteAction = 'predator';
-        e.eliteActionUntil = this.time + 0.58;
-        e.cooldown = 99;
-        this.events.push({
-          type: 'CombatShape',
-          tick: this.tick,
-          source: 'elite_predator_tell',
-          intent: 'damage',
-          shape: { kind: 'ray', x: e.x, z: e.z, aimX: e.lockedX, aimZ: e.lockedZ, range: 8.5, halfWidth: 0.72 }
-        });
-        this.events.push({ type: 'EliteOrder', tick: this.tick, entity: e.id, order: 'predator', x: e.x, z: e.z });
-      }
-      return;
-    }
-
-    if (c === 'architect') {
-      // VEIL: destination is forecast first; then the Architect relocates and blooms denial pockets.
-      if (e.eliteAction === 'veil') {
-        if (this.time < (e.eliteActionUntil ?? 0)) return;
-        e.eliteAction = undefined; e.eliteActionUntil = 0;
-        e.x = Math.max(this.world.minX + 1, Math.min(this.world.maxX - 1, e.lockedX));
-        e.z = Math.max(this.world.minZ + 1, Math.min(this.world.maxZ - 1, e.lockedZ));
-        for (let i = 0; i < 3; i++) {
-          const a = i * Math.PI * 2 / 3 + e.id * 0.37,
-            r = i === 0 ? 0 : 3.1;
-          this.fields.push({ id: this.nextId++, x: e.x + Math.cos(a) * r, z: e.z + Math.sin(a) * r, radius: 3.05, ttl: 4.8, kind: 'veil', dps: 0, tickAcc: 0 });
-        }
-        e.cooldown = this.elitePatternCooldown(4.6, e);
-        e.exposedUntil = this.time + 0.45;
-        return;
-      }
-      if (d > 7.2) this.steerTo(e, this.px, this.pz, speed, 1.05);
-      else if (d < 3.8) { e.x -= nx * speed * 0.5 * this.dt; e.z -= nz * speed * 0.5 * this.dt; }
-      if (!echoBusy && !e.eliteAction && e.cooldown <= 0) {
-        const side = e.id % 2 ? 1 : -1,
-          target = this.freeOf(this.px - nz * side * 3.6, this.pz + nx * side * 3.6, e.radius);
-        e.lockedX = target.x;
-        e.lockedZ = target.z;
-        this.beginElitePattern(e, 'elite_architect_veil_tell', { kind: 'circle', x: target.x, z: target.z, radius: 3.05 }, 0.74, 'veil');
-      }
-      return;
-    }
-
-    if (c === 'broodmaker') {
-      // REPLICATOR: reactive cloning remains, but it also declares an active brood pulse.
-      if (e.eliteAction === 'replicate') {
-        if (this.time < (e.eliteActionUntil ?? 0)) return;
-        e.eliteAction = undefined; e.eliteActionUntil = 0;
-        this.combatShape('elite_brood_active', { kind: 'circle', x: e.x, z: e.z, radius: 4.2 });
-        if (Math.hypot(this.px - e.x, this.pz - e.z) <= 4.2 + HERO_HIT_RADIUS)
-          this.hitPlayer(14 * this.damageScale(), e, 'brood_pulse');
-        this.spawnReplicant(e);
-        e.cooldown = this.elitePatternCooldown(5.2, e);
-        return;
-      }
-      if (d > 5.8) this.steerTo(e, this.px, this.pz, speed, 1.02);
-      else if (d < 3.2) { e.x -= nx * speed * 0.45 * this.dt; e.z -= nz * speed * 0.45 * this.dt; }
-      if (!echoBusy && !e.eliteAction && e.cooldown <= 0)
-        this.beginElitePattern(e, 'elite_brood_tell', { kind: 'circle', x: e.x, z: e.z, radius: 4.2 }, 0.78, 'replicate');
-      return;
-    }
-
-    if (c === 'bulwark') {
-      // PRISM still rewards alternating sources, but now also commits to a frontal bash.
-      if (e.eliteAction === 'prism') {
-        if (this.time < (e.eliteActionUntil ?? 0)) return;
-        e.eliteAction = undefined; e.eliteActionUntil = 0;
-        this.combatShape('elite_prism_active', { kind: 'sector', x: e.x, z: e.z, radius: 5.2, aimX: e.lockedX, aimZ: e.lockedZ, halfAngle: 0.74 });
-        if (this.playerInSector(e.x, e.z, e.lockedX, e.lockedZ, 5.2, 0.74)) {
-          this.hitPlayer(22 * this.damageScale(), e, 'prism_bash');
-          const dx=this.px-e.x,dz=this.pz-e.z,m=Math.hypot(dx,dz)||1;
-          this.px += dx/m*0.85; this.pz += dz/m*0.85; this.clampWorld();
-        }
-        e.cooldown = this.elitePatternCooldown(4.2, e);
-        e.exposedUntil = this.time + 0.55;
-        return;
-      }
-      if (d > 4.2) this.steerTo(e, this.px, this.pz, speed * 0.96);
-      else if (d < 2.2) { e.x -= nx * speed * 0.3 * this.dt; e.z -= nz * speed * 0.3 * this.dt; }
-      if (!echoBusy && !e.eliteAction && e.cooldown <= 0) {
-        e.lockedX = nx; e.lockedZ = nz;
-        this.beginElitePattern(e, 'elite_prism_tell', { kind: 'sector', x: e.x, z: e.z, radius: 5.2, aimX: nx, aimZ: nz, halfAngle: 0.74 }, 0.72, 'prism');
-      }
-      return;
-    }
-
-    if (c === 'harvester') {
-      // NULL WEAVER: a close sweep makes its direct-vs-derived rule an active positioning threat.
-      if (e.eliteAction === 'null') {
-        if (this.time < (e.eliteActionUntil ?? 0)) return;
-        e.eliteAction = undefined; e.eliteActionUntil = 0;
-        this.combatShape('elite_null_active', { kind: 'sector', x: e.x, z: e.z, radius: 4.8, aimX: e.lockedX, aimZ: e.lockedZ, halfAngle: 0.96 });
-        if (this.playerInSector(e.x, e.z, e.lockedX, e.lockedZ, 4.8, 0.96)) {
-          this.hitPlayer(25 * this.damageScale(), e, 'null_harvest');
-          e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.045);
-        }
-        e.cooldown = this.elitePatternCooldown(3.8, e);
-        return;
-      }
-      const side = e.id % 2 ? 1 : -1,
-        tx = this.px - nz * side * 3.2,
-        tz = this.pz + nx * side * 3.2;
-      this.steerTo(e, tx, tz, speed, 1.08);
-      if (!echoBusy && e.cooldown <= 0 && d < 7.2) {
-        e.lockedX = nx; e.lockedZ = nz;
-        this.beginElitePattern(e, 'elite_null_tell', { kind: 'sector', x: e.x, z: e.z, radius: 4.8, aimX: nx, aimZ: nz, halfAngle: 0.96 }, 0.68, 'null');
-      }
-      return;
-    }
-
-    if (c === 'shepherd') {
-      // METAMORPH keeps its damage-signature adaptation and periodically rallies the local pack.
-      if (e.eliteAction === 'metamorph') {
-        if (this.time < (e.eliteActionUntil ?? 0)) return;
-        e.eliteAction = undefined; e.eliteActionUntil = 0;
-        this.combatShape('elite_shepherd_active', { kind: 'circle', x: e.x, z: e.z, radius: 5.2 }, 'control');
-        if (Math.hypot(this.px - e.x, this.pz - e.z) <= 5.2 + HERO_HIT_RADIUS)
-          this.hitPlayer(15 * this.damageScale(), e, 'shepherd_pulse');
-        let buffed = 0;
-        for (const o of this.ents) {
-          if (o === e || o.kind === 'elite' || o.hp <= 0 || Math.hypot(o.x - e.x, o.z - e.z) > 7.5) continue;
-          o.buffUntil = Math.max(o.buffUntil, this.time + 2.8);
-          o.orderX = this.px; o.orderZ = this.pz; o.orderUntil = this.time + 2.8;
-          if (++buffed >= 8) break;
-        }
-        e.cooldown = this.elitePatternCooldown(5.0, e);
-        return;
-      }
-      if (e.shepherdMode === 'condensed') {
-        const tx = this.px + this.playerVX * 0.35, tz = this.pz + this.playerVZ * 0.35;
-        this.steerTo(e, tx, tz, speed, 1.55);
-      } else if (e.shepherdMode === 'migratory') {
-        const side = e.id % 2 ? 1 : -1, tx = this.px - nz * side * 4.8, tz = this.pz + nx * side * 4.8;
-        this.steerTo(e, tx, tz, speed, 1.22);
-      } else if (d > 4.8) this.steerTo(e, this.px, this.pz, speed, 1.05);
-      if (!echoBusy && !e.eliteAction && e.cooldown <= 0)
-        this.beginElitePattern(e, 'elite_shepherd_tell', { kind: 'circle', x: e.x, z: e.z, radius: 5.2 }, 0.82, 'metamorph');
-      return;
-    }
-
-    if (d > 3.6) this.steerTo(e, this.px, this.pz, speed);
+    this.eliteBehavior.update(e, speed, d, nx, nz);
   }
 
   private playerInSector(
