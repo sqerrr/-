@@ -4823,7 +4823,9 @@ export class Simulation {
   private fireCollapse(binding: CatalystBinding, e: PhysicalEvent) {
     const multiArea = binding.fromSkill === 'mortar_bloom' || binding.fromSkill === 'sentry' ||
       binding.fromSkill === 'orbit_blades' || binding.fromSkill === 'tether_drag';
-    const limit = multiArea ? 3 : 1;
+    // Orbit is one continuous actor in the current core, so a Collapse may relocate it once,
+    // never pretend that independent Orbit copies exist on several areas.
+    const limit = binding.toSkill === 'orbit_blades' ? 1 : multiArea ? 3 : 1;
     if (binding.firedCount >= limit) return;
     const center = { x: e.x, z: e.z },
       radius = Math.max(0.35, e.radius ?? 1),
