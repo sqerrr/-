@@ -403,8 +403,6 @@ type CatalystBinding = {
   fromSkill: SkillId;
   toSkill: SkillId;
   mode: 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse';
-  createdAt: number;
-  expiresAt: number;
   origin: ChoreographyPoint;
   path: ChoreographyPoint[];
   areaPoints: ChoreographyPoint[];
@@ -706,6 +704,8 @@ export class Simulation {
   private physicalEvents: PhysicalEvent[] = [];
   private drainingPhysicalEvents = false;
   private activationPending = new Map<number, number>();
+  /** Activations whose last owned physical actor has actually ended; retired after queued events drain. */
+  private completedPhysicalActivations = new Set<number>();
   private activationTerminalSeen = new Set<number>();
   private activationLastPoint = new Map<number, ChoreographyPoint>();
   private activationMeta = new Map<number, { skill: SkillId; slot: number }>();
@@ -1043,8 +1043,8 @@ export class Simulation {
 
   private spawnProjectile(p: Omit<Projectile, 'id' | 'guarded'>) {
     const id = this.nextId++,
-      activationId = p.faction === 'hero' ? this.currentActivationId : 0;
-    this.projectiles.push({ id, activationId, guarded: false, ...p });
+      activationId = p.faction === 'hero' ? (p.activationId ?? this.currentActivationId) : 0;
+    this.projectiles.push({ id, guarded: false, ...p, activationId });
     if (activationId) this.registerAsyncPhysical(activationId);
     if (
       this.currentChoreography &&
@@ -3774,6 +3774,7 @@ export class Simulation {
         }
       }
       if (c.ttl > 0) alive.push(c);
+      else if(c.activationId)this.finishAsyncPhysical(c.activationId,c.x,c.z);
     }
     this.constructs = alive;
 
@@ -3908,7 +3909,15 @@ export class Simulation {
 
   private updateOrbitBlades() {
     const st=this.skillsRuntime.get('orbit_blades');
-    if(!st||!this.isActiveSkill('orbit_blades'))return;
+    if(!st||!this.isActiveSkill('orbit_blades')){
+      if(this.orbitActivationId){
+        const old=this.orbitCenter();
+        const id=this.orbitActivationId;
+        this.orbitActivationId=0;
+        this.finishAsyncPhysical(id,old.x,old.z);
+      }
+      return;
+    }
     const center=this.orbitCenter(), mut=st.mutation, profile=this.orbitProfile(st,center),
       damage=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36*profile.damageMul,
       angularSpeed=mut==='orbit_saw'?2.55:3.4,
@@ -3973,7 +3982,7 @@ export class Simulation {
         this.spawnProjectile({
           x:center.x+dx/m*profile.radius,z:center.z+dz/m*profile.radius,vx:dx/m*8.5,vz:dz/m*8.5,
           radius:0.28,ttl:2.8,damage:skills.orbit_blades.baseDamage*this.powerBucket(st)*1.25,coverDamage:16,
-          faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:slot,mutation:st.mutation,
+          faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:slot,mutation:st.mutation,activationId:this.orbitActivationId||undefined,
           apotheosis:'orbit_phoenix',rivalConcentration:1,behavior:'returner',returnAt:1.3,phase:0,hitIds:[]
         });
       }
@@ -4637,8 +4646,6 @@ export class Simulation {
       fromSkill,
       toSkill,
       mode: catalyst,
-      createdAt: this.time,
-      expiresAt: this.time + Math.max(6, this.cycleDuration() * 5),
       origin:{...origin},
       path: [],
       areaPoints: [],
@@ -4679,6 +4686,26 @@ export class Simulation {
         x,
         z
       });
+    this.completedPhysicalActivations.add(activationId);
+  }
+
+  private retirePhysicalActivation(id: number) {
+    if (!id) return;
+    this.activationMeta.delete(id);
+    this.activationLastPoint.delete(id);
+    this.activationTerminalSeen.delete(id);
+    this.completedPhysicalActivations.delete(id);
+  }
+
+  private retirePhysicalActivationIfIdle(id: number) {
+    if (
+      !id ||
+      this.activationPending.has(id) ||
+      id === this.orbitActivationId ||
+      this.catalystBindings.some((b) => !b.done && b.producerActivationId === id) ||
+      this.constructs.some((c) => c.activationId === id)
+    ) return;
+    this.retirePhysicalActivation(id);
   }
 
   private queuePhysicalEvent(e: PhysicalEvent) {
@@ -4963,7 +4990,18 @@ export class Simulation {
     } finally {
       this.drainingPhysicalEvents = false;
     }
-    this.catalystBindings = this.catalystBindings.filter((b) => !b.done && b.expiresAt > this.time);
+    if (this.completedPhysicalActivations.size) {
+      this.catalystBindings = this.catalystBindings.filter(
+        (b) => !b.done && !this.completedPhysicalActivations.has(b.producerActivationId)
+      );
+      for (const id of [...this.completedPhysicalActivations]) this.retirePhysicalActivation(id);
+      this.completedPhysicalActivations.clear();
+    } else {
+      this.catalystBindings = this.catalystBindings.filter((b) => !b.done);
+    }
+    // Immediate activations have no owned async actors. Once their causal events/bindings are
+    // exhausted they can be forgotten immediately instead of leaking activation maps for a run.
+    for (const id of [...this.activationMeta.keys()]) this.retirePhysicalActivationIfIdle(id);
   }
 
   private sameChoreographyPoint(a: ChoreographyPoint, b: ChoreographyPoint, eps = 0.12) {
@@ -5625,7 +5663,15 @@ export class Simulation {
   private castOrbit(st: SkillRuntime, slot: number, src: CastSource) {
     // The persistent hero Orbit always keeps activation lineage, including the Outbound mutation:
     // Outbound adds a pulse but does not erase the continuously simulated blade actors.
-    if(src.faction==='hero') this.orbitActivationId=this.currentActivationId;
+    if(src.faction==='hero'){
+      if(this.orbitActivationId && this.orbitActivationId!==this.currentActivationId){
+        const oldCenter=this.orbitCenter();
+        this.finishAsyncPhysical(this.orbitActivationId,oldCenter.x,oldCenter.z);
+      }
+      if(this.currentActivationId && this.orbitActivationId!==this.currentActivationId)
+        this.registerAsyncPhysical(this.currentActivationId);
+      this.orbitActivationId=this.currentActivationId;
+    }
     // A rival cannot borrow the hero's global orbit loop; its echo remains an authored pulse.
     if (src.faction === 'rival' || st.mutation === 'orbit_outbound') {
       const r = this.skillRadius(st, src.faction === 'rival' ? 2.8 : 4.6, slot),
@@ -5684,12 +5730,17 @@ export class Simulation {
         rawZ=src.z+src.aimZ*(forward+stagger)+perpZ*lane*spacing,
         p=this.freeOf(rawX,rawZ,0.38),
         id=this.nextId++;
-      this.constructs.push({id,x:p.x,z:p.z,ttl:this.persistentDuration(st,5.25,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.powerBucket(st)*this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
+      const activationId=src.faction==='hero'?this.currentActivationId:0;
+      this.constructs.push({id,activationId:activationId||undefined,x:p.x,z:p.z,ttl:this.persistentDuration(st,5.25,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.powerBucket(st)*this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
+      if(activationId)this.registerAsyncPhysical(activationId);
       if(this.currentChoreography&&src.faction==='hero')this.currentChoreography.carriers.push({kind:'construct',id});
       this.events.push({type:'ConstructSpawned',tick:this.tick,skill:'sentry',x:p.x,z:p.z});
       this.combatShape('sentry_placement',{kind:'circle',x:p.x,z:p.z,radius:0.42},'field');
     }
-    while(this.constructs.length>18)this.constructs.shift();
+    while(this.constructs.length>18){
+      const removed=this.constructs.shift();
+      if(removed?.activationId)this.finishAsyncPhysical(removed.activationId,removed.x,removed.z);
+    }
     this.noteState('construct');
   }
 
