@@ -4549,7 +4549,10 @@ export class Simulation {
     }
 
     const trace = this.finishChoreographyTrace(),
-      previous = this.lastContext;
+      previous = this.lastContext,
+      physicalOrigin = trace?.origin ?? {x:this.px,z:this.pz};
+    this.activationLastPoint.set(activationId,{...physicalOrigin});
+    this.armOutgoingPhysicalCatalyst(slot,id,activationId,physicalOrigin);
     this.publishImmediatePhysicalTrace(id, slot, activationId, trace);
     this.flushPhysicalEvents();
     this.lastContext = {
@@ -4640,7 +4643,6 @@ export class Simulation {
     this.currentActivationId = id;
     this.activationMeta.set(id, { skill, slot });
     this.activationLastPoint.set(id, { x: this.px, z: this.pz });
-    this.armOutgoingPhysicalCatalyst(slot, skill, id, {x:this.px,z:this.pz});
     return id;
   }
 
@@ -4788,15 +4790,17 @@ export class Simulation {
     this.activationLastPoint.set(activationId, { x: src.x, z: src.z });
     if(binding.toSkill==='orbit_blades') this.setOrbitChoreography(src.x,src.z);
     this.beginChoreographyTrace(binding.toSkill);
+    this.metrics.activations++;
+    this.castWithTrace(binding.toSkill, st, binding.toSlot, src);
+    const trace = this.finishChoreographyTrace(),
+      physicalOrigin = trace?.origin ?? {x:src.x,z:src.z};
+    this.activationLastPoint.set(activationId,{...physicalOrigin});
     this.armOutgoingPhysicalCatalyst(
       binding.toSlot,
       binding.toSkill,
       activationId,
-      {x:src.x,z:src.z}
+      physicalOrigin
     );
-    this.metrics.activations++;
-    this.castWithTrace(binding.toSkill, st, binding.toSlot, src);
-    const trace = this.finishChoreographyTrace();
     this.publishImmediatePhysicalTrace(binding.toSkill, binding.toSlot, activationId, trace);
 
     this.currentSlot = save.currentSlot;
