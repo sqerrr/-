@@ -1,4 +1,10 @@
 import { catalysts, skills } from '../content/definitions.js';
+import {
+  affixOverlayAlpha,
+  affixUiTint,
+  chassisOverlayAlpha,
+  chassisUiTint
+} from '../content/eliteUi.js';
 import type { CombatShape, Snapshot, SnapshotEntity } from '../core/types.js';
 import type { PresentationCue, PresentationFrame } from '../presentation/types.js';
 
@@ -1008,24 +1014,7 @@ export class WebGLRenderer {
         line(x,y-r,x+r,y,w,c); line(x+r,y,x,y+r,w,c);
         line(x,y+r,x-r,y,w,c); line(x-r,y,x,y-r,w,c);
       },
-      chassisColor:Record<string,[number,number,number,number]>={
-        marshal:rgba('#ffc36a',0.92),
-        hunter:rgba('#ff79b8',0.94),
-        bulwark:rgba('#79d6ff',0.94),
-        architect:rgba('#9eeaff',0.92),
-        harvester:rgba('#74ead3',0.92),
-        shepherd:rgba('#9bea7d',0.92),
-        broodmaker:rgba('#ed82cb',0.92),
-        archivist:rgba('#8eb5ff',0.92),
-        warden:rgba('#f4e7c8',0.96)
-      },
-      affixColor:Record<string,[number,number,number,number]>={
-        swift:rgba('#eef5ff',0.92), dense:rgba('#a9a4b1',0.92),
-        volatile:rgba('#ffad5c',0.96), regenerating:rgba('#79ee9b',0.96),
-        shielded:rgba('#78d8ff',0.96), vanguard:rgba('#ffb15e',0.96),
-        temporal:rgba('#b69aff',0.96), brood:rgba('#f58abd',0.96),
-        crowned:rgba('#ffe477',0.98), none:rgba('#ffffff',0)
-      };
+
 
     for(const e of s.entities){
       if(!e.elite) continue;
@@ -1037,7 +1026,8 @@ export class WebGLRenderer {
         rarity=e.boss?'legendary':(e.eliteRarity??'common'),
         scale=(e.boss?1.36:rarity==='legendary'?1.18:rarity==='uplifted'?1.08:1),
         cx=p.x, cy=p.y-(e.boss?78:50),
-        c=chassisColor[e.chassis??'marshal']??chassisColor.marshal,
+        chassis=e.chassis??'marshal',
+        c=rgba(chassisUiTint[chassis],chassisOverlayAlpha[chassis]),
         P=(f:number,side:number,y=0)=>({x:cx+fx*f+sx*side,y:cy+fy*f+sy*side+y}),
         L=(af:number,as:number,bf:number,bs:number,w=2.4,color=c,y=0)=>{
           const a=P(af,as,y),b=P(bf,bs,y); line(a.x,a.y,b.x,b.y,w*scale,color);
@@ -1118,7 +1108,7 @@ export class WebGLRenderer {
       // Affix channel: one stable badge at the shoulder. The symbol, not its colour, carries identity.
       const aff=e.affix??'none';
       if(aff!=='none'){
-        const ac=affixColor[aff]??rgba('#ffffff',0.9),
+        const ac=rgba(affixUiTint[aff],affixOverlayAlpha[aff]),
           ax=cx+39*scale, ay=cy-31*scale, r=7*scale;
         rect(ax-r-3,ay-r-3,(r+3)*2,(r+3)*2,rgba('#05090d',0.72));
         if(aff==='volatile'){
