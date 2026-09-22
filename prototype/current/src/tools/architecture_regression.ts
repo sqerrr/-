@@ -10,6 +10,7 @@ const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const entityStore=readFileSync('src/core/entityStore.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
 const stateModel=readFileSync('src/core/state.ts','utf8');
+const testHarness=readFileSync('src/testing/simulationHarness.ts','utf8');
 const types=readFileSync('src/core/types.ts','utf8');
 const ui=readFileSync('src/platform/main.ts','utf8');
 const eliteUi=readFileSync('src/content/eliteUi.ts','utf8');
@@ -36,6 +37,17 @@ for (const component of ['BodyComponent','VitalComponent','RelationComponent','E
   assert(stateModel.includes('export interface '+component), 'entity domain component missing: '+component);
 assert(stateModel.includes('export function makeEnt('), 'combat entity construction has no single factory');
 assert(!simulation.includes(': Ent = {'), 'Simulation bypasses makeEnt with a duplicated full entity literal');
+assert(testHarness.includes('interface SimulationInternals'), 'regression access has no centralized test seam');
+assert(testHarness.includes('as unknown as SimulationInternals'), 'test seam no longer owns the explicit unsafe boundary');
+for (const file of [
+  'src/tools/ux_readability_regression.ts',
+  'src/tools/projectile_regression.ts',
+  'src/tools/rival_cast_regression.ts',
+  'src/tools/relic_regression.ts'
+]) {
+  const source=readFileSync(file,'utf8');
+  assert(!/\bany\b/.test(source), file+' regressed to scattered any-based Simulation access');
+}
 
 assert(types.includes('export type DamageSourceId ='), 'player damage sources are stringly typed again');
 assert(types.includes('export type EliteActionId ='), 'elite actions are stringly typed again');
@@ -64,5 +76,6 @@ console.log('architecture-regression OK', {
   physicalLifecycleOwner:true,
   entityStore:true,
   encounterDirector:true,
-  entityComponents:true
+  entityComponents:true,
+  typedTestHarness:true
 });
