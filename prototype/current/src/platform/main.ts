@@ -11,6 +11,23 @@ import {
 } from '../content/definitions.js';
 import { catalystGlyph, itemCategoryColor, itemGlyph, mutationBadge, skillChoiceArt } from '../content/visuals.js';
 import { itemCategoryName, itemRivalEffect, items as itemDefs } from '../content/items.js';
+import {
+  affixGlyph,
+  affixName,
+  affixRole,
+  affixShortRule,
+  affixUiTint,
+  chassisDeathHint,
+  chassisGlyph,
+  chassisName,
+  chassisRole,
+  chassisShortRule,
+  chassisUiTint,
+  damageSourceHint,
+  damageSourceName,
+  eliteActionHint,
+  eliteActionLabel
+} from '../content/eliteUi.js';
 import { Simulation } from '../core/simulation.js';
 import type {
   CatalystId,
@@ -143,9 +160,9 @@ async function copyDebugLog() {
     ta.remove();
   }
 }
-function updateDebugState() {
-  const s = sim.snapshot(),
-    state = `${s.choiceSerial}|${!!s.rewardOffers}|${!!s.mutationOffer}|${modalState().hidden}|${choiceLocked}`;
+function updateDebugState(s: Snapshot) {
+  if (!debugEnabled) return;
+  const state = `${s.choiceSerial}|${!!s.rewardOffers}|${!!s.mutationOffer}|${modalState().hidden}|${choiceLocked}`;
   if (state !== lastChoiceUiState) {
     lastChoiceUiState = state;
     dbg('CHOICE STATE', {
@@ -353,132 +370,6 @@ function restart() {
   );
 }
 
-const chassisName: Record<string, string> = {
-  marshal: 'Маршал',
-  hunter: 'Хищник',
-  bulwark: 'Призма',
-  architect: 'Завеса',
-  harvester: 'Нуль-ткач',
-  shepherd: 'Метаморф',
-  broodmaker: 'Репликатор',
-  archivist: 'Архивист',
-  warden: 'Хранитель'
-};
-const chassisRole: Record<string, string> = {
-  marshal: 'давит строем и ускоряет союзников',
-  hunter: 'предсказывает движение и делает перехватывающий рывок',
-  bulwark: 'запоминает источник: повтор защищает её, смена источника вскрывает',
-  architect: 'создаёт туман, в котором дальний автоматический захват теряет цель',
-  harvester: 'поглощает срабатывания катализаторов; прямые такты разбивают заряд',
-  shepherd: 'эволюционирует от реальной сигнатуры полученного урона',
-  broodmaker: 'частые попадания порождают копии; убийство копии ранит оригинал',
-  archivist: 'копирует боевые роли и меняет рисунок боя',
-  warden: 'финальный босс: заранее показывает взмах, разлом и таран'
-};
-const affixName: Record<string, string> = {
-  none: 'Без аффикса',
-  swift: 'Быстрый',
-  dense: 'Плотный',
-  volatile: 'Взрывной',
-  regenerating: 'Регенерирующий',
-  shielded: 'Щитоносец',
-  vanguard: 'Авангард',
-  temporal: 'Темпоральный',
-  brood: 'Роевой',
-  crowned: 'Коронованный'
-};
-const affixRole: Record<string,string> = {
-  none:'',
-  swift:'движется быстрее',
-  dense:'тяжелее сдвигается',
-  volatile:'после смерти оставляет красную зону взрыва',
-  regenerating:'восстанавливается, если несколько секунд не получать урон',
-  shielded:'щит фиксирует направление перед рывком — обходи с фланга или ломай стойкость',
-  vanguard:'периодически ускоряет и направляет ближайшую стаю',
-  temporal:'заранее отмечает точку скачка и бьёт после перемещения',
-  brood:'периодически вызывает подкрепление',
-  crowned:'чаще использует собственные механики'
-};
-const chassisGlyph: Record<string,string> = {
-  marshal:'⚑', hunter:'➤', bulwark:'▣', architect:'⌗', harvester:'⌒',
-  shepherd:'Ψ', broodmaker:'∴', archivist:'▥', warden:'⬢'
-};
-const chassisShortRule: Record<string,string> = {
-  marshal:'КОМАНДУЕТ СТАЕЙ',
-  hunter:'ПЕРЕХВАТЫВАЕТ ТРАЕКТОРИЮ',
-  bulwark:'МЕНЯЙ ИСТОЧНИК УРОНА',
-  architect:'СТАВИТ ЗАВЕСЫ',
-  harvester:'ПОГЛОЩАЕТ ПРОИЗВОДНЫЕ',
-  shepherd:'ПЕРЕСТРАИВАЕТ СТАЮ',
-  broodmaker:'ПОРОЖДАЕТ КОПИИ',
-  archivist:'КОПИРУЕТ РОЛИ',
-  warden:'ПАТТЕРНЫ ФИНАЛА'
-};
-const affixGlyph: Record<string,string> = {
-  none:'', swift:'≡', dense:'■', volatile:'▲', regenerating:'✚',
-  shielded:'⬟', vanguard:'»', temporal:'⌛', brood:'∴', crowned:'♛'
-};
-const affixShortRule: Record<string,string> = {
-  none:'', swift:'БЫСТРЕЕ', dense:'ТЯЖЁЛЫЙ', volatile:'ВЗРЫВ ПОСЛЕ СМЕРТИ',
-  regenerating:'РЕГЕН БЕЗ УРОНА', shielded:'ЩИТ ПО НАПРАВЛЕНИЮ',
-  vanguard:'ВЕДЁТ СТАЮ', temporal:'СКАЧОК + УДАР', brood:'ВЫЗЫВАЕТ СТАЮ',
-  crowned:'ЧАЩЕ ИСПОЛЬЗУЕТ ПРИЁМЫ'
-};
-const chassisUiTint: Record<string,string> = {
-  marshal:'#ffc36a', hunter:'#ff79b8', bulwark:'#79d6ff', architect:'#9eeaff',
-  harvester:'#74ead3', shepherd:'#9bea7d', broodmaker:'#ed82cb',
-  archivist:'#8eb5ff', warden:'#f4e7c8'
-};
-const affixUiTint: Record<string,string> = {
-  swift:'#eef5ff', dense:'#aaa4b1', volatile:'#ffad5c', regenerating:'#79ee9b',
-  shielded:'#78d8ff', vanguard:'#ffb15e', temporal:'#b69aff', brood:'#f58abd',
-  crowned:'#ffe477', none:'#ffffff'
-};
-const eliteActionLabel: Record<string,string> = {
-  predator:'ПЕРЕХВАТ', predator_dash:'ПЕРЕХВАТ', veil:'СМЕЩЕНИЕ',
-  replicate:'ВЫБРОС КОПИИ', prism:'ФРОНТАЛЬНЫЙ УДАР',
-  null:'ЖАТВА', metamorph:'КОМАНДНЫЙ ИМПУЛЬС'
-};
-const eliteActionHint: Record<string,string> = {
-  predator:'СМЕНИ ТРАЕКТОРИЮ',
-  predator_dash:'УЙДИ С ЛИНИИ РЫВКА',
-  veil:'НЕ СТОЙ В ТОЧКЕ СМЕЩЕНИЯ',
-  replicate:'ВЫЙДИ ИЗ КРУГА',
-  prism:'ЗАЙДИ ЗА ФРОНТ ЩИТА',
-  null:'ВЫЙДИ ИЗ СЕКТОРА',
-  metamorph:'ОТОРВИСЬ ОТ СТАИ'
-};
-const damageSourceName: Record<string,string> = {
-  contact:'контакт с противником',
-  temporal_shift:'темпоральный скачок',
-  brood_pulse:'роевой импульс',
-  prism_bash:'фронтальный удар Призмы',
-  null_harvest:'Жатва Нуль-ткача',
-  shepherd_pulse:'командный импульс Метаморфа',
-  warden_sweep:'секторный взмах Хранителя',
-  warden_rupture:'разлом Хранителя'
-};
-const damageSourceHint: Record<string,string> = {
-  contact:'Не оставайся внутри стаи: держи проход для отхода и используй рывок для выхода из окружения.',
-  temporal_shift:'Метка показывает будущую точку удара. Смени траекторию до скачка.',
-  brood_pulse:'Уйди из отмеченного круга до импульса.',
-  prism_bash:'Обойди фронт щита. После удара у Призмы есть окно уязвимости.',
-  null_harvest:'Выйди из сектора Жатвы до срабатывания.',
-  shepherd_pulse:'Оторвись от стаи перед командным импульсом.',
-  warden_sweep:'Выйди из красного сектора до взмаха.',
-  warden_rupture:'Уйди с красной линии до разлома.'
-};
-const chassisDeathHint: Record<string,string> = {
-  marshal:'Не задерживайся рядом со стаей, которую Маршал усиливает.',
-  hunter:'Меняй направление после фиксации траектории и уходи с линии рывка.',
-  bulwark:'Обходи фронт щита и используй окно после его удара.',
-  architect:'Не стой в точке смещения и выходи из завесы для дальнего захвата.',
-  harvester:'Смотри на сектор Жатвы и выходи из него до срабатывания.',
-  shepherd:'Разрывай дистанцию со стаей перед командным импульсом.',
-  broodmaker:'Не оставайся в круге выброса и убивай копии, чтобы ранить оригинал.',
-  archivist:'Следи, какую роль Архивист скопировал, и меняй позицию под неё.',
-  warden:'Красная геометрия показывает следующую атаку Хранителя.'
-};
 function romanTier(n: number) {
   return ['0','I','II','III','IV','V','VI','VII','VIII','IX','X'][n] ?? String(n);
 }
@@ -1786,31 +1677,34 @@ function syncChoiceUI(s: Snapshot, force = false) {
 
 function frame(now: number) {
   const mv = screenMove();
+  let frameSnapshot: Snapshot | null = null;
   if (!paused && !planning && !sim.hasChoice && sim.php > 0 && !sim.finished) {
     acc = Math.min(0.25, acc + (now - last) / 1000);
     while (acc >= sim.dt) {
       sim.step({ moveX: mv.x, moveZ: mv.z, aimX: aim.x, aimZ: aim.z, dash: dashQueued });
       dashQueued = false;
-      const snap = sim.snapshot(),
-        cues = presentation.consume(sim.events, sim.time, snap);
-      renderer.consume(cues, snap);
+      frameSnapshot = sim.snapshot();
+      const cues = presentation.consume(sim.events, sim.time, frameSnapshot);
+      renderer.consume(cues, frameSnapshot);
       pushEvents(sim.events);
       acc -= sim.dt;
       if (sim.hasChoice || sim.php <= 0 || sim.finished) break;
     }
   }
   last = now;
-  const s = sim.snapshot();
+  // Reuse the post-tick snapshot for every consumer in this render frame. Before this,
+  // the same state was serialized again for rendering and once more for hidden debug UI.
+  const s = frameSnapshot ?? sim.snapshot();
   renderer.draw(s, aim, presentation.frame(s.time));
   updateUi(s);
-  updateDebugState();
+  updateDebugState(s);
   requestAnimationFrame(frame);
 }
 
 async function start() {
   if (debugEnabled) $('debugPanel').classList.remove('debug-hidden');
   dbg('START', {
-    version: '0.11.4-crowd-elite',
+    version: '0.14-refactor-foundations',
     mode: runMode,
     startingSkill,
     seed,
@@ -1846,7 +1740,7 @@ async function start() {
       document.body.dataset.renderer = renderer.rendererName;
       return;
     }
-    updateDebugState();
+    updateDebugState(s);
     requestAnimationFrame(frame);
   } catch (err) {
     $('loading').innerHTML =
