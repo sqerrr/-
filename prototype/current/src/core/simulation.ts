@@ -405,6 +405,7 @@ type CatalystBinding = {
   nextTrailDistance: number;
   firedCount: number;
   carrierKeys: Set<string>;
+  pathCarrierKey: string | null;
   done: boolean;
 };
 
@@ -1100,6 +1101,19 @@ export class Simulation {
       // to the same activation path, and only its actual home arrival/expiry closes the route.
       if (p.behavior === 'returner' && (p.phase ?? 0) === 0 && p.returnAt !== undefined && p.ttl <= p.returnAt) {
         p.hitIds = [];
+        if(p.faction==='hero'&&p.activationId){
+          this.queuePhysicalEvent({
+            activationId:p.activationId,
+            slot:p.sourceSlot,
+            skill:p.source,
+            kind:'terminal',
+            x:p.x,
+            z:p.z,
+            radius:p.radius,
+            carrierKind:'projectile',
+            carrierId:p.id
+          });
+        }
         if (p.carousel) {
           const vm=Math.hypot(p.vx,p.vz)||1;
           p.phase=1;p.phaseAt=this.time+0.72;p.orbitX=p.x-(p.vx/vm)*1.25;p.orbitZ=p.z-(p.vz/vm)*1.25;
@@ -4601,6 +4615,7 @@ export class Simulation {
       nextTrailDistance: toSkill === 'sentry' ? 1.8 : 1.35,
       firedCount: 0,
       carrierKeys: new Set<string>(),
+      pathCarrierKey: null,
       done: false
     };
     this.catalystBindings.push(binding);
@@ -4805,6 +4820,14 @@ export class Simulation {
 
   private handlePhysicalBinding(binding: CatalystBinding, e: PhysicalEvent) {
     if (binding.done || e.activationId !== binding.producerActivationId) return;
+
+    const eventCarrierKey=e.carrierKind&&e.carrierId!==undefined
+      ? e.carrierKind+':'+e.carrierId
+      : null;
+    if ((binding.mode==='trail'||binding.mode==='reverse') && eventCarrierKey) {
+      if (!binding.pathCarrierKey) binding.pathCarrierKey=eventCarrierKey;
+      else if (binding.pathCarrierKey!==eventCarrierKey) return;
+    }
 
     if (e.kind === 'path') {
       if (e.previousX !== undefined && e.previousZ !== undefined)
