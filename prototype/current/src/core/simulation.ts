@@ -1052,16 +1052,52 @@ export class Simulation {
   private updateProjectiles() {
     if (!this.projectiles.length) return;
     const alive: Projectile[] = [];
+    const pathEvent = (p: Projectile, x0:number,z0:number,x1:number,z1:number) => {
+      if (p.faction !== 'hero' || !p.activationId) return;
+      if (Math.hypot(x1-x0,z1-z0) < 1e-5) return;
+      this.queuePhysicalEvent({
+        activationId:p.activationId,
+        slot:p.sourceSlot,
+        skill:p.source,
+        kind:'path',
+        previousX:x0,
+        previousZ:z0,
+        x:x1,
+        z:z1,
+        carrierKind:'projectile',
+        carrierId:p.id
+      });
+    };
+    const contactEvent = (p: Projectile, target: Ent) => {
+      if (p.faction !== 'hero' || !p.activationId) return;
+      this.queuePhysicalEvent({
+        activationId:p.activationId,
+        slot:p.sourceSlot,
+        skill:p.source,
+        kind:'contact',
+        x:p.x,
+        z:p.z,
+        radius:p.radius,
+        carrierKind:'projectile',
+        carrierId:p.id,
+        targetId:target.id
+      });
+    };
     for (const p of this.projectiles) {
       p.ttl -= this.dt;
       if (p.ttl <= 0) {
         if (p.behavior === 'roller' && p.apotheosis === 'mass_singularity')
-          this.scheduleStrike({ at:this.time+0.18,x:p.x,z:p.z,radius:p.radius*1.8,damage:p.damage*1.45,faction:p.faction,ownerId:p.ownerId,source:'mass_driver',sourceSlot:p.sourceSlot,intent:'control',telegraph:'mass_singularity_collapse' });
+          this.scheduleStrike({
+            at:this.time+0.18,x:p.x,z:p.z,radius:p.radius*1.8,damage:p.damage*1.45,
+            faction:p.faction,ownerId:p.ownerId,source:'mass_driver',sourceSlot:p.sourceSlot,
+            intent:'control',telegraph:'mass_singularity_collapse',activationId:p.activationId
+          });
+        this.finishAsyncPhysical(p.activationId,p.x,p.z);
         continue;
       }
 
-      // A Returner is not "three ordinary projectiles with another sprite": the same actor
-      // turns around, clears its hit memory and traces a second damaging path back home.
+      // A Returner is one physical actor. Its outward, carousel and return legs all contribute
+      // to the same activation path, and only its actual home arrival/expiry closes the route.
       if (p.behavior === 'returner' && (p.phase ?? 0) === 0 && p.returnAt !== undefined && p.ttl <= p.returnAt) {
         p.hitIds = [];
         if (p.carousel) {
@@ -1082,11 +1118,21 @@ export class Simulation {
         const hz = p.faction === 'hero' ? this.pz : (owner?.z ?? p.z);
         const dx=hx-p.x,dz=hz-p.z,m=Math.hypot(dx,dz)||1,speed=Math.max(5.2,Math.hypot(p.vx,p.vz));
         p.vx=dx/m*speed;p.vz=dz/m*speed;
-        if(m<0.5)continue;
+        if(m<0.5){
+          this.finishAsyncPhysical(p.activationId,p.x,p.z);
+          continue;
+        }
       }
       if (p.apotheosis === 'returner_phoenix') {
         p.trailAcc=(p.trailAcc??0)+this.dt;
-        if(p.trailAcc>=0.14){p.trailAcc-=0.14;this.fields.push({id:this.nextId++,x:p.x,z:p.z,radius:0.46,ttl:1.35,kind:'fire',dps:p.damage*0.24,tickAcc:0,faction:p.faction,ownerId:p.ownerId,source:'shard_fan',sourceSlot:p.sourceSlot,mutation:p.mutation,rivalConcentration:p.rivalConcentration});}
+        if(p.trailAcc>=0.14){
+          p.trailAcc-=0.14;
+          this.fields.push({
+            id:this.nextId++,activationId:p.activationId,insideIds:[],x:p.x,z:p.z,radius:0.46,ttl:1.35,
+            kind:'fire',dps:p.damage*0.24,tickAcc:0,faction:p.faction,ownerId:p.ownerId,
+            source:'shard_fan',sourceSlot:p.sourceSlot,mutation:p.mutation,rivalConcentration:p.rivalConcentration
+          });
+        }
       }
       if (p.behavior === 'roller' && p.growth) p.radius = Math.min(2.2,p.radius+p.growth*this.dt);
 
@@ -1114,7 +1160,9 @@ export class Simulation {
         if(t!==null&&t<coverT){cover=o;coverT=t;}
       }
 
-      const src:CastSource=p.faction==='hero'?{faction:'hero',owner:null,x:x0,z:z0,aimX:p.vx,aimZ:p.vz,vx:p.vx,vz:p.vz}:{faction:'rival',owner:this.projectileOwner(p),x:x0,z:z0,aimX:p.vx,aimZ:p.vz,vx:p.vx,vz:p.vz};
+      const src:CastSource=p.faction==='hero'
+        ? {faction:'hero',owner:null,x:x0,z:z0,aimX:p.vx,aimZ:p.vz,vx:p.vx,vz:p.vz}
+        : {faction:'rival',owner:this.projectileOwner(p),x:x0,z:z0,aimX:p.vx,aimZ:p.vz,vx:p.vx,vz:p.vz};
       let target:Ent|null=null,targetT=Infinity;
       for(const e of this.targetsFor(src)){
         if(e.hp<=0 || (p.hitIds??[]).includes(e.id)) continue;
@@ -1124,27 +1172,46 @@ export class Simulation {
 
       if(cover&&coverT<=targetT){
         p.x=x0+(x1-x0)*coverT;p.z=z0+(z1-z0)*coverT;
+        pathEvent(p,x0,z0,p.x,p.z);
         const destroyed=this.damageObstacle(cover,p.coverDamage);
-        if(p.behavior==='roller'&&destroyed){p.damage*=1.06;p.radius=Math.min(2.2,p.radius+0.09);p.x=x1;p.z=z1;alive.push(p);}
-        continue;
-      }
-      if(target){
-        p.x=x0+(x1-x0)*targetT;p.z=z0+(z1-z0)*targetT;
-        if(p.faction==='hero'){
-          this.damage(target,p.damage,p.source,true,p.x,p.z,p.sourceSlot);
-          if(p.source==='shard_fan'&&p.mutation==='fan_burn'){target.igniteUntil=Math.max(target.igniteUntil,this.time+2.6*this.memoryFactor());this.noteState('ignite');}
-          if(p.behavior==='roller'){
-            const m=Math.hypot(p.vx,p.vz)||1,push=0.45+this.doctrines.force*0.08;target.x+=p.vx/m*push;target.z+=p.vz/m*push;target.displacedUntil=this.time+0.8;
-          }
-        } else this.damageHero(p.damage,p.source,this.projectileOwner(p),p.rivalConcentration);
-        if(p.behavior==='roller'||p.behavior==='returner'){
-          (p.hitIds??=[]).push(target.id);p.x=x1;p.z=z1;if(p.behavior==='roller')p.damage*=1.035;alive.push(p);
-        }
+        if(p.behavior==='roller'&&destroyed){
+          p.damage*=1.06;p.radius=Math.min(2.2,p.radius+0.09);
+          pathEvent(p,p.x,p.z,x1,z1);
+          p.x=x1;p.z=z1;alive.push(p);
+        } else this.finishAsyncPhysical(p.activationId,p.x,p.z);
         continue;
       }
 
+      if(target){
+        p.x=x0+(x1-x0)*targetT;p.z=z0+(z1-z0)*targetT;
+        pathEvent(p,x0,z0,p.x,p.z);
+        if(p.faction==='hero'){
+          this.damage(target,p.damage,p.source,true,p.x,p.z,p.sourceSlot);
+          contactEvent(p,target);
+          if(p.source==='shard_fan'&&p.mutation==='fan_burn'){
+            target.igniteUntil=Math.max(target.igniteUntil,this.time+2.6*this.memoryFactor());this.noteState('ignite');
+          }
+          if(p.behavior==='roller'){
+            const m=Math.hypot(p.vx,p.vz)||1,push=0.45+this.doctrines.force*0.08;
+            target.x+=p.vx/m*push;target.z+=p.vz/m*push;target.displacedUntil=this.time+0.8;
+          }
+        } else this.damageHero(p.damage,p.source,this.projectileOwner(p),p.rivalConcentration);
+        if(p.behavior==='roller'||p.behavior==='returner'){
+          (p.hitIds??=[]).push(target.id);
+          pathEvent(p,p.x,p.z,x1,z1);
+          p.x=x1;p.z=z1;
+          if(p.behavior==='roller')p.damage*=1.035;
+          alive.push(p);
+        } else this.finishAsyncPhysical(p.activationId,p.x,p.z);
+        continue;
+      }
+
+      pathEvent(p,x0,z0,x1,z1);
       p.x=x1;p.z=z1;
-      if(p.x<this.world.minX-1||p.x>this.world.maxX+1||p.z<this.world.minZ-1||p.z>this.world.maxZ+1)continue;
+      if(p.x<this.world.minX-1||p.x>this.world.maxX+1||p.z<this.world.minZ-1||p.z>this.world.maxZ+1){
+        this.finishAsyncPhysical(p.activationId,p.x,p.z);
+        continue;
+      }
       alive.push(p);
     }
     this.projectiles=alive;
