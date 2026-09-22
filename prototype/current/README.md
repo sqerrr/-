@@ -1,4 +1,4 @@
-# Black Archive web prototype — v0.13 Physical Lifecycle + Elite Readability
+# Black Archive web prototype — v0.13.1 Player Copy + Physical Lifecycle + Elite Readability
 
 `prototype/current/` is the current executable browser build.
 
@@ -63,12 +63,16 @@ Compatible B nodes are event-owned across cycle boundaries. Persistent producers
 
 The physical lifecycle suite also exhausts **240 mutation × advertised-signal cases** so a mutation cannot silently break a base Phenomenon's Catalyst contract.
 
+## Player-facing copy
+
+Player UI uses short Russian wording that describes the visible combat result, not implementation vocabulary. Internal ids and engineering terms stay in code/docs; cards and tooltips do not expose them. `user_text_regression` locks this contract.
+
 ## Catalyst 2.x
 
 Current Discovery contains five physical operators:
 
-- **Источник** — B originates when/where A physically finishes;
-- **Носитель** — B is emitted on real contact/fire/impact of A;
+- **Финиш** — B originates when/where A physically finishes;
+- **Контакт** — B is emitted on real contact/fire/impact of A;
 - **След** — B is staged progressively along A's travelled path;
 - **Обратный ход** — B begins at A's actual terminal and faces back;
 - **Схлопывание** — B consumes A's exact physical area and converges inward.
