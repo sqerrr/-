@@ -1520,7 +1520,9 @@ export const phenomenonChoreography: Record<SkillId, PhenomenonChoreographyDef> 
   rail_spear:    { emits:['terminal','path'],              accepts:['source','carrier','trail','reverse','collapse'] },
   cleaver:       { emits:['terminal','area'],              accepts:['source','carrier','trail','reverse','collapse'] },
   chain_arc:     { emits:['terminal','path'],              accepts:['source','carrier','trail','reverse','collapse'] },
-  orbit_blades:  { emits:['carrier','area'],               accepts:['source','carrier','collapse'] },
+  // Runtime owns one continuous Orbit set. Until multiple independent orbit actors exist,
+  // only a single Source origin is honest on the right side.
+  orbit_blades:  { emits:['carrier','area'],               accepts:['source'] },
   // Mortar is a delayed impact actor, not a ground-travelling ray: impact is its Carrier.
   mortar_bloom:  { emits:['terminal','carrier','area'],    accepts:['source','carrier','trail','reverse','collapse'] },
   sentry:        { emits:['carrier','area'],               accepts:['source','carrier','trail','reverse','collapse'] },
