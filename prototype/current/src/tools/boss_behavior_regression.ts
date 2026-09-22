@@ -54,7 +54,7 @@ assert(telegraphs[0]?.kind==='sector','sweep telegraph geometry changed');
 boss.stateTimer=0;
 system.update(boss,boss.speed,5,1,0);
 assert(hits.some((h)=>h.source==='warden_sweep'),'committed sweep no longer damages through the boss port');
-assert(boss.adaptStage===0 && boss.exposedUntil>now,'boss recovery/exposure changed');
+assert(Number(boss.adaptStage)===0 && boss.exposedUntil>now,'boss recovery/exposure changed');
 
 // Crossing 33% from phase two enters phase three and creates four authored supports.
 boss.bossPhase=2;
