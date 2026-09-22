@@ -4203,9 +4203,10 @@ export class Simulation {
     for(const anchor of anchors){
       const dx0=anchor.x-src.x,dz0=anchor.z-src.z,d0=Math.hypot(dx0,dz0)||1;
       this.combatShape('tether_line',{kind:'ray',x:src.x,z:src.z,aimX:dx0/d0,aimZ:dz0/d0,range:d0,halfWidth:0.08},'control');
-      this.combatShape('tether_drag',{kind:'circle',x:anchor.x,z:anchor.z,radius},'control');
+      const dragShape:CombatShape={kind:'circle',x:anchor.x,z:anchor.z,radius};
+      this.combatShape('tether_drag',dragShape,'control');
       let pulled=0;
-      const candidates=this.targetsFor(src).filter(e=>e.hp>0&&Math.hypot(e.x-anchor.x,e.z-anchor.z)<=radius+e.radius).sort((a,b)=>Math.hypot(a.x-anchor.x,a.z-anchor.z)-Math.hypot(b.x-anchor.x,b.z-anchor.z));
+      const candidates=this.targetsFor(src).filter(e=>e.hp>0&&combatShapeIntersectsCircle(dragShape,e.x,e.z,e.radius)).sort((a,b)=>Math.hypot(a.x-anchor.x,a.z-anchor.z)-Math.hypot(b.x-anchor.x,b.z-anchor.z));
       const cap=mut==='tether_hook'?2:mut==='tether_net'?10:6;
       for(const e of candidates){if(pulled++>=cap)break;const dx=anchor.x-e.x,dz=anchor.z-e.z,d=Math.hypot(dx,dz)||1,pull=(mut==='tether_hook'?2.4:1.35)*(1+st.control*0.25);this.damage(e,skills.tether_drag.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e),'tether_drag',false,anchor.x,anchor.z,slot);e.x+=dx/d*Math.min(pull,d*0.62);e.z+=dz/d*Math.min(pull,d*0.62);e.displacedUntil=Math.max(e.displacedUntil,this.time+(this.mutationIs(st,'tether_lock')?1.85:this.mutationIs(st,'tether_bind')?1.2:0.65));this.currentActivationControl+=1.2+st.control;this.noteState('displaced');
         if(this.mutationIs(st,'gravity_prison')&&e.kind==='elite'){e.exposedUntil=Math.max(e.exposedUntil,this.time+2.1);e.chillUntil=Math.max(e.chillUntil,this.time+1.2);if(e.affix==='shielded')e.shieldStability=Math.max(0,(e.shieldStability??100)-28);this.combatShape('gravity_prison',{kind:'circle',x:e.x,z:e.z,radius:e.radius+1.2},'control');}
@@ -5624,11 +5625,12 @@ export class Simulation {
     }
   }
   private castFrost(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut=st.mutation,r=this.skillRadius(st,skills.frost_ring.baseRadius,slot);
-    this.combatShape('frost_ring',{kind:'circle',x:src.x,z:src.z,radius:r},'control');
+    const mut=st.mutation,r=this.skillRadius(st,skills.frost_ring.baseRadius,slot),
+      shape:CombatShape={kind:'circle',x:src.x,z:src.z,radius:r};
+    this.combatShape('frost_ring',shape,'control');
     let shattered=0; let firstShatter:Ent|null=null;
     for(const e of this.targetsFor(src)){
-      const d=Math.hypot(e.x-src.x,e.z-src.z); if(d>r+e.radius)continue;
+      const d=Math.hypot(e.x-src.x,e.z-src.z); if(!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;
       const wasChilled=e.chillUntil>this.time, wasFrozen=(e.frozenUntil??0)>this.time;
       let dmg=skills.frost_ring.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e);
       if(mut==='frost_rim')dmg*=d>r*0.62?2:0.48;
@@ -5675,11 +5677,11 @@ export class Simulation {
   }
 
   private castCleaver(st: SkillRuntime, slot: number, src: CastSource, repeat = false) {
-    const mut=st.mutation,r=this.skillRadius(st,skills.cleaver.baseRadius,slot);let half=mut==='cleaver_guillotine'?0.65:1.12;if(mut==='cleaver_roundhouse')half=Math.PI;this.combatShape('cleaver',{kind:'sector',x:src.x,z:src.z,radius:r,aimX:src.aimX,aimZ:src.aimZ,halfAngle:half});let kills=0,hookX=0,hookZ=0,hookN=0,ruptures=0;
-    for(const e of this.targetsFor(src)){const dx=e.x-src.x,dz=e.z-src.z,d=Math.hypot(dx,dz);if(d>r+e.radius||d<0.01)continue;const dot=dx/d*src.aimX+dz/d*src.aimZ;if(Math.acos(Math.max(-1,Math.min(1,dot)))>half)continue;let dmg=skills.cleaver.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e)*(repeat?0.65:1);if(mut==='cleaver_guillotine'&&e.hp/e.maxHp<0.25)dmg*=2;if(this.mutationIs(st,'cleaver_deep'))dmg*=1.22;const killed=this.damage(e,dmg,'cleaver',true,src.x,src.z,slot);this.closeDamage+=dmg;if(killed)kills++;
+    const mut=st.mutation,r=this.skillRadius(st,skills.cleaver.baseRadius,slot);let half=mut==='cleaver_guillotine'?0.65:1.12;if(mut==='cleaver_roundhouse')half=Math.PI;const shape:CombatShape={kind:'sector',x:src.x,z:src.z,radius:r,aimX:src.aimX,aimZ:src.aimZ,halfAngle:half};this.combatShape('cleaver',shape);let kills=0,hookX=0,hookZ=0,hookN=0,ruptures=0;
+    for(const e of this.targetsFor(src)){const dx=e.x-src.x,dz=e.z-src.z,d=Math.hypot(dx,dz);if(d<0.01||!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;let dmg=skills.cleaver.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e)*(repeat?0.65:1);if(mut==='cleaver_guillotine'&&e.hp/e.maxHp<0.25)dmg*=2;if(this.mutationIs(st,'cleaver_deep'))dmg*=1.22;const killed=this.damage(e,dmg,'cleaver',true,src.x,src.z,slot);this.closeDamage+=dmg;if(killed)kills++;
       if(this.mutationIs(st,'cleaver_deep')){const push=e.kind==='elite'?0.22:0.62;e.x+=dx/d*push;e.z+=dz/d*push;e.displacedUntil=Math.max(e.displacedUntil,this.time+0.45);this.noteState('displaced');}
       if(mut==='cleaver_hook'||this.mutationIs(st,'cleaver_chainhook')){const tx=src.x-e.x,tz=src.z-e.z,td=Math.hypot(tx,tz)||1,pull=this.mutationIs(st,'cleaver_chainhook')?1.05:0.65;e.x+=tx/td*pull*(1+st.control);e.z+=tz/td*pull*(1+st.control);hookX+=e.x;hookZ+=e.z;hookN++;}
-      if(this.mutationIs(st,'cleaver_rupture')&&ruptures<6){ruptures++;const burst=skills.cleaver.baseDamage*this.powerBucket(st)*0.48,rr=1.55;this.combatShape('cleaver_rupture',{kind:'circle',x:e.x,z:e.z,radius:rr});for(const o of this.targetsFor(src))if(o.hp>0&&o.id!==e.id&&Math.hypot(o.x-e.x,o.z-e.z)<rr+o.radius)this.damage(o,burst,'cleaver',false,e.x,e.z,slot);}
+      if(this.mutationIs(st,'cleaver_rupture')&&ruptures<6){ruptures++;const burst=skills.cleaver.baseDamage*this.powerBucket(st)*0.48,rr=1.55,rupture:CombatShape={kind:'circle',x:e.x,z:e.z,radius:rr};this.combatShape('cleaver_rupture',rupture);for(const o of this.targetsFor(src))if(o.hp>0&&o.id!==e.id&&combatShapeIntersectsCircle(rupture,o.x,o.z,o.radius))this.damage(o,burst,'cleaver',false,e.x,e.z,slot);}
     }
     if(this.mutationIs(st,'cleaver_rift_hook')&&hookN){const x=hookX/hookN,z=hookZ/hookN;this.scheduleStrike({at:this.time+0.24,x,z,radius:2.1,damage:skills.cleaver.baseDamage*this.powerBucket(st)*0.72,faction:src.faction,ownerId:src.owner?.id??0,source:'cleaver',sourceSlot:slot,intent:'control',telegraph:'cleaver_rift_tell'});}
     if(this.mutationIs(st,'cleaver_rhythm')&&kills>0&&!repeat){this.butcherStacks=Math.min(6,this.butcherStacks+kills);if(this.mutationIs(st,'cleaver_harvest_dance')||this.rng.float()<Math.min(0.65,this.butcherStacks*0.16)){const ax=src.aimX,az=src.aimZ;src.aimX=-az;src.aimZ=ax;this.combatShape('cleaver_harvest_dance',{kind:'circle',x:src.x,z:src.z,radius:r*1.18});this.castCleaver(st,slot,src,true);src.aimX=ax;src.aimZ=az;if(this.mutationIs(st,'cleaver_harvest_dance'))this.grantBarrier(3.5*kills);this.butcherStacks=0;}}
@@ -5774,9 +5776,10 @@ export class Simulation {
 
   private castToxic(st: SkillRuntime, slot: number, src: CastSource) {
     let r=this.skillRadius(st,skills.toxic_mist.baseRadius,slot),dps=skills.toxic_mist.baseDamage*this.powerBucket(st)*this.slotAmp(slot);if(st.mutation==='toxic_distilled'){r*=0.58;dps*=1.85;}const x=this.mutationIs(st,'toxic_plume')?src.x-src.vx*0.55:src.x,z=this.mutationIs(st,'toxic_plume')?src.z-src.vz*0.55:src.z;
-    const reactiveTargets:Ent[]=[];if(this.mutationIs(st,'toxic_reactive'))for(const e of this.targetsFor(src)){if(e.hp<=0||Math.hypot(e.x-x,e.z-z)>r+e.radius)continue;const reactive=e.igniteUntil>this.time||e.chillUntil>this.time||(e.frozenUntil??0)>this.time||e.exposedUntil>this.time||e.displacedUntil>this.time;if(reactive){this.damage(e,dps*1.25,'septic_cut',false,x,z,slot);this.metrics.reactions++;reactiveTargets.push(e);}}
+    const mistShape:CombatShape={kind:'circle',x,z,radius:r};
+    const reactiveTargets:Ent[]=[];if(this.mutationIs(st,'toxic_reactive'))for(const e of this.targetsFor(src)){if(e.hp<=0||!combatShapeIntersectsCircle(mistShape,e.x,e.z,e.radius))continue;const reactive=e.igniteUntil>this.time||e.chillUntil>this.time||(e.frozenUntil??0)>this.time||e.exposedUntil>this.time||e.displacedUntil>this.time;if(reactive){this.damage(e,dps*1.25,'septic_cut',false,x,z,slot);this.metrics.reactions++;reactiveTargets.push(e);}}
     const pushField=(fx:number,fz:number,fr:number,ttl:number,behavior?:'host')=>this.fields.push({id:this.nextId++,x:fx,z:fz,radius:fr,ttl,kind:'toxic',dps,tickAcc:0,faction:src.faction,ownerId:src.owner?.id??0,source:st.id,sourceSlot:slot,mutation:st.mutation,rivalConcentration:effectGrammar[st.id].rivalConcentration,behavior});
-    this.combatShape('toxic_mist',{kind:'circle',x,z,radius:r},'field');pushField(x,z,r,this.persistentDuration(st,4.2,slot),this.mutationIs(st,'toxic_pestilent_host')?'host':undefined);
+    this.combatShape('toxic_mist',mistShape,'field');pushField(x,z,r,this.persistentDuration(st,4.2,slot),this.mutationIs(st,'toxic_pestilent_host')?'host':undefined);
     if(this.mutationIs(st,'toxic_plague_road')){const m=Math.hypot(src.vx,src.vz)||1,dx=src.vx/m,dz=src.vz/m;for(let i=1;i<=3;i++)pushField(x-dx*i*1.3,z-dz*i*1.3,r*0.55,2.4);}
     if(this.mutationIs(st,'toxic_septic_bloom'))for(const e of reactiveTargets){for(let i=0;i<4;i++){const a=i*Math.PI/2;pushField(e.x+Math.cos(a)*1.1,e.z+Math.sin(a)*1.1,r*0.42,2.2);this.scheduleStrike({at:this.time+0.12+i*0.04,x:e.x+Math.cos(a)*1.1,z:e.z+Math.sin(a)*1.1,radius:r*0.45,damage:dps*0.72,faction:src.faction,ownerId:src.owner?.id??0,source:'toxic_mist',sourceSlot:slot,intent:'field',telegraph:'septic_bloom'});}}
     this.noteState('toxin');
