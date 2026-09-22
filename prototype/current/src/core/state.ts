@@ -17,58 +17,73 @@ import type {
 export type EnemyState = 'normal' | 'telegraph' | 'dash';
 export type CastFaction = 'hero' | 'rival';
 
-export type Ent = {
+export interface EntityIdentityComponent {
   id: number;
   kind: EnemyKind;
   cloneParent?: number;
+}
+
+export interface BodyComponent {
   x: number;
   z: number;
-  hp: number;
-  maxHp: number;
   radius: number;
   speed: number;
-  contactDps: number;
   facingX: number;
   facingZ: number;
   state: EnemyState;
   stateTimer: number;
-  eliteAction?: EliteActionId;
-  eliteActionUntil?: number;
-  cooldown: number;
   lockedX: number;
   lockedZ: number;
-  linkedTo: number;
-  linkTimer: number;
+}
+
+export interface VitalComponent {
+  hp: number;
+  maxHp: number;
+  contactDps: number;
+  cooldown: number;
   revivesLeft: number;
   revived: boolean;
   buffUntil: number;
   orbitHitAt: number;
-  chassis?: EliteChassis;
-  affix: EliteAffix;
-  adaptAt: number;
   lastDamageAt: number;
-  shieldAngle: number;
-  shieldState?: 'guard' | 'commit' | 'broken';
-  shieldStability?: number;
-  shieldCommitUntil?: number;
-  boss: boolean;
-  guardianPoi: number;
-  adaptCooldown: number;
-  adaptStage: number;
-  bossPhase: number;
-  bossPattern: BossPatternId | '';
-  /** Bulwark damage-family memory. Deliberately separate from Warden attack patterns. */
-  prismMemory?: SkillId | 'derived';
-  /** Shepherd adaptation profile. Deliberately separate from Warden attack patterns. */
-  shepherdMode?: 'null' | 'condensed' | 'fractured' | 'migratory';
+}
+
+export interface RelationComponent {
+  linkedTo: number;
+  linkTimer: number;
   orderX: number;
   orderZ: number;
   orderUntil: number;
   squadTask?: SquadTask;
   squadUntil?: number;
+  guardianPoi: number;
+}
+
+export interface EliteRuntimeComponent {
+  chassis?: EliteChassis;
+  affix: EliteAffix;
+  eliteAction?: EliteActionId;
+  eliteActionUntil?: number;
+  adaptAt: number;
+  shieldAngle: number;
+  shieldState?: 'guard' | 'commit' | 'broken';
+  shieldStability?: number;
+  shieldCommitUntil?: number;
+  boss: boolean;
+  adaptCooldown: number;
+  adaptStage: number;
+  bossPhase: number;
+  bossPattern: BossPatternId | '';
+  prismMemory?: SkillId | 'derived';
+  shepherdMode?: 'null' | 'condensed' | 'fractured' | 'migratory';
   regenTick: number;
   affixTimer: number;
   affixPulse: number;
+  rarity: EliteRarity;
+  repertoire: number[];
+}
+
+export interface StatusComponent {
   markUntil: number;
   igniteUntil: number;
   chillUntil: number;
@@ -84,8 +99,9 @@ export type Ent = {
   embedded: number;
   lastArcAt: number;
   sentryTouchedUntil: number;
-  rarity: EliteRarity;
-  repertoire: number[];
+}
+
+export interface EliteProgressionComponent {
   relicCastMul?: number;
   groundRelicCastMul?: number;
   relicGapMul?: number;
@@ -96,21 +112,39 @@ export type Ent = {
   relicCritChance?: number;
   relicSiphon?: number;
   relicSeekMul?: number;
-};
+}
+
+export type Ent =
+  & EntityIdentityComponent
+  & BodyComponent
+  & VitalComponent
+  & RelationComponent
+  & EliteRuntimeComponent
+  & StatusComponent
+  & EliteProgressionComponent;
+
+export type EntInit =
+  & Pick<Ent, 'id' | 'kind' | 'x' | 'z' | 'hp' | 'radius' | 'speed' | 'contactDps'>
+  & Partial<Omit<Ent, 'id' | 'kind' | 'x' | 'z' | 'hp' | 'radius' | 'speed' | 'contactDps'>>;
 
 export const HERO_HIT_RADIUS = 0.45;
 
-export function makeHeroEnt(): Ent {
+/**
+ * Single runtime factory for combat entities. The runtime remains flat for cache-friendly
+ * iteration, while the type is decomposed by domain so systems can depend on narrower views.
+ */
+export function makeEnt(init: EntInit): Ent {
+  const { id, kind, x, z, hp, radius, speed, contactDps, ...overrides } = init;
   return {
-    id: -1,
-    kind: 'hero',
-    x: 0,
-    z: 0,
-    hp: 1,
-    maxHp: 1,
-    radius: HERO_HIT_RADIUS,
-    speed: 0,
-    contactDps: 0,
+    id,
+    kind,
+    x,
+    z,
+    hp,
+    maxHp: overrides.maxHp ?? hp,
+    radius,
+    speed,
+    contactDps,
     facingX: 0,
     facingZ: 1,
     state: 'normal',
@@ -123,10 +157,10 @@ export function makeHeroEnt(): Ent {
     revivesLeft: 0,
     revived: false,
     buffUntil: 0,
-    orbitHitAt: 0,
+    orbitHitAt: -99,
     affix: 'none',
-    adaptAt: 0,
-    lastDamageAt: 0,
+    adaptAt: -1,
+    lastDamageAt: -99,
     shieldAngle: 0,
     boss: false,
     guardianPoi: 0,
@@ -150,11 +184,30 @@ export function makeHeroEnt(): Ent {
     exposedUntil: 0,
     displacedUntil: 0,
     embedded: 0,
-    lastArcAt: 0,
-    sentryTouchedUntil: 0,
+    lastArcAt: -99,
+    sentryTouchedUntil: -99,
     rarity: 'common',
-    repertoire: []
+    repertoire: [],
+    ...overrides
   };
+}
+
+export function makeHeroEnt(): Ent {
+  return makeEnt({
+    id: -1,
+    kind: 'hero',
+    x: 0,
+    z: 0,
+    hp: 1,
+    radius: HERO_HIT_RADIUS,
+    speed: 0,
+    contactDps: 0,
+    adaptAt: 0,
+    lastDamageAt: 0,
+    orbitHitAt: 0,
+    lastArcAt: 0,
+    sentryTouchedUntil: 0
+  });
 }
 
 export type Pickup = {

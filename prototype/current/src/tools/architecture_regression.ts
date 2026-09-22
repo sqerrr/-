@@ -8,6 +8,7 @@ const simulation=readFileSync('src/core/simulation.ts','utf8');
 const state=readFileSync('src/core/state.ts','utf8');
 const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const entityStore=readFileSync('src/core/entityStore.ts','utf8');
+const stateModel=readFileSync('src/core/state.ts','utf8');
 const types=readFileSync('src/core/types.ts','utf8');
 const ui=readFileSync('src/platform/main.ts','utf8');
 const eliteUi=readFileSync('src/content/eliteUi.ts','utf8');
@@ -26,6 +27,10 @@ assert(entityStore.includes('export class EntityStore'), 'entity roster has no d
 assert(simulation.includes('private entityStore = new EntityStore()'), 'Simulation no longer delegates entity identity/query ownership');
 assert(!simulation.includes('this.ents.find('), 'hot-path id lookup bypasses EntityStore index');
 assert(!simulation.includes('this.ents.filter('), 'hot-path entity query allocates through raw roster filter again');
+for (const component of ['BodyComponent','VitalComponent','RelationComponent','EliteRuntimeComponent','StatusComponent','EliteProgressionComponent'])
+  assert(stateModel.includes('export interface '+component), 'entity domain component missing: '+component);
+assert(stateModel.includes('export function makeEnt('), 'combat entity construction has no single factory');
+assert(!simulation.includes(': Ent = {'), 'Simulation bypasses makeEnt with a duplicated full entity literal');
 
 assert(types.includes('export type DamageSourceId ='), 'player damage sources are stringly typed again');
 assert(types.includes('export type EliteActionId ='), 'elite actions are stringly typed again');
@@ -52,5 +57,6 @@ console.log('architecture-regression OK', {
   sharedEliteMetadata:true,
   frameSnapshotReuse:true,
   physicalLifecycleOwner:true,
-  entityStore:true
+  entityStore:true,
+  entityComponents:true
 });
