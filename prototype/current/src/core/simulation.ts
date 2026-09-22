@@ -372,6 +372,8 @@ type ChoreographyTrace = {
   points: ChoreographyPoint[];
   areaPoints: ChoreographyPoint[];
   areas: CombatShape[];
+  /** Exact target hitbox positions at the instant synchronous damage resolved. */
+  contacts: ChoreographyPoint[];
   paths: ChoreographyPoint[][];
   carriers: ChoreographyCarrier[];
   scheduled: ChoreographyPoint[];
@@ -4820,7 +4822,6 @@ export class Simulation {
 
     if (
       !asyncSkill &&
-      !this.activationPending.has(activationId) &&
       trace.terminal &&
       (skill === 'rail_spear' || skill === 'cleaver' || skill === 'chain_arc' || skill === 'tether_drag')
     )
@@ -5039,6 +5040,7 @@ export class Simulation {
       points: [],
       areaPoints: [],
       areas: [],
+      contacts: [],
       paths: [],
       carriers: [],
       scheduled: []
@@ -5092,21 +5094,21 @@ export class Simulation {
   private finishChoreographyTrace() {
     const t = this.currentChoreography;
     if (!t) return null;
-    const resolvedHits: ChoreographyPoint[] = [];
-    for (const eid of this.currentHits) {
-      const e = this.ents.find((q) => q.id === eid);
-      if (e) {
-        const p = { x: e.x, z: e.z };
-        resolvedHits.push(p);
-        this.tracePoint(p.x, p.z);
-      }
-    }
-    // Scheduled coordinates are telegraph/planning data, never proof that the Phenomenon
-    // physically reached them. Async projectiles/impacts publish their real terminal later.
-    // Some skills have an authored spatial terminal independent from the affected bodies.
-    // Tether's anchor is the endpoint even if several enemies are pulled toward it.
-    if (resolvedHits.length && t.skill !== 'tether_drag') t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
-    else if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
+    const resolvedHits = t.contacts;
+    for (const p of resolvedHits) this.tracePoint(p.x, p.z);
+
+    // Contacts are captured at damage time, before pull/knockback can move the target. Terminal
+    // semantics are skill-authored: a Rail/Cleaver finishes at its farthest useful contact,
+    // Chain Arc at its final hop, while Tether owns its authored anchor independently of targets.
+    if (resolvedHits.length && (t.skill === 'rail_spear' || t.skill === 'cleaver')) {
+      t.terminal = { ...resolvedHits.reduce((best,p) =>
+        Math.hypot(p.x-t.origin.x,p.z-t.origin.z) > Math.hypot(best.x-t.origin.x,best.z-t.origin.z) ? p : best
+      ) };
+    } else if (resolvedHits.length && t.skill === 'chain_arc') {
+      t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
+    } else if (resolvedHits.length && t.skill !== 'tether_drag') {
+      t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
+    } else if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
     if (t.skill === 'mortar_bloom' || t.skill === 'mass_driver' || t.skill === 'shard_fan') {
       t.terminal = null;
       t.paths = [];
@@ -5118,6 +5120,7 @@ export class Simulation {
       points: t.points.map((p) => ({ ...p })),
       areaPoints: t.areaPoints.map((p) => ({ ...p })),
       areas: t.areas.map((q) => ({ ...q })),
+      contacts: t.contacts.map((p) => ({ ...p })),
       paths: t.paths.map((path) => path.map((p) => ({ ...p }))),
       carriers: t.carriers.map((q) => ({ ...q })),
       scheduled: t.scheduled.map((p) => ({ ...p }))
@@ -5932,6 +5935,12 @@ export class Simulation {
     if (skill && this.currentSlot >= 0) {
       this.currentHits.add(e.id);
       this.currentActivationDamage += actual;
+      if (this.currentChoreography?.skill === skill.id) {
+        const p={x:e.x,z:e.z},
+          last=this.currentChoreography.contacts[this.currentChoreography.contacts.length-1];
+        if(!last || !this.sameChoreographyPoint(last,p,0.02))
+          this.currentChoreography.contacts.push(p);
+      }
     }
     this.events.push({
       type: 'DamageResolved',
