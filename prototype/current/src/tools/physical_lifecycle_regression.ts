@@ -142,6 +142,18 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   assert(dist(frost,impact.shape)<1.0,'Mortar Carrier Frost did not originate at impact');
 }
 
+// Recoil cannot leave Catalyst origin at the hero's pre-recoil position: the moving body owns it.
+{
+  const sim=fixture('mass_driver','toxic_mist','trail');
+  sim.skillsRuntime.get('mass_driver').mutation='mass_recoil';
+  sim.activateSlot(0);
+  const p=sim.projectiles.find((q:any)=>q.source==='mass_driver'),
+    binding=sim.catalystBindings.find((q:any)=>q.fromSkill==='mass_driver');
+  assert(p&&binding,'Mass recoil fixture produced no projectile/binding');
+  assert(dist(binding.origin,p)<.08,'Catalyst path origin differs from actual post-recoil Mass body spawn');
+  assert(Math.abs(sim.px)>0.5,'Mass recoil fixture did not displace the hero');
+}
+
 // MASS DRIVER TRAIL: placements appear progressively behind the moving body, never pre-sampled down the aim ray.
 {
   const sim=fixture('mass_driver','toxic_mist','trail');
