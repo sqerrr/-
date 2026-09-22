@@ -1013,8 +1013,7 @@ export class WebGLRenderer {
       diamond = (x:number,y:number,r:number,w:number,c:[number,number,number,number]) => {
         line(x,y-r,x+r,y,w,c); line(x+r,y,x,y+r,w,c);
         line(x,y+r,x-r,y,w,c); line(x-r,y,x,y-r,w,c);
-      },
-
+      };
 
     for(const e of s.entities){
       if(!e.elite) continue;
