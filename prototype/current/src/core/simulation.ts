@@ -1087,7 +1087,7 @@ export class Simulation {
         carrierId:p.id
       });
     };
-    const contactEvent = (p: Projectile, target: Ent) => {
+    const contactEvent = (p: Projectile, target?: Ent) => {
       if (p.faction !== 'hero' || !p.activationId) return;
       this.queuePhysicalEvent({
         activationId:p.activationId,
@@ -1099,7 +1099,7 @@ export class Simulation {
         radius:p.radius,
         carrierKind:'projectile',
         carrierId:p.id,
-        targetId:target.id
+        targetId:target?.id
       });
     };
     for (const p of this.projectiles) {
@@ -1205,6 +1205,7 @@ export class Simulation {
       if(cover&&coverT<=targetT){
         p.x=x0+(x1-x0)*coverT;p.z=z0+(z1-z0)*coverT;
         pathEvent(p,x0,z0,p.x,p.z);
+        contactEvent(p); // cover/world contact is physical Carrier data too.
         const destroyed=this.damageObstacle(cover,p.coverDamage);
         if(p.behavior==='roller'&&destroyed){
           p.damage*=1.06;p.radius=Math.min(2.2,p.radius+0.09);
