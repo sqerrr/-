@@ -25,9 +25,33 @@ import {
 import { fnv1a } from './hash.js';
 import { Rng } from './rng.js';
 import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, pointAlongPolyline, polylineLength, sweepCircleT } from './geometry.js';
+import {
+  HERO_HIT_RADIUS,
+  makeHeroEnt,
+  type CatalystBinding,
+  type CastFaction,
+  type CastSource,
+  type ChoreographyCarrier,
+  type ChoreographyPoint,
+  type ChoreographyTrace,
+  type Construct,
+  type DelayedStrike,
+  type EliteEchoState,
+  type Ent,
+  type Field,
+  type Obstacle,
+  type PhysicalEvent,
+  type Pickup,
+  type Poi,
+  type Projectile,
+  type Relic
+} from './state.js';
 import { items, itemOrder, itemCategoryName, itemRivalEffect } from '../content/items.js';
 import type {
   ItemId,
+  BossPatternId,
+  DamageSourceId,
+  EliteActionId,
   DoctrineId,
   DoctrineRuntime,
   CatalystId,
@@ -58,92 +82,6 @@ import type {
   SquadTask
 } from './types.js';
 
-type EnemyState = 'normal' | 'telegraph' | 'dash';
-type Ent = {
-  id: number;
-  kind: EnemyKind;
-  cloneParent?: number;
-  x: number;
-  z: number;
-  hp: number;
-  maxHp: number;
-  radius: number;
-  speed: number;
-  contactDps: number;
-  facingX: number;
-  facingZ: number;
-  state: EnemyState;
-  stateTimer: number;
-  /** Authored elite chassis action, separate from generic mob/affix state. */
-  eliteAction?: string;
-  eliteActionUntil?: number;
-  cooldown: number;
-  lockedX: number;
-  lockedZ: number;
-  linkedTo: number;
-  linkTimer: number;
-  revivesLeft: number;
-  revived: boolean;
-  buffUntil: number;
-  orbitHitAt: number;
-  chassis?: EliteChassis;
-  affix: EliteAffix;
-  adaptAt: number;
-  lastDamageAt: number;
-  shieldAngle: number;
-  shieldState?: 'guard' | 'commit' | 'broken';
-  shieldStability?: number;
-  shieldCommitUntil?: number;
-  boss: boolean;
-  guardianPoi: number;
-  adaptCooldown: number;
-  adaptStage: number;
-  bossPhase: number;
-  bossPattern: string;
-  orderX: number;
-  orderZ: number;
-  orderUntil: number;
-  squadTask?: SquadTask;
-  squadUntil?: number;
-  regenTick: number;
-  affixTimer: number;
-  affixPulse: number;
-  markUntil: number;
-  igniteUntil: number;
-  chillUntil: number;
-  frostMeter?: number;
-  frozenUntil?: number;
-  woundStacks?: number;
-  woundUntil: number;
-  woundDps: number;
-  toxinUntil: number;
-  toxinDps: number;
-  exposedUntil: number;
-  displacedUntil: number;
-  embedded: number;
-  lastArcAt: number;
-  sentryTouchedUntil: number;
-  rarity: EliteRarity;
-  /** Serials of the refused cards this entity has claimed from the store. */
-  repertoire: number[];
-  // Gains an elite takes from relics. Optional fields keep old replay/entity literals compatible;
-  // current enemy progression is allowed to alter durability as well as behaviour.
-  relicCastMul?: number;
-  /** Subset of relicCastMul coming from ground relics, for D52 attribution. */
-  groundRelicCastMul?: number;
-  relicGapMul?: number;
-  relicReachMul?: number;
-  /** Ground/legacy items are an independent elite progression channel, not refusal-store cards. */
-  relicItems?: ItemId[];
-  /** Autonomous elite growth modules rolled from the full item catalogue, independent of player refusals. */
-  evolutionItems?: ItemId[];
-  relicDamageTakenMul?: number;
-  relicCritChance?: number;
-  relicSiphon?: number;
-  relicSeekMul?: number;
-};
-
-const HERO_HIT_RADIUS = 0.45;
 // Tier tables. D49 fixes the target fight lengths (8-12 / 15-25 / 30-45 s); each tier is a
 // step up in durability, payout and repertoire.
 const ELITE_RARITY_CAPACITY: Record<EliteRarity, number> = {
@@ -163,256 +101,6 @@ const ELITE_RARITY_SIZE: Record<EliteRarity, number> = {
   common: 1,
   uplifted: 1.1,
   legendary: 1.25
-};
-
-function makeHeroEnt(): Ent {
-  return {
-    id: -1,
-    kind: 'hero',
-    x: 0,
-    z: 0,
-    hp: 1,
-    maxHp: 1,
-    radius: HERO_HIT_RADIUS,
-    speed: 0,
-    contactDps: 0,
-    facingX: 0,
-    facingZ: 1,
-    state: 'normal',
-    stateTimer: 0,
-    cooldown: 0,
-    lockedX: 0,
-    lockedZ: 0,
-    linkedTo: 0,
-    linkTimer: 0,
-    revivesLeft: 0,
-    revived: false,
-    buffUntil: 0,
-    orbitHitAt: 0,
-    affix: 'none',
-    adaptAt: 0,
-    lastDamageAt: 0,
-    shieldAngle: 0,
-    boss: false,
-    guardianPoi: 0,
-    adaptCooldown: 0,
-    adaptStage: 0,
-    bossPhase: 0,
-    bossPattern: '',
-    orderX: 0,
-    orderZ: 0,
-    orderUntil: 0,
-    regenTick: 0,
-    affixTimer: 0,
-    affixPulse: 0,
-    markUntil: 0,
-    igniteUntil: 0,
-    chillUntil: 0,
-    woundUntil: 0,
-    woundDps: 0,
-    toxinUntil: 0,
-    toxinDps: 0,
-    exposedUntil: 0,
-    displacedUntil: 0,
-    embedded: 0,
-    lastArcAt: 0,
-    sentryTouchedUntil: 0,
-    rarity: 'common',
-    repertoire: []
-  };
-}
-type Pickup = { id: number; x: number; z: number; value: number; kind: 'xp' | 'core' | 'heal' | 'mutation' };
-/**
- * A relic lies where it fell and does not fly to anyone. That is the whole point of D14:
- * both sides draw from the same source, so reaching one first has to be a decision about
- * position and risk rather than a reward for standing near it.
- */
-type Relic = { id: number; x: number; z: number; item: ItemId; bornAt: number };
-type Field = {
-  id: number;
-  activationId?: number;
-  insideIds?: number[];
-  x: number;
-  z: number;
-  radius: number;
-  ttl: number;
-  kind: 'ink' | 'fire' | 'frost' | 'arc' | 'toxic' | 'index' | 'architect' | 'veil';
-  dps: number;
-  tickAcc: number;
-  faction?: CastFaction;
-  ownerId?: number;
-  source?: string;
-  sourceSlot?: number;
-  mutation?: MutationId | null;
-  rivalConcentration?: number;
-  behavior?: 'host' | 'pull';
-};
-type Construct = {
-  id: number;
-  activationId?: number;
-  x: number;
-  z: number;
-  ttl: number;
-  cooldown: number;
-  range: number;
-  power: number;
-  skill: SkillId;
-  faction: CastFaction;
-  ownerId: number;
-  sourceSlot: number;
-  mutation: MutationId | null;
-  mutationUpgrade: MutationId | null;
-  mutationApotheosis?: MutationId | null;
-  rivalConcentration: number;
-};
-type Projectile = {
-  id: number;
-  activationId?: number;
-  x: number;
-  z: number;
-  vx: number;
-  vz: number;
-  radius: number;
-  ttl: number;
-  damage: number;
-  coverDamage: number;
-  faction: CastFaction;
-  ownerId: number;
-  source: SkillId;
-  sourceSlot: number;
-  mutation: MutationId | null;
-  apotheosis?: MutationId | null;
-  rivalConcentration: number;
-  guarded: boolean;
-  behavior?: 'normal' | 'roller' | 'returner' | 'echo';
-  /** Countdown threshold at which a returner turns home. */
-  returnAt?: number;
-  phase?: number;
-  hitIds?: number[];
-  growth?: number;
-  carousel?: boolean;
-  phaseAt?: number;
-  orbitX?: number;
-  orbitZ?: number;
-  trailAcc?: number;
-};
-type DelayedStrike = {
-  id: number;
-  activationId?: number;
-  at: number;
-  x: number;
-  z: number;
-  radius: number;
-  damage: number;
-  faction: CastFaction;
-  ownerId: number;
-  source: SkillId | string;
-  sourceSlot: number;
-  intent: 'damage' | 'control' | 'field';
-  telegraph: string;
-  fieldKind?: 'frost' | 'arc' | 'toxic' | 'fire';
-  fieldDuration?: number;
-  fieldDps?: number;
-  /** Persistent behaviour begins only after the delayed impact creates the field. */
-  fieldBehavior?: 'pull';
-};
-type EliteEchoState = {
-  entityId: number;
-  skill: SkillId;
-  serial: number;
-  phase: 'tell' | 'active' | 'recovery';
-  until: number;
-  x: number;
-  z: number;
-  aimX: number;
-  aimZ: number;
-  targetX: number;
-  targetZ: number;
-};
-type Obstacle = {
-  id: number;
-  x: number;
-  z: number;
-  radius: number;
-  hp: number;
-  maxHp: number;
-  destructible: boolean;
-};
-type Poi = { id: number; kind: PoiKind; x: number; z: number; state: PoiState; guardianId: number };
-
-/**
- * Who is producing an effect, and from where.
- *
- * Every cast reads its origin, facing and velocity from this record instead of
- * reaching for player state directly. `owner` is null for the hero and points at
- * the entity for any rival caster, which is what lets an elite run a phenomenon
- * the player refused.
- */
-type CastFaction = 'hero' | 'rival';
-type CastSource = {
-  faction: CastFaction;
-  owner: Ent | null;
-  x: number;
-  z: number;
-  aimX: number;
-  aimZ: number;
-  vx: number;
-  vz: number;
-};
-
-type ChoreographyPoint = { x: number; z: number };
-type ChoreographyCarrier =
-  | { kind: 'projectile'; id: number }
-  | { kind: 'construct'; id: number }
-  | { kind: 'orbit'; index: number };
-type ChoreographyTrace = {
-  skill: SkillId;
-  origin: ChoreographyPoint;
-  aimX: number;
-  aimZ: number;
-  terminal: ChoreographyPoint | null;
-  points: ChoreographyPoint[];
-  areaPoints: ChoreographyPoint[];
-  areas: CombatShape[];
-  /** Exact target hitbox positions at the instant synchronous damage resolved. */
-  contacts: ChoreographyPoint[];
-  paths: ChoreographyPoint[][];
-  carriers: ChoreographyCarrier[];
-  scheduled: ChoreographyPoint[];
-};
-
-type PhysicalEventKind = 'path' | 'area' | 'contact' | 'impact' | 'terminal';
-type PhysicalEvent = {
-  activationId: number;
-  slot: number;
-  skill: SkillId;
-  kind: PhysicalEventKind;
-  x: number;
-  z: number;
-  previousX?: number;
-  previousZ?: number;
-  radius?: number;
-  areaPoints?: ChoreographyPoint[];
-  shape?: CombatShape;
-  carrierKind?: 'projectile' | 'construct' | 'orbit' | 'impact';
-  carrierId?: number;
-  targetId?: number;
-};
-type CatalystBinding = {
-  producerActivationId: number;
-  fromSlot: number;
-  toSlot: number;
-  fromSkill: SkillId;
-  toSkill: SkillId;
-  mode: 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse';
-  origin: ChoreographyPoint;
-  path: ChoreographyPoint[];
-  areaPoints: ChoreographyPoint[];
-  nextTrailDistance: number;
-  firedCount: number;
-  carrierKeys: Set<string>;
-  pathCarrierKey: string | null;
-  done: boolean;
 };
 
 export interface SimConfig {
@@ -1325,7 +1013,7 @@ export class Simulation {
       const owner = q.ownerId ? this.ents.find((e) => e.id === q.ownerId) ?? null : null;
       if (q.faction === 'rival') {
         if (combatShapeIntersectsCircle(impactShape,this.px,this.pz,HERO_HIT_RADIUS))
-          this.damageHero(q.damage, String(q.source), owner, 1);
+          this.damageHero(q.damage, q.source as DamageSourceId, owner, 1);
       } else {
         for (const e of this.ents) {
           if (e.hp <= 0 || !combatShapeIntersectsCircle(impactShape,e.x,e.z,e.radius)) continue;
@@ -2181,7 +1869,7 @@ export class Simulation {
   }
 
   private resolveEliteEcho(e: Ent, q: EliteEchoState) {
-    const dmg = (n: number, source = `echo_${q.skill}`) => this.damageHero(n * this.damageScale(), source, e, 1);
+    const dmg = (n: number, source: DamageSourceId = `echo_${q.skill}`) => this.damageHero(n * this.damageScale(), source, e, 1);
     const hitRay = (range: number, width: number, amount: number) => {
       if (!this.lineOfSight(q.x, q.z, this.px, this.pz, width * 0.2)) return;
       const dx = this.px - q.x, dz = this.pz - q.z, t = dx * q.aimX + dz * q.aimZ;
@@ -2831,7 +2519,7 @@ export class Simulation {
     source: string,
     shape: CombatShape,
     duration: number,
-    order: 'predator' | 'veil' | 'replicate' | 'prism' | 'null' | 'metamorph'
+    order: Exclude<EliteActionId, 'predator_dash'>
   ) {
     e.eliteAction = order;
     e.eliteActionUntil = this.time + duration;
@@ -3007,10 +2695,10 @@ export class Simulation {
         e.cooldown = this.elitePatternCooldown(5.0, e);
         return;
       }
-      if (e.bossPattern === 'condensed') {
+      if (e.shepherdMode === 'condensed') {
         const tx = this.px + this.playerVX * 0.35, tz = this.pz + this.playerVZ * 0.35;
         this.steerTo(e, tx, tz, speed, 1.55);
-      } else if (e.bossPattern === 'migratory') {
+      } else if (e.shepherdMode === 'migratory') {
         const side = e.id % 2 ? 1 : -1, tx = this.px - nz * side * 4.8, tz = this.pz + nx * side * 4.8;
         this.steerTo(e, tx, tz, speed, 1.22);
       } else if (d > 4.8) this.steerTo(e, this.px, this.pz, speed, 1.05);
@@ -3190,7 +2878,7 @@ export class Simulation {
     }
   }
 
-  private hitPlayer(amount: number, attacker: Ent | null = null, source = 'contact') {
+  private hitPlayer(amount: number, attacker: Ent | null = null, source: DamageSourceId = 'contact') {
     if (amount <= 0 || this.php <= 0) return;
     if (this.time < this.dashIFramesUntil) {
       if (!this.dashWindowSaved) {
@@ -3299,7 +2987,7 @@ export class Simulation {
           if (combatShapeIntersectsCircle(shape,this.px,this.pz,HERO_HIT_RADIUS)) {
             this.damageHero(
               f.dps * 0.25,
-              f.source ?? (f.kind + '_field'),
+              (f.source ?? (f.kind + '_field')) as DamageSourceId,
               owner,
               f.rivalConcentration ?? 1
             );
@@ -5879,7 +5567,7 @@ export class Simulation {
   ) {
     // A rival-owned cast resolves against the player, not against the enemy roster.
     // None of the bookkeeping below applies: it is all scored from the hero's point of view.
-    if (e === this.hero) return this.damageHero(amount, source);
+    if (e === this.hero) return this.damageHero(amount, source as DamageSourceId);
     // Everything reaching this line is the hero striking an enemy: rival casts resolve
     // against the synthetic hero above and elite contact goes straight to hitPlayer.
     amount *= this.itemDamageMul;
@@ -5899,8 +5587,8 @@ export class Simulation {
     if (e.kind === 'elite' && !e.boss) {
       if (e.chassis === 'bulwark' && (skill || this.activationDerived)) {
         const key = skill ? skill.id : 'derived';
-        if (!e.bossPattern) {
-          e.bossPattern = key;
+        if (!e.prismMemory) {
+          e.prismMemory = key;
           this.events.push({
             type: 'EliteOrder',
             tick: this.tick,
@@ -5909,9 +5597,9 @@ export class Simulation {
             x: e.x,
             z: e.z
           });
-        } else if (e.bossPattern === key) actual *= 0.28;
+        } else if (e.prismMemory === key) actual *= 0.28;
         else {
-          e.bossPattern = key;
+          e.prismMemory = key;
           actual *= 1.34;
           e.exposedUntil = this.time + 0.45;
         }
@@ -5942,13 +5630,13 @@ export class Simulation {
           this.spawnReplicant(e);
         }
       }
-      if (e.chassis === 'shepherd' && !e.bossPattern && e.hp - actual <= e.maxHp * 0.68) {
+      if (e.chassis === 'shepherd' && !e.shepherdMode && e.hp - actual <= e.maxHp * 0.68) {
         const recent = this.damageSamples.filter((q) => q.t >= this.time - 5),
           sum = recent.reduce((a, q) => a + q.amount, 0),
           derived = recent.reduce((a, q) => a + (q.derived ? q.amount : 0), 0),
           rate = recent.length / 5,
           avg = recent.length ? sum / recent.length : 0;
-        e.bossPattern =
+        e.shepherdMode =
           derived / Math.max(1, sum) > 0.42
             ? 'null'
             : rate > 9
@@ -5956,7 +5644,7 @@ export class Simulation {
               : avg > 95 * this.corePower()
                 ? 'fractured'
                 : 'migratory';
-        if (e.bossPattern === 'fractured') {
+        if (e.shepherdMode === 'fractured') {
           for (let i = 0; i < 3; i++) this.spawnReplicant(e);
         }
         this.events.push({
@@ -5969,7 +5657,7 @@ export class Simulation {
           count: recent.length
         });
       }
-      if (e.chassis === 'shepherd' && e.bossPattern === 'null' && this.activationDerived)
+      if (e.chassis === 'shepherd' && e.shepherdMode === 'null' && this.activationDerived)
         actual *= 0.48;
     }
     if (source !== 'ember_lance' && e.markUntil > this.time) {
@@ -6091,7 +5779,7 @@ export class Simulation {
   // so this only records the source and reports whether the blow was lethal.
   private damageHero(
     amount: number,
-    source: string,
+    source: DamageSourceId,
     attacker: Ent | null = this.castOwner,
     concentration = this.castRivalConcentration
   ) {

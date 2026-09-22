@@ -2,6 +2,7 @@ import type {
   CatalystId,
   CombatShape,
   EliteChassis,
+  EliteOrderId,
   EnemyKind,
   GameEvent,
   SkillId,
@@ -81,21 +82,7 @@ export type PresentationCue =
       time: number;
       x: number;
       z: number;
-      order:
-        | 'surge'
-        | 'pack'
-        | 'screen'
-        | 'wall'
-        | 'harvest'
-        | 'regroup'
-        | 'brood'
-        | 'archive'
-        | 'predator'
-        | 'veil'
-        | 'replicate'
-        | 'prism'
-        | 'null'
-        | 'metamorph';
+      order: EliteOrderId;
       count?: number;
     };
 
