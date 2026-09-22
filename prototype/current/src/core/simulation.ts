@@ -23,6 +23,7 @@ import {
   statBase
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
+import { EncounterDirector } from './encounterDirector.js';
 import { EntityStore } from './entityStore.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { Rng } from './rng.js';
@@ -138,16 +139,6 @@ export interface BenchmarkLoadout {
   catalystPotency?: number;
 }
 
-const enemyCost: Record<Exclude<EnemyKind, 'elite' | 'hero'>, number> = {
-  palimpsest: 3.5,
-  bookmark: 2.5,
-  footnote: 2,
-  binder: 4,
-  redactor: 4,
-  indexer: 4,
-  inkblot: 2.5,
-  marginwalker: 3
-};
 const baseHp: Record<Exclude<EnemyKind, 'elite' | 'hero'>, number> = {
   footnote: 42,
   bookmark: 63,
@@ -281,6 +272,7 @@ export class Simulation {
     precision: 0
   };
   private rng: Rng;
+  private encounterDirector!: EncounterDirector;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -339,9 +331,6 @@ export class Simulation {
   private skillsRuntime = new Map<SkillId, SkillRuntime>();
   private catalystRuntime = new Map<CatalystId, CatalystRuntime>();
   private beatAcc = 0;
-  private spawnCredits = 0;
-  private eliteAcc = 0;
-  private firstElite = false;
   private orbitAcc = 0;
   private orbitPhoenixAt = 0;
   private sentryGridAcc = 0;
@@ -502,6 +491,7 @@ export class Simulation {
     this.hz = cfg.hz;
     this.dt = 1 / cfg.hz;
     this.rng = new Rng(cfg.seed);
+    this.encounterDirector = new EncounterDirector(this.rng);
     this.refusalRng = new Rng((cfg.seed ^ 0x5bf03635) >>> 0);
     this.worldRng = new Rng((cfg.seed ^ 0x27d4eb2f) >>> 0);
     this.relicRng = new Rng((cfg.seed ^ 0x6a09e667) >>> 0);
@@ -1147,8 +1137,8 @@ export class Simulation {
     this.choiceSerial++;
   }
   private bossDirector() {
-    if (this.bossSpawned || this.time < this.runDuration * 0.875) return;
-    this.spawnBoss();
+    if (this.encounterDirector.shouldSpawnBoss(this.time, this.runDuration, this.bossSpawned))
+      this.spawnBoss();
   }
   private bossSupportForPoi(kind: PoiKind): [EliteChassis, EliteAffix] {
     if (kind === 'phenomenon') return ['hunter', 'shielded'];
@@ -1380,96 +1370,40 @@ export class Simulation {
   }
 
   private designMinutes() {
-    return this.time / (this.runDuration / 24);
+    return this.encounterDirector.designMinutes(this.time, this.runDuration);
   }
   private worldScale() {
-    const m = this.designMinutes();
-    return 1 + 0.055 * m + 0.0053 * m * m;
+    return this.encounterDirector.worldScale(this.time, this.runDuration);
   }
   private damageScale() {
-    const m = this.designMinutes();
-    return 1 + 0.018 * m + 0.00065 * m * m;
+    return this.encounterDirector.damageScale(this.time, this.runDuration);
   }
   private spawnPressure() {
-    const m = this.designMinutes();
-    return 1 + 0.055 * m + 0.0023 * m * m;
+    return this.encounterDirector.spawnPressure(this.time, this.runDuration);
+  }
+
+  private bossPhaseTwoActive() {
+    return this.ents.some((e) => e.boss && e.bossPhase >= 2);
   }
 
   private populationTarget(t = this.time) {
-    if (this.bossSpawned && !this.bossDefeated)
-      return 118 + (this.ents.some((e) => e.boss && e.bossPhase >= 2) ? 28 : 0);
-    let target: number;
-    if (t < 75) target = 28 + (58 - 28) * (t / 75);
-    else if (t < 210) target = 58 + (98 - 58) * ((t - 75) / 135);
-    else if (t < 350) target = 98 + (154 - 98) * ((t - 210) / 140);
-    else target = 154 + (218 - 154) * Math.min(1, (t - 350) / 80);
-    const pulse = Math.max(0, Math.sin(((t - 28) * Math.PI) / 38));
-    target += t < 28 ? 0 : pulse * pulse * (t < 220 ? 14 : 26);
-    return Math.min(238, target);
+    return this.encounterDirector.populationTarget(
+      t,
+      this.bossSpawned && !this.bossDefeated,
+      this.bossPhaseTwoActive()
+    );
   }
   private spawnDirector() {
-    const target = this.populationTarget();
-    // Clean Run keeps a calmer opening so the first Phenomenon can be read before density ramps.
     const normals = this.entityStore.countAlive((e) => e.kind !== 'elite');
-    this.spawnCredits += this.dt * (8.0 * this.spawnPressure());
-    if (normals > target) this.spawnCredits *= 0.92;
-    let guard = 0;
-    while (this.spawnCredits >= 1 && normals + guard < target && guard < 14) {
-      const kind = this.pickEnemyKind(),
-        cost = enemyCost[kind];
-      if (this.spawnCredits < cost) break;
-      this.spawnCredits -= cost;
-      this.spawnEnemy(kind);
-      guard++;
-    }
-  }
-  private pickEnemyKind(): Exclude<EnemyKind, 'elite' | 'hero'> {
-    const t = this.time / this.runDuration,
-      r = this.rng.float();
-    if (t < 0.12) return r < 0.48 ? 'palimpsest' : r < 0.86 ? 'bookmark' : 'footnote';
-    if (t < 0.28)
-      return r < 0.3
-        ? 'palimpsest'
-        : r < 0.52
-          ? 'bookmark'
-          : r < 0.62
-            ? 'footnote'
-            : r < 0.77
-              ? 'binder'
-              : r < 0.89
-                ? 'inkblot'
-                : 'marginwalker';
-    if (t < 0.55)
-      return r < 0.19
-        ? 'palimpsest'
-        : r < 0.34
-          ? 'bookmark'
-          : r < 0.48
-            ? 'footnote'
-            : r < 0.61
-              ? 'binder'
-              : r < 0.72
-                ? 'inkblot'
-                : r < 0.82
-                  ? 'marginwalker'
-                  : r < 0.91
-                    ? 'redactor'
-                    : 'indexer';
-    return r < 0.13
-      ? 'palimpsest'
-      : r < 0.27
-        ? 'bookmark'
-        : r < 0.39
-          ? 'footnote'
-          : r < 0.52
-            ? 'binder'
-            : r < 0.64
-              ? 'inkblot'
-              : r < 0.75
-                ? 'marginwalker'
-                : r < 0.87
-                  ? 'redactor'
-                  : 'indexer';
+    this.encounterDirector.tickNormalSpawns({
+      time: this.time,
+      runDuration: this.runDuration,
+      dt: this.dt,
+      normalCount: normals,
+      bossActive: this.bossSpawned && !this.bossDefeated,
+      bossPhaseTwo: this.bossPhaseTwoActive(),
+      spawn: (kind) => this.spawnEnemy(kind)
+    });
   }
   private spawnEnemy(kind: Exclude<EnemyKind, 'elite' | 'hero'>) {
     const q = this.pointAroundPlayer(13.5, 19.5);
@@ -1547,21 +1481,14 @@ export class Simulation {
   }
 
   private eliteDirector() {
-    if (this.bossSpawned) return;
-    this.eliteAcc += this.dt;
     const active = this.entityStore.countAlive((e) => e.kind === 'elite' && !e.boss);
-    const cap = this.time < 85 ? 1 : this.time < 180 ? 2 : 3;
-    if (!this.firstElite && this.time >= 22) {
-      this.firstElite = true;
-      this.eliteAcc = 0;
-      this.spawnElite(true);
-      return;
-    }
-    const interval = this.time < 160 ? 20 : this.time < 320 ? 16 : 12;
-    if (this.firstElite && active < cap && this.eliteAcc >= interval) {
-      this.eliteAcc -= interval;
-      this.spawnElite();
-    }
+    const request = this.encounterDirector.tickElite({
+      time: this.time,
+      dt: this.dt,
+      bossSpawned: this.bossSpawned,
+      activeElites: active
+    });
+    if (request) this.spawnElite(request === 'opening');
   }
   /** D9: higher tiers become steadily more common as the run wears on. */
   private rollEliteRarity(): EliteRarity {
