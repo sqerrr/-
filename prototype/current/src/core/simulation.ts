@@ -24,7 +24,7 @@ import {
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
 import { Rng } from './rng.js';
-import { circleIntersectsCircle, combatShapeIntersectsCircle, pointAlongPolyline, polylineLength, sweepCircleT } from './geometry.js';
+import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, pointAlongPolyline, polylineLength, sweepCircleT } from './geometry.js';
 import { items, itemOrder, itemCategoryName, itemRivalEffect } from '../content/items.js';
 import type {
   ItemId,
@@ -3852,29 +3852,28 @@ export class Simulation {
       for (const [a,b] of links) {
         const dx = b.x - a.x,
           dz = b.z - a.z,
-          len = Math.hypot(dx, dz) || 1;
-        this.combatShape(
-          'sentry_gravity_grid',
-          { kind: 'ray', x: a.x, z: a.z, aimX: dx / len, aimZ: dz / len, range: len, halfWidth: 0.42 },
-          'control'
-        );
+          len = Math.hypot(dx, dz) || 1,
+          shape: CombatShape = {
+            kind: 'ray',
+            x: a.x,
+            z: a.z,
+            aimX: dx / len,
+            aimZ: dz / len,
+            range: len,
+            halfWidth: 0.42
+          };
+        this.combatShape('sentry_gravity_grid', shape, 'control');
         for (const e of this.ents) {
-          if (e.hp <= 0) continue;
-          const ex = e.x - a.x,
-            ez = e.z - a.z,
-            t = Math.max(0, Math.min(len, (ex * dx + ez * dz) / len)),
-            cx = a.x + (dx / len) * t,
-            cz = a.z + (dz / len) * t,
-            ddx = cx - e.x,
-            ddz = cz - e.z,
+          if (e.hp <= 0 || !combatShapeIntersectsCircle(shape, e.x, e.z, e.radius)) continue;
+          const closest = closestPointOnSegment(e.x, e.z, a.x, a.z, b.x, b.z),
+            ddx = closest.x - e.x,
+            ddz = closest.z - e.z,
             d = Math.hypot(ddx, ddz);
-          if (d < 0.75 + e.radius) {
-            this.damage(e, skills.sentry.baseDamage * 0.24 * this.corePower(), 'sentry', false, cx, cz, a.sourceSlot);
-            if (d > 0.05) {
-              e.x += (ddx / d) * 0.18;
-              e.z += (ddz / d) * 0.18;
-              e.displacedUntil = this.time + 0.45;
-            }
+          this.damage(e, skills.sentry.baseDamage * 0.24 * this.corePower(), 'sentry', false, closest.x, closest.z, a.sourceSlot);
+          if (d > 0.05) {
+            e.x += (ddx / d) * 0.18;
+            e.z += (ddz / d) * 0.18;
+            e.displacedUntil = this.time + 0.45;
           }
         }
       }
@@ -5621,24 +5620,28 @@ export class Simulation {
   }
 
   private castOrbit(st: SkillRuntime, slot: number, src: CastSource) {
-    // A hero orbit is a set of continuously simulated blade hitboxes. The activation id tells
-    // Catalyst Carrier which actual blade contact belongs to this chain beat.
-    if(src.faction==='hero' && st.mutation!=='orbit_outbound') this.orbitActivationId=this.currentActivationId;
+    // The persistent hero Orbit always keeps activation lineage, including the Outbound mutation:
+    // Outbound adds a pulse but does not erase the continuously simulated blade actors.
+    if(src.faction==='hero') this.orbitActivationId=this.currentActivationId;
     // A rival cannot borrow the hero's global orbit loop; its echo remains an authored pulse.
     if (src.faction === 'rival' || st.mutation === 'orbit_outbound') {
-      const r = this.skillRadius(st, src.faction === 'rival' ? 2.8 : 4.6, slot);
-      this.combatShape('orbit_blades', { kind: 'circle', x: src.x, z: src.z, radius: r });
+      const r = this.skillRadius(st, src.faction === 'rival' ? 2.8 : 4.6, slot),
+        shape:CombatShape={ kind: 'circle', x: src.x, z: src.z, radius: r };
+      this.combatShape('orbit_blades', shape);
       for (const e of this.targetsFor(src)) {
-        if (Math.hypot(e.x - src.x, e.z - src.z) < r + e.radius)
-          this.damage(
-            e,
-            skills.orbit_blades.baseDamage *
-              (src.faction === 'rival' ? 1.45 : 2.2) *
-              this.powerBucket(st) *
-              this.slotAmp(slot, e),
-            'orbit_blades',
-            false
-          );
+        if (!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius)) continue;
+        this.damage(
+          e,
+          skills.orbit_blades.baseDamage *
+            (src.faction === 'rival' ? 1.45 : 2.2) *
+            this.powerBucket(st) *
+            this.slotAmp(slot, e),
+          'orbit_blades',
+          false,
+          src.x,
+          src.z,
+          slot
+        );
       }
     }
   }
