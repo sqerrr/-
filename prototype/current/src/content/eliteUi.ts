@@ -134,7 +134,7 @@ export const eliteActionUi: Record<EliteActionId, ActionUi> = {
   metamorph: { label: 'КОМАНДНЫЙ ИМПУЛЬС', hint: 'ОТОРВИСЬ ОТ СТАИ' }
 };
 
-export const damageSourceUi: Record<DamageSourceId, DamageUi> = {
+export const damageSourceUi: Partial<Record<DamageSourceId, DamageUi>> = {
   contact: {
     name: 'контакт с противником',
     hint: 'Не оставайся внутри стаи: держи проход для отхода и используй рывок для выхода из окружения.'
@@ -174,5 +174,5 @@ export const affixOverlayAlpha = project(eliteAffixUi, (x) => x.overlayAlpha);
 
 export const eliteActionLabel = project(eliteActionUi, (x) => x.label);
 export const eliteActionHint = project(eliteActionUi, (x) => x.hint);
-export const damageSourceName = project(damageSourceUi, (x) => x.name);
-export const damageSourceHint = project(damageSourceUi, (x) => x.hint);
+export const damageSourceName = project(damageSourceUi as Record<string, DamageUi>, (x) => x.name) as Partial<Record<DamageSourceId,string>>;
+export const damageSourceHint = project(damageSourceUi as Record<string, DamageUi>, (x) => x.hint) as Partial<Record<DamageSourceId,string>>;
