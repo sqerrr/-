@@ -2244,9 +2244,6 @@ export class Simulation {
       } else if (e.kind === 'elite') {
         if (e.boss) this.updateBossAI(e, speed, d, nx, nz);
         else this.updateEliteAI(e, speed, d, nx, nz);
-      } else if (d > 0.68) {
-        e.x += nx * speed * dt;
-        e.z += nz * speed * dt;
       }
       dx = this.px - e.x;
       dz = this.pz - e.z;
