@@ -5139,16 +5139,6 @@ export class Simulation {
     return { x: center.x + Math.cos(a) * profile.radius, z: center.z + Math.sin(a) * profile.radius };
   }
 
-  private traceCarriers(trace: ChoreographyTrace) {
-    const out: { ref: ChoreographyCarrier; x: number; z: number }[] = [];
-    for (const ref of trace.carriers) {
-      const p = this.resolveChoreographyCarrier(ref);
-      if (p && !out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 0.25))
-        out.push({ ref, ...p });
-    }
-    return out;
-  }
-
   private tracePath(trace: ChoreographyTrace) {
     let best: ChoreographyPoint[] = [];
     let bestLen = 0;
@@ -5164,30 +5154,6 @@ export class Simulation {
     if (trace.terminal && !this.sameChoreographyPoint(trace.origin, trace.terminal))
       return [{ ...trace.origin }, { ...trace.terminal }];
     return [];
-  }
-
-  private sampleChoreographyPath(path: ChoreographyPoint[], count = 3) {
-    if (path.length <= 1 || count <= 1) return path.slice(0,1).map((p) => ({ ...p }));
-    const seg: number[] = [0];
-    let total = 0;
-    for (let i = 1; i < path.length; i++) {
-      total += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
-      seg.push(total);
-    }
-    if (total <= 0.001) return [path[0]];
-    const out: ChoreographyPoint[] = [];
-    for (let n = 0; n < count; n++) {
-      const d = (total * n) / Math.max(1, count - 1);
-      let i = 1;
-      while (i < seg.length && seg[i] < d) i++;
-      i = Math.min(i, path.length - 1);
-      const a = path[i - 1],
-        b = path[i],
-        span = Math.max(0.001, seg[i] - seg[i - 1]),
-        t = (d - seg[i - 1]) / span;
-      out.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
-    }
-    return out;
   }
 
   private choreographyAim(x: number, z: number, fallbackX = this.aimX, fallbackZ = this.aimZ) {
@@ -5301,127 +5267,6 @@ export class Simulation {
       centerZ
     });
     this.metrics.reactions++;
-  }
-
-  private executeChoreography(
-    incoming: CatalystId,
-    id: SkillId,
-    st: SkillRuntime,
-    slot: number,
-    previous: ChoreographyTrace | null
-  ) {
-    if (
-      !previous ||
-      !previous.skill ||
-      !catalystPairCompatible(incoming, previous.skill, id) ||
-      !(['source', 'carrier', 'trail', 'reverse', 'collapse'] as CatalystId[]).includes(incoming)
-    )
-      return false;
-
-    const mode = incoming as 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse',
-      path = this.tracePath(previous),
-      carriers = this.traceCarriers(previous);
-
-    if (mode === 'source') {
-      const p = previous.terminal ?? path[path.length - 1];
-      if (!p) return false;
-      if (id === 'orbit_blades') {
-        this.setOrbitChoreography(p.x, p.z);
-        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
-      } else this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
-      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [previous.origin, p]);
-      return true;
-    }
-
-    if (mode === 'carrier') {
-      const live = carriers.slice(0, 3);
-      if (!live.length) return false;
-      if (id === 'orbit_blades') {
-        this.setOrbitChoreography(live[0].x, live[0].z, live[0].ref);
-        this.castWithTrace(id, st, slot, this.choreographySource(live[0].x, live[0].z));
-      } else {
-        for (const p of live)
-          this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
-      }
-      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, live);
-      return true;
-    }
-
-    if (mode === 'trail') {
-      if (path.length < 2) return false;
-      let sampleCount = 3;
-      if (id === 'sentry') {
-        let pathLength = 0;
-        for (let i = 1; i < path.length; i++)
-          pathLength += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
-        // A Sentry trail is supposed to become infrastructure. Keep consecutive batteries
-        // close enough that Gravity Grid / Living Circuit can physically connect them,
-        // instead of drawing a pretty line of isolated towers that cannot interact.
-        sampleCount = Math.min(6, Math.max(3, Math.ceil(pathLength / 4.6) + 1));
-      }
-      const samples = this.sampleChoreographyPath(path, sampleCount);
-      if (id === 'orbit_blades') {
-        const p = samples[Math.floor(samples.length / 2)];
-        this.setOrbitChoreography(p.x, p.z);
-        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
-      } else {
-        for (let i = 0; i < samples.length; i++) {
-          const p = samples[i],
-            q = samples[Math.min(samples.length - 1, i + 1)],
-            prev = samples[Math.max(0, i - 1)],
-            dx = q.x - prev.x,
-            dz = q.z - prev.z;
-          this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, dx, dz));
-        }
-      }
-      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, path);
-      return true;
-    }
-
-    if (mode === 'reverse') {
-      if (path.length < 2) return false;
-      const start = path[0],
-        end = path[path.length - 1],
-        dx = start.x - end.x,
-        dz = start.z - end.z;
-      if (id === 'orbit_blades') {
-        this.setOrbitChoreography(end.x, end.z);
-        this.castWithTrace(id, st, slot, this.choreographySource(end.x, end.z, dx, dz));
-      } else this.castWithTrace(id, st, slot, this.choreographySource(end.x, end.z, dx, dz));
-      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [...path].reverse());
-      return true;
-    }
-
-    const outer = previous.areaPoints.slice(0, 16);
-    if (!outer.length) return false;
-    const center = {
-      x: outer.reduce((a, p) => a + p.x, 0) / outer.length,
-      z: outer.reduce((a, p) => a + p.z, 0) / outer.length
-    };
-    if (id === 'orbit_blades') {
-      this.setOrbitChoreography(center.x, center.z);
-      this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
-    } else if (skills[id].directional) {
-      const spokes = outer.length <= 4
-        ? outer.slice(0, 3)
-        : [outer[0], outer[Math.floor(outer.length / 3)], outer[Math.floor((outer.length * 2) / 3)]];
-      for (const p of spokes)
-        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, center.x - p.x, center.z - p.z));
-    } else {
-      for (const eid of this.lastContext.hitIds) {
-        const e = this.ents.find((q) => q.id === eid && q.hp > 0);
-        if (!e) continue;
-        const dx = center.x - e.x,
-          dz = center.z - e.z,
-          d = Math.hypot(dx, dz) || 1;
-        e.x += (dx / d) * Math.min(1.1, d * 0.35);
-        e.z += (dz / d) * Math.min(1.1, d * 0.35);
-        e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.55);
-      }
-      this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
-    }
-    this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [...outer, center]);
-    return true;
   }
 
   private stateActive(e: Ent, state: string) {
