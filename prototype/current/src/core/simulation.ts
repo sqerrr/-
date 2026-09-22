@@ -2619,7 +2619,7 @@ export class Simulation {
             e.x = Math.max(this.world.minX + 1, Math.min(this.world.maxX - 1, e.lockedX));
             e.z = Math.max(this.world.minZ + 1, Math.min(this.world.maxZ - 1, e.lockedZ));
             if (Math.hypot(this.px - e.x, this.pz - e.z) < 1.8)
-              this.hitPlayer(14 * this.damageScale());
+              this.hitPlayer(14 * this.damageScale(), e, 'temporal_shift');
             e.exposedUntil = this.time + 1.15;
             e.state = 'normal';
             e.affixPulse = 4.9;
@@ -3217,13 +3217,17 @@ export class Simulation {
         record.lastExchangeAt = this.time;
       }
     }
-    let left = mitigated;
+    let left = mitigated,
+      barrierDamage = 0,
+      hpDamage = 0;
     if (this.barrier > 0) {
       const b = Math.min(this.barrier, left);
+      barrierDamage = b;
       this.barrier -= b;
       left -= b;
     }
     if (left > 0) {
+      hpDamage = left;
       this.php = Math.max(0, this.php - left);
       this.metrics.damageTaken += left;
     }
@@ -3231,8 +3235,16 @@ export class Simulation {
       type: 'PlayerHit',
       tick: this.tick,
       amount: mitigated,
+      hpDamage,
+      barrierDamage,
       x: this.px,
-      z: this.pz
+      z: this.pz,
+      source,
+      attackerId: attacker?.id ?? 0,
+      attackerKind: attacker?.kind,
+      attackerChassis: attacker?.chassis,
+      attackerAffix: attacker?.affix,
+      attackerBoss: attacker?.boss ?? false
     });
   }
   private grantBarrier(amount: number) {
@@ -7109,29 +7121,19 @@ export class Simulation {
         squadTask: e.squadUntil && e.squadUntil > this.time ? (e.squadTask ?? 'none') : 'none',
         adaptationStage: e.adaptStage,
         eliteRarity: e.rarity,
-        refusalTitles: [
-          ...e.repertoire
-            .map((s: number) => this.refusalStore.find((card) => card.serial === s))
-            .filter((card): card is RefusedCard => !!card)
-            .map((card) => card.title),
-          ...(e.relicItems ?? []).map((id) => items[id].name),
-          ...(e.evolutionItems ?? []).map((id) => `Эволюция: ${items[id].name}`)
-        ],
-        refusalKinds: [
-          ...e.repertoire
-            .map((s: number) => this.refusalStore.find((card) => card.serial === s))
-            .filter((card): card is RefusedCard => !!card)
-            .map((card) => card.kind as string),
-          ...(e.relicItems ?? []).map(() => 'item'),
-          ...(e.evolutionItems ?? []).map(() => 'evolution')
-        ],
-        refusalIcons: [
-          ...e.repertoire
-            .map((s) => this.refusalStore.find((card) => card.serial === s)?.icon ?? '')
-            .filter((s) => !!s),
-          ...(e.relicItems ?? []).map((id) => items[id].short),
-          ...(e.evolutionItems ?? []).map((id) => items[id].short)
-        ],
+        refusalTitles: e.repertoire
+          .map((s: number) => this.refusalStore.find((card) => card.serial === s))
+          .filter((card): card is RefusedCard => !!card)
+          .map((card) => card.title),
+        refusalKinds: e.repertoire
+          .map((s: number) => this.refusalStore.find((card) => card.serial === s))
+          .filter((card): card is RefusedCard => !!card)
+          .map((card) => card.kind as string),
+        refusalIcons: e.repertoire
+          .map((s) => this.refusalStore.find((card) => card.serial === s)?.icon ?? '')
+          .filter((s) => !!s),
+        relicItems: [...(e.relicItems ?? [])],
+        evolutionItems: [...(e.evolutionItems ?? [])],
         bossPhase: e.bossPhase,
         bossPattern: e.bossPattern,
         status: {
