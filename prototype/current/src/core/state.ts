@@ -134,16 +134,17 @@ export const HERO_HIT_RADIUS = 0.45;
  * iteration, while the type is decomposed by domain so systems can depend on narrower views.
  */
 export function makeEnt(init: EntInit): Ent {
+  const { id, kind, x, z, hp, radius, speed, contactDps, ...overrides } = init;
   return {
-    id: init.id,
-    kind: init.kind,
-    x: init.x,
-    z: init.z,
-    hp: init.hp,
-    maxHp: init.maxHp ?? init.hp,
-    radius: init.radius,
-    speed: init.speed,
-    contactDps: init.contactDps,
+    id,
+    kind,
+    x,
+    z,
+    hp,
+    maxHp: overrides.maxHp ?? hp,
+    radius,
+    speed,
+    contactDps,
     facingX: 0,
     facingZ: 1,
     state: 'normal',
@@ -187,7 +188,7 @@ export function makeEnt(init: EntInit): Ent {
     sentryTouchedUntil: -99,
     rarity: 'common',
     repertoire: [],
-    ...init
+    ...overrides
   };
 }
 
