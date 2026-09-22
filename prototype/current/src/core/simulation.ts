@@ -23,6 +23,7 @@ import {
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
 import { Rng } from './rng.js';
+import { circleIntersectsCircle, combatShapeIntersectsCircle, pointAlongPolyline, polylineLength, sweepCircleT } from './geometry.js';
 import { items, itemOrder, itemCategoryName, itemRivalEffect } from '../content/items.js';
 import type {
   ItemId,
@@ -228,6 +229,8 @@ type Pickup = { id: number; x: number; z: number; value: number; kind: 'xp' | 'c
 type Relic = { id: number; x: number; z: number; item: ItemId; bornAt: number };
 type Field = {
   id: number;
+  activationId?: number;
+  insideIds?: number[];
   x: number;
   z: number;
   radius: number;
@@ -245,6 +248,7 @@ type Field = {
 };
 type Construct = {
   id: number;
+  activationId?: number;
   x: number;
   z: number;
   ttl: number;
@@ -262,6 +266,7 @@ type Construct = {
 };
 type Projectile = {
   id: number;
+  activationId?: number;
   x: number;
   z: number;
   vx: number;
@@ -292,6 +297,7 @@ type Projectile = {
 };
 type DelayedStrike = {
   id: number;
+  activationId?: number;
   at: number;
   x: number;
   z: number;
@@ -367,6 +373,39 @@ type ChoreographyTrace = {
   paths: ChoreographyPoint[][];
   carriers: ChoreographyCarrier[];
   scheduled: ChoreographyPoint[];
+};
+
+type PhysicalEventKind = 'path' | 'area' | 'contact' | 'impact' | 'terminal';
+type PhysicalEvent = {
+  activationId: number;
+  slot: number;
+  skill: SkillId;
+  kind: PhysicalEventKind;
+  x: number;
+  z: number;
+  previousX?: number;
+  previousZ?: number;
+  radius?: number;
+  areaPoints?: ChoreographyPoint[];
+  carrierKind?: 'projectile' | 'construct' | 'orbit';
+  carrierId?: number;
+  targetId?: number;
+};
+type CatalystBinding = {
+  producerActivationId: number;
+  fromSlot: number;
+  toSlot: number;
+  fromSkill: SkillId;
+  toSkill: SkillId;
+  mode: 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse';
+  createdAt: number;
+  expiresAt: number;
+  path: ChoreographyPoint[];
+  areaPoints: ChoreographyPoint[];
+  nextTrailDistance: number;
+  firedCount: number;
+  carrierKeys: Set<string>;
+  done: boolean;
 };
 
 export interface SimConfig {
@@ -652,6 +691,17 @@ export class Simulation {
   private aegisCharge = 0;
   private backflowBonus = new Map<number, number>();
   private currentChoreography: ChoreographyTrace | null = null;
+  // Catalyst 2.1 is driven by the real physical lifecycle, not by the next chain beat.
+  private nextActivationId = 1;
+  private currentActivationId = 0;
+  private orbitActivationId = 0;
+  private catalystBindings: CatalystBinding[] = [];
+  private catalystDeferredCycle = new Map<number, number>();
+  private physicalEvents: PhysicalEvent[] = [];
+  private drainingPhysicalEvents = false;
+  private activationPending = new Map<number, number>();
+  private activationLastPoint = new Map<number, ChoreographyPoint>();
+  private activationMeta = new Map<number, { skill: SkillId; slot: number }>();
   private orbitChoreoUntil = -1;
   private orbitChoreoX = 0;
   private orbitChoreoZ = 0;
@@ -935,22 +985,7 @@ export class Simulation {
     cz: number,
     radius: number
   ) {
-    const dx = x1 - x0,
-      dz = z1 - z0,
-      fx = x0 - cx,
-      fz = z0 - cz,
-      a = dx * dx + dz * dz;
-    if (a < 1e-8) return Math.hypot(fx, fz) <= radius ? 0 : null;
-    const b = 2 * (fx * dx + fz * dz),
-      c = fx * fx + fz * fz - radius * radius,
-      disc = b * b - 4 * a * c;
-    if (disc < 0) return null;
-    const root = Math.sqrt(disc),
-      t0 = (-b - root) / (2 * a),
-      t1 = (-b + root) / (2 * a);
-    if (t0 >= 0 && t0 <= 1) return t0;
-    if (t1 >= 0 && t1 <= 1) return t1;
-    return c <= 0 ? 0 : null;
+    return sweepCircleT(x0, z0, x1, z1, cx, cz, radius);
   }
 
   private firstBlockingObstacle(
