@@ -54,6 +54,36 @@ assert(combatShapeIntersectsCircle({kind:'sector',x:0,z:0,aimX:1,aimZ:0,radius:4
   'sector edge does not include physical actor radius');
 assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through a circle');
 
+// Rail uses that exact ray/capsule geometry too; a large actor grazing the visible lane is hit.
+{
+  const sim=fixture('rail_spear','toxic_mist','source');
+  sim.catalysts=[null];
+  sim.ents=sim.ents.slice(0,1);
+  const e=sim.ents[0];e.x=5;e.z=.8;e.radius=.6;
+  sim.activateSlot(0);
+  assert(damage(sim,'rail_spear').length>0,'Rail still uses a narrower private hitbox than its visible ray');
+}
+
+// Gravity Grid damage/control is exactly the rendered capsule, not a second wider hand-written lane.
+{
+  const sim=fixture('sentry','rail_spear','carrier');
+  sim.catalysts=[null];
+  sim.ents=sim.ents.slice(0,2);
+  const inside=sim.ents[0], outside=sim.ents[1];
+  inside.x=3;inside.z=.8;inside.radius=.4;
+  outside.x=3;outside.z=1.1;outside.radius=.4;
+  const common={ttl:2,cooldown:99,range:0,power:1,skill:'sentry',faction:'hero',ownerId:0,sourceSlot:0,mutation:null,mutationUpgrade:null,mutationApotheosis:'sentry_gravity_grid',rivalConcentration:1};
+  sim.constructs=[
+    {id:98001,x:0,z:0,...common},
+    {id:98002,x:6,z:0,...common}
+  ];
+  sim.sentryGridAcc=.28;
+  const hpIn=inside.hp,hpOut=outside.hp;
+  sim.updateConstructs();
+  assert(inside.hp<hpIn,'Gravity Grid missed an actor whose circle overlaps the visible lane');
+  assert(outside.hp===hpOut,'Gravity Grid damaged an actor outside the visible/shared capsule');
+}
+
 // Field damage/contact uses the same circle hitbox, including enemy radius.
 {
   const sim=fixture('toxic_mist','frost_ring','collapse');
@@ -153,6 +183,21 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   assert(orbitHit.tick===frost.tick,'Orbit Carrier is not synchronized to blade collision');
 }
 
+// Outbound adds a pulse but must not sever the persistent Orbit activation lineage.
+{
+  const sim=fixture('orbit_blades','frost_ring','carrier');
+  sim.tick=60;sim.ents=sim.ents.slice(0,1);
+  const st=sim.skillsRuntime.get('orbit_blades');st.mutation='orbit_outbound';
+  const e=sim.ents[0],profile=sim.orbitProfile(st,{x:0,z:0});
+  e.x=20;e.z=20;
+  sim.activateSlot(0);
+  assert(casts(sim,'frost_ring').length===0,'Outbound pulse masqueraded as a Carrier contact');
+  const next=(sim.tick+1)/sim.hz*3.4;
+  e.x=Math.cos(next)*profile.radius;e.z=Math.sin(next)*profile.radius;e.orbitHitAt=-99;
+  physicalTick(sim);
+  assert(casts(sim,'frost_ring').length>0,'Outbound mutation lost real blade Carrier lineage');
+}
+
 // MORTAR REVERSE: no B at telegraph; actual final impact becomes reversed route head.
 {
   const sim=fixture('mortar_bloom','rail_spear','reverse');
@@ -164,6 +209,30 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   assert(impact&&rail&&c&&dist(rail,impact.shape)<1.0,'Reverse did not begin at actual final impact');
   const toOrigin={x:-rail.x,z:-rail.z},m=Math.hypot(toOrigin.x,toOrigin.z)||1;
   assert(rail.aimX*toOrigin.x/m+rail.aimZ*toOrigin.z/m>.65,'Reverse does not face back toward activation origin');
+}
+
+// Terminal coordinates are captured at contact time, before Cleaver Hook moves its victim.
+{
+  const sim=fixture('cleaver','toxic_mist','source');
+  sim.ents=sim.ents.slice(0,1);
+  const e=sim.ents[0];e.x=2.6;e.z=0;
+  sim.skillsRuntime.get('cleaver').mutation='cleaver_hook';
+  const contact={x:e.x,z:e.z};
+  sim.activateSlot(0);
+  const mist=sim.fields.find((q:any)=>q.source==='toxic_mist');
+  assert(mist,'Cleaver Source produced no payload');
+  assert(dist(mist,contact)<.12,'Source terminal followed the target after pull instead of preserving contact');
+  assert(Math.hypot(e.x-contact.x,e.z-contact.z)>.2,'Cleaver Hook fixture did not actually move the target');
+}
+
+// Secondary delayed Arc pulses do not postpone/redefine the semantic end of the immediate chain.
+{
+  const sim=fixture('chain_arc','toxic_mist','source');
+  sim.skillsRuntime.get('chain_arc').mutation='arc_capacitive';
+  const tick=sim.tick;
+  sim.activateSlot(0);
+  const mistCast=casts(sim,'toxic_mist')[0];
+  assert(mistCast&&mistCast.tick===tick,'Chain Arc Source waited for a secondary delayed pulse');
 }
 
 // COLLAPSE uses the actual Frost circle now; it is allowed to fire immediately because the area exists immediately.
