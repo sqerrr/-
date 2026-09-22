@@ -2983,13 +2983,10 @@ export class Simulation {
     radius: number,
     halfAngle: number
   ) {
-    const dx = this.px - x,
-      dz = this.pz - z,
-      d = Math.hypot(dx, dz);
-    if (d > radius) return false;
-    const m = Math.hypot(ax, az) || 1,
-      dot = ((dx / d) * ax) / m + ((dz / d) * az) / m;
-    return d < 0.001 || Math.acos(Math.max(-1, Math.min(1, dot))) <= halfAngle;
+    return combatShapeIntersectsCircle(
+      {kind:'sector',x,z,aimX:ax,aimZ:az,radius,halfAngle},
+      this.px,this.pz,HERO_HIT_RADIUS
+    );
   }
   private playerInRay(
     x: number,
@@ -2999,15 +2996,12 @@ export class Simulation {
     range: number,
     halfWidth: number
   ) {
-    const m = Math.hypot(ax, az) || 1;
-    ax /= m;
-    az /= m;
-    const dx = this.px - x,
-      dz = this.pz - z,
-      t = dx * ax + dz * az,
-      lat = Math.abs(dx * az - dz * ax);
-    return t >= 0 && t <= range && lat <= halfWidth;
+    return combatShapeIntersectsCircle(
+      {kind:'ray',x,z,aimX:ax,aimZ:az,range,halfWidth},
+      this.px,this.pz,HERO_HIT_RADIUS
+    );
   }
+
   private updateBossAI(e: Ent, speed: number, d: number, nx: number, nz: number) {
     const nextPhase =
       e.bossPhase === 1 && e.hp <= e.maxHp * 0.66 ? 2 :
@@ -4766,7 +4760,12 @@ export class Simulation {
       });
     }
 
-    if (!asyncSkill && trace.terminal && (skill === 'rail_spear' || skill === 'cleaver' || skill === 'chain_arc' || skill === 'tether_drag'))
+    if (
+      !asyncSkill &&
+      !this.activationPending.has(activationId) &&
+      trace.terminal &&
+      (skill === 'rail_spear' || skill === 'cleaver' || skill === 'chain_arc' || skill === 'tether_drag')
+    )
       this.queuePhysicalEvent({ activationId, slot, skill, kind: 'terminal', x: trace.terminal.x, z: trace.terminal.z });
   }
 
@@ -5014,15 +5013,9 @@ export class Simulation {
         this.tracePoint(p.x, p.z);
       }
     }
-    if (t.scheduled.length >= 2) {
-      for (let i = 1; i < t.scheduled.length; i++)
-        this.traceSegment(t.scheduled[i - 1], t.scheduled[i]);
-    }
-    // "Источник" means the place where A physically finished doing useful work, not the
-    // abstract maximum range of its telegraph. This matters especially for Rail: a mist or
-    // turret should appear at the last pierced body, not eighteen empty metres behind it.
-    if (t.scheduled.length) t.terminal = { ...t.scheduled[t.scheduled.length - 1] };
-    else if (resolvedHits.length) t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
+    // Scheduled coordinates are telegraph/planning data, never proof that the Phenomenon
+    // physically reached them. Async projectiles/impacts publish their real terminal later.
+    if (resolvedHits.length) t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
     else if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
     const out: ChoreographyTrace = {
       ...t,
@@ -5432,19 +5425,22 @@ export class Simulation {
     width: number,
     maxHits = 99
   ) {
-    const hits: { e: Ent; t: number; lat: number }[] = [];
-    for (const e of this.targetsFor(src)) {
-      if (e.hp <= 0 || !this.lineOfSight(src.x, src.z, e.x, e.z, width * 0.2)) continue;
-      const dx = e.x - src.x,
-        dz = e.z - src.z,
-        t = dx * ax + dz * az;
-      if (t < 0 || t > range) continue;
-      const lat = Math.abs(dx * az - dz * ax);
-      if (lat <= width + e.radius * 0.45) hits.push({ e, t, lat });
+    const m=Math.hypot(ax,az)||1,
+      nx=ax/m,nz=az/m,
+      shape:CombatShape={kind:'ray',x:src.x,z:src.z,aimX:nx,aimZ:nz,range,halfWidth:width},
+      hits:{ e:Ent;t:number;lat:number }[]=[];
+    for(const e of this.targetsFor(src)){
+      if(e.hp<=0||!this.lineOfSight(src.x,src.z,e.x,e.z,width*0.2))continue;
+      if(!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;
+      const dx=e.x-src.x,dz=e.z-src.z,
+        t=dx*nx+dz*nz,
+        lat=Math.abs(dx*nz-dz*nx);
+      hits.push({e,t,lat});
     }
-    hits.sort((a, b) => a.t - b.t);
-    return hits.slice(0, maxHits);
+    hits.sort((a,b)=>a.t-b.t);
+    return hits.slice(0,maxHits);
   }
+
   private rotatedAim(src: CastSource, rad: number) {
     const c = Math.cos(rad),
       s = Math.sin(rad);
@@ -5707,7 +5703,6 @@ export class Simulation {
       const marked=this.targetsFor(src).filter(e=>e.hp>0&&e.kind==='elite'&&e.markUntil>this.time&&Math.hypot(e.x-src.x,e.z-src.z)<=range+3).sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0];
       if(marked)p={x:marked.x,z:marked.z};
     }
-    if(this.currentChoreography) this.traceSegment({x:src.x,z:src.z},{x:p.x,z:p.z});
     if(mut==='mortar_fuse'){r*=1.35;mult*=1.35;}if(this.mutationIs(st,'mortar_airburst')){r*=1.2;mult*=0.86;}
     const baseDamage=skills.mortar_bloom.baseDamage*this.powerBucket(st)*this.slotAmp(slot)*mult;
     let points:{x:number;z:number;delay:number}[]=[];
