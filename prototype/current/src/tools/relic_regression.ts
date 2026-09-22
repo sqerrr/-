@@ -8,7 +8,7 @@ import { Simulation } from '../core/simulation.js';
 import { SimulationHarness } from '../testing/simulationHarness.js';
 import type { ItemCategory } from '../core/types.js';
 
-function assert(cond: boolean, msg: string) {
+function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error('relic-regression: ' + msg);
 }
 
@@ -60,7 +60,7 @@ for (const [cat, n] of byCategory) assert(n >= 2, `category ${cat} has only ${n}
     if (sim.hasChoice) sim.chooseReward(0);
     elite = h.entities.find((e) => e.kind === 'elite');
   }
-  assert(!!elite, 'no elite appeared in ninety seconds');
+  assert(elite, 'no elite appeared in ninety seconds');
   const hpBefore = elite.maxHp;
   h.giveEliteRelic(elite, { id: 9, x: elite.x, z: elite.z, item: 'plating', bornAt: 0 });
   assert(elite.maxHp > hpBefore, 'plating did not increase elite durability');
