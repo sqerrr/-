@@ -10,6 +10,7 @@ const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const entityStore=readFileSync('src/core/entityStore.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
 const eliteBehavior=readFileSync('src/core/eliteBehaviorSystem.ts','utf8');
+const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
 const stateModel=readFileSync('src/core/state.ts','utf8');
 const testHarness=readFileSync('src/testing/simulationHarness.ts','utf8');
 const statusSystem=readFileSync('src/core/statusSystem.ts','utf8');
@@ -41,6 +42,12 @@ for (const chassis of ['hunter','architect','broodmaker','bulwark','harvester','
 assert(simulation.includes('private eliteBehavior!: EliteBehaviorSystem'), 'Simulation no longer delegates elite chassis AI');
 assert(!simulation.includes("if (c === 'hunter')") && !simulation.includes('private beginElitePattern('),
   'authored elite chassis state machines leaked back into Simulation');
+assert(bossBehavior.includes('export class BossBehaviorSystem'), 'Warden behavior has no dedicated system');
+for (const pattern of ['sweep','rupture','charge'])
+  assert(bossBehavior.includes("'"+pattern+"'"), 'boss behavior missing pattern: '+pattern);
+assert(simulation.includes('private bossBehavior!: BossBehaviorSystem'), 'Simulation no longer delegates Warden behavior');
+assert(!simulation.includes("e.bossPattern === 'sweep'") && !simulation.includes('telegraph_boss_'),
+  'Warden phase/pattern state machine leaked back into Simulation');
 assert(statusSystem.includes('export class StatusSystem'), 'generic combat statuses have no dedicated owner');
 assert(simulation.includes('private statusSystem = new StatusSystem()'), 'Simulation no longer delegates generic status lifecycle');
 assert(!simulation.includes('private stateActive(') && !simulation.includes('private consumeState('),
@@ -89,6 +96,7 @@ console.log('architecture-regression OK', {
   entityStore:true,
   encounterDirector:true,
   eliteBehaviorSystem:true,
+  bossBehaviorSystem:true,
   statusSystem:true,
   entityComponents:true,
   typedTestHarness:true
