@@ -77,6 +77,39 @@ export type EliteAffix =
   | 'brood'
   | 'crowned'
   | 'none';
+export type EliteActionId =
+  | 'predator'
+  | 'predator_dash'
+  | 'veil'
+  | 'replicate'
+  | 'prism'
+  | 'null'
+  | 'metamorph';
+export type EliteOrderId =
+  | 'surge'
+  | 'pack'
+  | 'screen'
+  | 'wall'
+  | 'harvest'
+  | 'regroup'
+  | 'brood'
+  | 'archive'
+  | 'predator'
+  | 'veil'
+  | 'replicate'
+  | 'prism'
+  | 'null'
+  | 'metamorph';
+export type BossPatternId = 'sweep' | 'rupture' | 'charge';
+export type DamageSourceId =
+  | 'contact'
+  | 'temporal_shift'
+  | 'brood_pulse'
+  | 'prism_bash'
+  | 'null_harvest'
+  | 'shepherd_pulse'
+  | 'warden_sweep'
+  | 'warden_rupture';
 export type MutationId = string;
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 export type RunMode = 'clean' | 'showcase';
@@ -208,7 +241,7 @@ export interface SnapshotEntity {
   facingZ: number;
   telegraph: number;
   /** Authored chassis action, separate from generic mob/affix state. */
-  eliteAction?: string;
+  eliteAction?: EliteActionId;
   eliteActionProgress: number;
   linkedTo: number;
   revived: boolean;
@@ -236,7 +269,7 @@ export interface SnapshotEntity {
   /** Passive elite-evolution gains. UI should aggregate these as one Evolution tier. */
   evolutionItems: ItemId[];
   bossPhase: number;
-  bossPattern: string;
+  bossPattern: BossPatternId | '';
   status: StatusSnapshot;
 }
 export interface PickupSnapshot {
@@ -610,7 +643,7 @@ export type GameEvent =
       type: 'BossPattern';
       tick: number;
       entity: number;
-      pattern: 'sweep' | 'rupture' | 'charge';
+      pattern: BossPatternId;
       x: number;
       z: number;
     }
@@ -648,7 +681,7 @@ export type GameEvent =
       barrierDamage: number;
       x: number;
       z: number;
-      source: string;
+      source: DamageSourceId;
       attackerId: number;
       attackerKind?: EnemyKind;
       attackerChassis?: EliteChassis;
@@ -660,21 +693,7 @@ export type GameEvent =
       type: 'EliteOrder';
       tick: number;
       entity: number;
-      order:
-        | 'surge'
-        | 'pack'
-        | 'screen'
-        | 'wall'
-        | 'harvest'
-        | 'regroup'
-        | 'brood'
-        | 'archive'
-        | 'predator'
-        | 'veil'
-        | 'replicate'
-        | 'prism'
-        | 'null'
-        | 'metamorph';
+      order: EliteOrderId;
       x: number;
       z: number;
       count?: number;
