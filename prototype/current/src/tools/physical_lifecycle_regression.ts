@@ -404,7 +404,10 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
 // This is deliberately lifecycle-driven: the test never activates B directly.
 {
   const modeForSignal:any={terminal:'source',carrier:'carrier',path:'trail',area:'collapse'};
-  let cases=0;
+  let cases=0,
+    expectedCases=0;
+  for(const left of activeSkillOrder)
+    expectedCases+=(1+skills[left].mutations.length)*phenomenonChoreography[left].emits.length;
   const applyBranch=(sim:any,skill:SkillId,mutationId:string|null)=>{
     if(!mutationId)return;
     const defs=skills[skill].mutations as any[],
@@ -446,7 +449,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
       }
     }
   }
-  assert(cases>250,'mutation physical audit unexpectedly small: '+cases);
+  assert(cases===expectedCases,'mutation physical audit '+cases+' != catalogue-derived '+expectedCases);
 }
 
 console.log('physical-lifecycle-regression OK',{
