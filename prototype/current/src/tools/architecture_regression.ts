@@ -30,7 +30,7 @@ assert(!simulation.includes('this.ents.filter('), 'hot-path entity query allocat
 for (const component of ['BodyComponent','VitalComponent','RelationComponent','EliteRuntimeComponent','StatusComponent','EliteProgressionComponent'])
   assert(stateModel.includes('export interface '+component), 'entity domain component missing: '+component);
 assert(stateModel.includes('export function makeEnt('), 'combat entity construction has no single factory');
-assert(!simulation.includes('const e: Ent = {'), 'Simulation bypasses makeEnt with a duplicated full entity literal');
+assert(!simulation.includes(': Ent = {'), 'Simulation bypasses makeEnt with a duplicated full entity literal');
 
 assert(types.includes('export type DamageSourceId ='), 'player damage sources are stringly typed again');
 assert(types.includes('export type EliteActionId ='), 'elite actions are stringly typed again');
