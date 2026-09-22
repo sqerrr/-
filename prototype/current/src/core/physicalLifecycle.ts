@@ -108,6 +108,21 @@ export class PhysicalLifecycle {
     for (const id of [...this.meta.keys()]) this.retireIfIdle(id, hasOwnedConstruct);
   }
 
+  diagnostics() {
+    return {
+      bindings: this.bindings.map((binding) => ({
+        ...binding,
+        origin: { ...binding.origin },
+        path: binding.path.map((point) => ({ ...point })),
+        areaPoints: binding.areaPoints.map((point) => ({ ...point })),
+        carrierKeys: new Set(binding.carrierKeys)
+      })),
+      pendingCount: this.pending.size,
+      metadataCount: this.meta.size,
+      queuedEventCount: this.events.length
+    };
+  }
+
   private retireIfIdle(id: number, hasOwnedConstruct: (activationId: number) => boolean) {
     if (
       !id ||
