@@ -4770,7 +4770,7 @@ export class Simulation {
   ) {
     if (!trace || !activationId) return;
     const asyncSkill = skill === 'mortar_bloom' || skill === 'mass_driver' || skill === 'shard_fan';
-    if (!asyncSkill) {
+    if (!asyncSkill && phenomenonChoreography[skill].emits.includes('path')) {
       const path = this.tracePath(trace);
       for (let i = 1; i < path.length; i++)
         this.queuePhysicalEvent({
@@ -4785,11 +4785,7 @@ export class Simulation {
         });
     }
 
-    if (
-      trace.areas.length &&
-      (skill === 'frost_ring' || skill === 'cleaver' || skill === 'orbit_blades' ||
-        skill === 'sentry' || skill === 'toxic_mist' || skill === 'tether_drag')
-    ) {
+    if (trace.areas.length && phenomenonChoreography[skill].emits.includes('area')) {
       for(const shape of trace.areas){
         const radius=shape.kind==='ray'?shape.halfWidth:shape.radius,
           areaPoints:ChoreographyPoint[]=[];
