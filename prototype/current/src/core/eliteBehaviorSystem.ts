@@ -20,6 +20,7 @@ export interface EliteBehaviorPort {
   freeOf(x: number, z: number, radius: number): { x: number; z: number };
   addField(field: Omit<Field, 'id'>): void;
   emitCombatShape(source: string, shape: CombatShape, intent?: 'damage' | 'control' | 'field'): void;
+  combatShape(source: string, shape: CombatShape, intent?: 'damage' | 'control' | 'field'): void;
   emitOrder(entity: Ent, order: EliteActionId): void;
   hitPlayer(amount: number, attacker: Ent, source: string): void;
   damageScale(): number;
@@ -176,7 +177,7 @@ export class EliteBehaviorSystem {
         if (time < (entity.eliteActionUntil ?? 0)) return;
         entity.eliteAction = undefined;
         entity.eliteActionUntil = 0;
-        p.emitCombatShape('elite_brood_active', { kind: 'circle', x: entity.x, z: entity.z, radius: 4.2 });
+        p.combatShape('elite_brood_active', { kind: 'circle', x: entity.x, z: entity.z, radius: 4.2 });
         if (Math.hypot(px - entity.x, pz - entity.z) <= 4.2 + HERO_HIT_RADIUS)
           p.hitPlayer(14 * p.damageScale(), entity, 'brood_pulse');
         p.spawnReplicant(entity);
@@ -205,7 +206,7 @@ export class EliteBehaviorSystem {
         if (time < (entity.eliteActionUntil ?? 0)) return;
         entity.eliteAction = undefined;
         entity.eliteActionUntil = 0;
-        p.emitCombatShape('elite_prism_active', {
+        p.combatShape('elite_prism_active', {
           kind: 'sector',
           x: entity.x,
           z: entity.z,
@@ -258,7 +259,7 @@ export class EliteBehaviorSystem {
         if (time < (entity.eliteActionUntil ?? 0)) return;
         entity.eliteAction = undefined;
         entity.eliteActionUntil = 0;
-        p.emitCombatShape('elite_null_active', {
+        p.combatShape('elite_null_active', {
           kind: 'sector',
           x: entity.x,
           z: entity.z,
@@ -306,7 +307,7 @@ export class EliteBehaviorSystem {
         if (time < (entity.eliteActionUntil ?? 0)) return;
         entity.eliteAction = undefined;
         entity.eliteActionUntil = 0;
-        p.emitCombatShape(
+        p.combatShape(
           'elite_shepherd_active',
           { kind: 'circle', x: entity.x, z: entity.z, radius: 5.2 },
           'control'
