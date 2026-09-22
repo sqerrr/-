@@ -1,5 +1,5 @@
 import { HERO_HIT_RADIUS, type Ent, type Field } from './state.js';
-import type { CombatShape, EliteActionId } from './types.js';
+import type { CombatShape, DamageSourceId, EliteActionId } from './types.js';
 
 export interface EliteBehaviorPort {
   readonly runDuration: number;
@@ -22,7 +22,7 @@ export interface EliteBehaviorPort {
   emitCombatShape(source: string, shape: CombatShape, intent?: 'damage' | 'control' | 'field'): void;
   combatShape(source: string, shape: CombatShape, intent?: 'damage' | 'control' | 'field'): void;
   emitOrder(entity: Ent, order: EliteActionId): void;
-  hitPlayer(amount: number, attacker: Ent, source: string): void;
+  hitPlayer(amount: number, attacker: Ent, source: DamageSourceId): void;
   damageScale(): number;
   spawnReplicant(entity: Ent): void;
   playerInSector(x: number, z: number, ax: number, az: number, radius: number, halfAngle: number): boolean;
