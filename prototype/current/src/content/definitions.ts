@@ -1544,7 +1544,9 @@ export function catalystPairCompatible(id: CatalystId, left: SkillId, right: Ski
   if (!(['source','carrier','trail','reverse','collapse'] as CatalystId[]).includes(id)) return true;
   const l = phenomenonChoreography[left], r = phenomenonChoreography[right];
   if (!l || !r || !r.accepts.includes(id as ChoreographyOperator)) return false;
-  if (id === 'source' || id === 'reverse') return l.emits.includes('terminal');
+  if (id === 'source') return l.emits.includes('terminal');
+  // Reverse is not "draw a line from origin to terminal": A must have physically traversed a path.
+  if (id === 'reverse') return l.emits.includes('terminal') && l.emits.includes('path');
   if (id === 'carrier') return l.emits.includes('carrier');
   if (id === 'trail') return l.emits.includes('path');
   if (id === 'collapse') return l.emits.includes('area');
