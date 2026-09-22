@@ -123,7 +123,7 @@ function modalState() {
 }
 async function copyDebugLog() {
   const text = [
-    'Black Archive v0.12 · debug',
+    'Чёрный архив · диагностика',
     navigator.userAgent,
     location.href,
     '',
@@ -1604,7 +1604,7 @@ function syncChoiceUI(s: Snapshot, force = false) {
           : 'Выберите награду текущего канала прогрессии.';
     $('choiceFoot').textContent =
       elite || discovery
-        ? 'Этот выбор нельзя пропустить или перероллить.'
+        ? 'Этот выбор нельзя пропустить или обновить.'
         : `Обновления: ${s.rerolls} · Пропуск сохраняет ~30% требования опыта.`;
     cards.className = `cards ${s.rewardOffers.length === 2 ? 'two' : ''}`;
     s.rewardOffers.forEach((o, i) => {
