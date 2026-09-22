@@ -1053,8 +1053,18 @@ export class Simulation {
       p.faction === 'hero' &&
       p.sourceSlot === this.currentSlot &&
       p.source === this.currentChoreography.skill
-    )
+    ) {
+      // For an async path Phenomenon, the first real moving body owns the route origin.
+      // This matters when the cast itself displaced its source (Mass recoil) or spawns offset shards.
+      if (
+        this.currentChoreography.carriers.length===0 &&
+        (p.source==='mass_driver'||p.source==='shard_fan')
+      ) {
+        this.currentChoreography.origin={x:p.x,z:p.z};
+        if(activationId)this.activationLastPoint.set(activationId,{x:p.x,z:p.z});
+      }
       this.currentChoreography.carriers.push({ kind: 'projectile', id });
+    }
     return id;
   }
 
