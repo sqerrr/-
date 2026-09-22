@@ -112,6 +112,24 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   assert(mist&&dist(mist,lastImpact.shape)<1.1,'Mortar Source B origin differs from physical impact');
 }
 
+// Mortar Gravity is also impact-owned: the telegraph cannot pull bodies before a shell lands.
+{
+  const sim=fixture('mortar_bloom','toxic_mist','source');
+  sim.catalysts=[null];
+  sim.ents=sim.ents.slice(0,2);
+  sim.skillsRuntime.get('mortar_bloom').mutationApotheosis='mortar_gravity_field';
+  const moved=sim.ents[1], before={x:moved.x,z:moved.z};
+  sim.activateSlot(0);
+  assert(dist(moved,before)<1e-6,'Gravity Bomb displaced a target while only the marker existed');
+  advance(sim,18);
+  assert(dist(moved,before)<1e-6,'Gravity Bomb started pulling before physical impact');
+  assert(until(sim,()=>sim.fields.some((q:any)=>q.source==='mortar_bloom'&&q.behavior==='pull'),90),
+    'Gravity Bomb impact never created its persistent pull field');
+  const afterImpact={x:moved.x,z:moved.z};
+  advance(sim,12);
+  assert(dist(moved,afterImpact)>.005,'Gravity Bomb field exists visually but does not pull through its hitbox');
+}
+
 // MORTAR CARRIER: the discussed Frost example fires on impact, never on shell scheduling.
 {
   const sim=fixture('mortar_bloom','frost_ring','carrier');
