@@ -23,6 +23,7 @@ import {
   statBase
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
+import { EntityStore } from './entityStore.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { Rng } from './rng.js';
 import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, pointAlongPolyline, polylineLength, sweepCircleT } from './geometry.js';
@@ -280,7 +281,10 @@ export class Simulation {
   };
   private rng: Rng;
   private nextId = 1;
-  private ents: Ent[] = [];
+  private entityStore = new EntityStore();
+  /** Compatibility view for deterministic iteration and legacy regression fixtures. */
+  private get ents(): Ent[] { return this.entityStore.all; }
+  private set ents(value: Ent[]) { this.entityStore.replace(value); }
   // Synthetic combatant standing in for the player whenever a rival owns the cast.
   // Deliberately kept OUT of `ents` so every existing loop keeps its exact behaviour.
   private hero: Ent = makeHeroEnt();
@@ -747,7 +751,7 @@ export class Simulation {
   }
 
   private projectileOwner(p: Projectile) {
-    return p.ownerId ? this.ents.find((e) => e.id === p.ownerId) ?? null : null;
+    return p.ownerId ? this.entityStore.get(p.ownerId) ?? null : null;
   }
 
   /**
@@ -1000,7 +1004,7 @@ export class Simulation {
           carrierId:q.id
         });
       }
-      const owner = q.ownerId ? this.ents.find((e) => e.id === q.ownerId) ?? null : null;
+      const owner = q.ownerId ? this.entityStore.get(q.ownerId) ?? null : null;
       if (q.faction === 'rival') {
         if (combatShapeIntersectsCircle(impactShape,this.px,this.pz,HERO_HIT_RADIUS))
           this.damageHero(q.damage, q.source as DamageSourceId, owner, 1);
@@ -1213,7 +1217,7 @@ export class Simulation {
         rarity: 'common',
         repertoire: []
       };
-    this.ents.push(e);
+    this.entityStore.add(e);
     this.metrics.spawned++;
     this.metrics.eliteSpawned++;
     this.events.push({
@@ -1293,7 +1297,7 @@ export class Simulation {
     this.claimRepertoire(e);
     this.inheritEliteLegacy(e, true);
     this.inheritEliteEvolution(e);
-    this.ents.push(e);
+    this.entityStore.add(e);
     this.metrics.spawned++;
     this.metrics.eliteSpawned++;
     this.events.push({
@@ -1311,9 +1315,9 @@ export class Simulation {
     const unresolved = this.pois.filter((p) => p.state !== 'cleared'),
       cleared = this.pois.length - unresolved.length,
       desiredSupports = cleared >= 4 ? 0 : cleared >= 2 ? 1 : 2;
-    const activePoiGuardians = this.ents.filter(
-      (o) => o.kind === 'elite' && !o.boss && o.guardianPoi > 0 && o.hp > 0
-    ).length;
+    const activePoiGuardians = this.entityStore.countAlive(
+      (o) => o.kind === 'elite' && !o.boss && o.guardianPoi > 0
+    );
     let spawned = 0;
     for (const p of unresolved) {
       if (activePoiGuardians + spawned >= desiredSupports) break;
@@ -1447,7 +1451,7 @@ export class Simulation {
     this.flushPhysicalEvents();
     this.cleanup();
     if (!this.benchmark) this.checkProgression();
-    const aliveNow = this.ents.filter((e) => e.hp > 0).length;
+    const aliveNow = this.entityStore.countAlive();
     this.metrics.maxEnemies = Math.max(this.metrics.maxEnemies, aliveNow);
     this.metrics.enemyCountSum += aliveNow;
     this.metrics.enemySamples++;
@@ -1485,7 +1489,7 @@ export class Simulation {
   private spawnDirector() {
     const target = this.populationTarget();
     // Clean Run keeps a calmer opening so the first Phenomenon can be read before density ramps.
-    const normals = this.ents.filter((e) => e.kind !== 'elite' && e.hp > 0).length;
+    const normals = this.entityStore.countAlive((e) => e.kind !== 'elite');
     this.spawnCredits += this.dt * (8.0 * this.spawnPressure());
     if (normals > target) this.spawnCredits *= 0.92;
     let guard = 0;
@@ -1557,7 +1561,7 @@ export class Simulation {
     buffedFor = 0,
     cloneParent = 0
   ) {
-    const normalCount = this.ents.filter((e) => e.kind !== 'elite' && e.hp > 0).length;
+    const normalCount = this.entityStore.countAlive((e) => e.kind !== 'elite');
     if (normalCount >= 198) return;
     if (buffedFor > 0 && normalCount >= Math.min(180, this.populationTarget() + 18)) return;
     const scale = this.worldScale(),
@@ -1649,7 +1653,7 @@ export class Simulation {
       rarity: 'common',
       repertoire: []
     };
-    this.ents.push(e);
+    this.entityStore.add(e);
     this.metrics.spawned++;
     this.events.push({
       type: 'EntitySpawned',
@@ -1665,7 +1669,7 @@ export class Simulation {
   private eliteDirector() {
     if (this.bossSpawned) return;
     this.eliteAcc += this.dt;
-    const active = this.ents.filter((e) => e.kind === 'elite' && e.hp > 0 && !e.boss).length;
+    const active = this.entityStore.countAlive((e) => e.kind === 'elite' && !e.boss);
     const cap = this.time < 85 ? 1 : this.time < 180 ? 2 : 3;
     if (!this.firstElite && this.time >= 22) {
       this.firstElite = true;
@@ -1917,7 +1921,7 @@ export class Simulation {
 
   private updateEliteEchoes() {
     for (const [id,q] of [...this.eliteEchoes]) {
-      const e=this.ents.find(x=>x.id===id && x.hp>0);
+      const e=this.entityStore.getAlive(id);
       if (!e) { this.eliteEchoes.delete(id); continue; }
       if (this.time + 1e-9 < q.until) continue;
       if (q.phase === 'tell') {
@@ -2080,7 +2084,7 @@ export class Simulation {
       this.grantNativeEliteGrowth(e);
     }
     this.noteEliteSpawn(e);
-    this.ents.push(e);
+    this.entityStore.add(e);
     this.metrics.spawned++;
     this.metrics.eliteSpawned++;
     this.events.push({
@@ -2407,7 +2411,7 @@ export class Simulation {
           }
           e.linkedTo = best?.id ?? 0;
         }
-        const target = this.ents.find((o) => o.id === e.linkedTo && o.hp > 0);
+        const target = this.entityStore.getAlive(e.linkedTo);
         if (target) {
           const td = Math.hypot(target.x - e.x, target.z - e.z) || 1;
           if (td > 3) this.steerTo(e, target.x, target.z, speed);
@@ -2946,9 +2950,14 @@ export class Simulation {
       f.tickAcc += this.dt;
       const compatibilityRival = f.kind === 'ink' || f.kind === 'architect';
       const faction: CastFaction = f.faction ?? (compatibilityRival ? 'rival' : 'hero');
-      const owner = f.ownerId ? this.ents.find((e) => e.id === f.ownerId) ?? null : null;
+      const owner = f.ownerId ? this.entityStore.get(f.ownerId) ?? null : null;
       if (f.behavior === 'host' && f.faction === 'hero') {
-        const target=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number(b.kind==='elite')-Number(a.kind==='elite')||Math.hypot(a.x-f.x,a.z-f.z)-Math.hypot(b.x-f.x,b.z-f.z))[0];
+        const target=this.entityStore.bestAlive((a,b)=>{
+          const eliteOrder=Number(b.kind==='elite')-Number(a.kind==='elite');
+          if(eliteOrder) return eliteOrder;
+          const adx=a.x-f.x,adz=a.z-f.z,bdx=b.x-f.x,bdz=b.z-f.z;
+          return adx*adx+adz*adz-(bdx*bdx+bdz*bdz);
+        });
         if(target){
           const dx=target.x-f.x,dz=target.z-f.z,d=Math.hypot(dx,dz)||1;
           f.x+=dx/d*1.75*this.dt;f.z+=dz/d*1.75*this.dt;
@@ -3383,7 +3392,7 @@ export class Simulation {
         continue;
       }
       c.cooldown -= this.dt;
-      const owner = c.ownerId ? this.ents.find((e) => e.id === c.ownerId) ?? null : null;
+      const owner = c.ownerId ? this.entityStore.get(c.ownerId) ?? null : null;
       const followX = c.faction === 'rival' && owner ? owner.x : this.px;
       const followZ = c.faction === 'rival' && owner ? owner.z : this.pz;
 
@@ -3616,7 +3625,10 @@ export class Simulation {
     let radius = this.skillRadius(st, skills.orbit_blades.baseRadius),
       crowd = 0;
     if (this.mutationIs(st,'orbit_blood')) {
-      crowd=this.ents.filter(e=>e.hp>0&&Math.hypot(e.x-center.x,e.z-center.z)<6).length;
+      crowd=this.entityStore.countAlive((e)=>{
+        const dx=e.x-center.x,dz=e.z-center.z;
+        return dx*dx+dz*dz<36;
+      });
       radius*=1+Math.min(0.34,crowd*0.017);
       damageMul*=1+Math.min(0.48,crowd*0.024);
       if(this.mutationIs(st,'orbit_sanguine_crown')) radius*=1+Math.min(0.22,crowd*0.01);
@@ -3696,7 +3708,12 @@ export class Simulation {
     }
     if(this.mutationIs(st,'orbit_phoenix')&&this.time>=this.orbitPhoenixAt){
       this.orbitPhoenixAt=this.time+1.35;
-      const t=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number((b.markUntil>this.time)||b.kind==='elite')-Number((a.markUntil>this.time)||a.kind==='elite')||Math.hypot(a.x-center.x,a.z-center.z)-Math.hypot(b.x-center.x,b.z-center.z))[0];
+      const t=this.entityStore.bestAlive((a,b)=>{
+        const priority=Number((b.markUntil>this.time)||b.kind==='elite')-Number((a.markUntil>this.time)||a.kind==='elite');
+        if(priority) return priority;
+        const adx=a.x-center.x,adz=a.z-center.z,bdx=b.x-center.x,bdz=b.z-center.z;
+        return adx*adx+adz*adz-(bdx*bdx+bdz*bdz);
+      });
       if(t){
         const dx=t.x-center.x,dz=t.z-center.z,m=Math.hypot(dx,dz)||1;
         this.spawnProjectile({
@@ -3930,7 +3947,16 @@ export class Simulation {
     if(this.mutationIs(st,'fan_storm')) count=Math.min(7,count+2);
     let baseAimX=src.aimX,baseAimZ=src.aimZ;
     if(this.mutationIs(st,'returner_execution')){
-      const priority=this.targetsFor(src).filter(e=>e.hp>0&&e.kind==='elite'&&this.targetVisible(src,e)).sort((a,b)=>Number(b.markUntil>this.time)-Number(a.markUntil>this.time)||Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];
+      const priority=this.bestTarget(
+        src,
+        (e)=>e.kind==='elite'&&this.targetVisible(src,e),
+        (a,b)=>{
+          const marked=Number(b.markUntil>this.time)-Number(a.markUntil>this.time);
+          if(marked) return marked;
+          const adx=a.x-src.x,adz=a.z-src.z,bdx=b.x-src.x,bdz=b.z-src.z;
+          return adx*adx+adz*adz-(bdx*bdx+bdz*bdz);
+        }
+      );
       if(priority){const dx=priority.x-src.x,dz=priority.z-src.z,m=Math.hypot(dx,dz)||1;baseAimX=dx/m;baseAimZ=dz/m;priority.markUntil=Math.max(priority.markUntil,this.time+2.4);}
     }
     for(let i=0;i<count;i++){
@@ -4102,7 +4128,7 @@ export class Simulation {
         let far: Ent | null = null,
           best = -1;
         for (const eid of this.lastContext.hitIds) {
-          const e = this.ents.find((q) => q.id === eid && q.hp > 0);
+          const e = this.entityStore.getAlive(eid);
           if (!e) continue;
           const d = Math.hypot(e.x - this.px, e.z - this.pz);
           if (d > best) {
@@ -4162,7 +4188,7 @@ export class Simulation {
     }
     if (!choreographyId && incoming === 'conduit' && this.lastContext.state && this.currentHits.size) {
       for (const eid of this.currentHits) {
-        const e = this.ents.find((q) => q.id === eid && q.hp > 0);
+        const e = this.entityStore.getAlive(eid);
         if (e) this.applyState(e, this.lastContext.state, 0.65 * conduct);
       }
       this.metrics.reactions++;
@@ -4176,7 +4202,7 @@ export class Simulation {
     }
     if (!choreographyId && incoming === 'echo_shard' && this.lastContext.damage > 0 && this.currentHits.size) {
       const targets = [...this.currentHits]
-        .map((eid) => this.ents.find((q) => q.id === eid && q.hp > 0))
+        .map((eid) => this.entityStore.getAlive(eid))
         .filter(Boolean) as Ent[];
       if (targets.length) {
         const cx = targets.reduce((a, e) => a + e.x, 0) / targets.length,
@@ -4211,7 +4237,7 @@ export class Simulation {
     if (!choreographyId && (incoming === 'brand' || incoming === 'rime') && this.currentHits.size) {
       const state = incoming === 'brand' ? 'mark' : 'chill';
       for (const eid of this.currentHits) {
-        const e = this.ents.find((q) => q.id === eid && q.hp > 0);
+        const e = this.entityStore.getAlive(eid);
         if (e) this.applyState(e, state, 0.9 * conduct);
       }
       this.metrics.reactions++;
@@ -4243,7 +4269,7 @@ export class Simulation {
       cz = this.pz;
     if (this.currentHits.size) {
       const ts = [...this.currentHits]
-        .map((eid) => this.ents.find((q) => q.id === eid))
+        .map((eid) => this.entityStore.get(eid))
         .filter(Boolean) as Ent[];
       if (ts.length) {
         cx = ts.reduce((a, e) => a + e.x, 0) / ts.length;
@@ -4860,9 +4886,7 @@ export class Simulation {
   }
 
   private choreographyAim(x: number, z: number, fallbackX = this.aimX, fallbackZ = this.aimZ) {
-    const target = this.ents
-      .filter((e) => e.hp > 0)
-      .sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z))[0];
+    const target = this.entityStore.nearest(x, z);
     if (target) {
       const dx = target.x - x,
         dz = target.z - z,
@@ -5045,6 +5069,19 @@ export class Simulation {
   }
   // Who a cast is allowed to hit. A hero cast sweeps the enemy roster; a rival cast
   // resolves against the single synthetic hero combatant, refreshed from live player state.
+  private bestTarget(
+    src: CastSource,
+    predicate: (entity: Ent) => boolean,
+    compare: (candidate: Ent, best: Ent) => number
+  ) {
+    let best: Ent | undefined;
+    for (const entity of this.targetsFor(src)) {
+      if (entity.hp <= 0 || !predicate(entity)) continue;
+      if (!best || compare(entity, best) < 0) best = entity;
+    }
+    return best;
+  }
+
   private targetsFor(src: CastSource): Ent[] {
     if (src.faction === 'hero') return this.ents;
     this.hero.x = this.px;
@@ -5314,7 +5351,7 @@ export class Simulation {
     }
     if(this.mutationIs(st,'arc_closed_loop')&&path.length>1){const first=path[0],last=path[path.length-1],d=Math.hypot(first.x-last.x,first.z-last.z)||1;this.combatShape('arc_closed_loop',{kind:'ray',x:last.x,z:last.z,aimX:(first.x-last.x)/d,aimZ:(first.z-last.z)/d,range:d,halfWidth:0.14});this.damage(first,skills.chain_arc.baseDamage*this.powerBucket(st)*1.55,'chain_arc',false,last.x,last.z,slot);}
     if(this.mutationIs(st,'arc_hunting_storm')){const extra=this.targetsFor(src).filter(e=>e.hp>0&&!hit.has(e.id)&&path.some(h=>Math.hypot(e.x-h.x,e.z-h.z)<jumpRange*1.2)).slice(0,3);for(const e of extra)this.scheduleStrike({at:this.time+0.18,x:e.x,z:e.z,radius:0.72,damage:skills.chain_arc.baseDamage*this.powerBucket(st)*0.82,faction:src.faction,ownerId:src.owner?.id??0,source:'chain_arc',sourceSlot:slot,intent:'damage',telegraph:'arc_hunting_node',fieldKind:'arc',fieldDuration:1.25,fieldDps:7*this.powerBucket(st)});}
-    if(this.mutationIs(st,'arc_living_circuit')&&src.faction==='hero'){for(const c of this.constructs.filter(q=>q.faction==='hero').slice(0,4)){const target=this.ents.filter(e=>e.hp>0&&Math.hypot(e.x-c.x,e.z-c.z)<=c.range+e.radius).sort((a,b)=>Math.hypot(a.x-c.x,a.z-c.z)-Math.hypot(b.x-c.x,b.z-c.z))[0];if(!target)continue;const dx=target.x-c.x,dz=target.z-c.z,d=Math.hypot(dx,dz)||1;this.combatShape('arc_living_circuit',{kind:'ray',x:c.x,z:c.z,aimX:dx/d,aimZ:dz/d,range:d,halfWidth:0.1});this.damage(target,skills.chain_arc.baseDamage*this.powerBucket(st)*0.65,'chain_arc',false,c.x,c.z,slot);}}
+    if(this.mutationIs(st,'arc_living_circuit')&&src.faction==='hero'){let used=0;for(const c of this.constructs){if(c.faction!=='hero'||used++>=4)continue;const target=this.entityStore.nearest(c.x,c.z,(e)=>{const dx=e.x-c.x,dz=e.z-c.z,r=c.range+e.radius;return dx*dx+dz*dz<=r*r;},c.range+2);if(!target)continue;const dx=target.x-c.x,dz=target.z-c.z,d=Math.hypot(dx,dz)||1;this.combatShape('arc_living_circuit',{kind:'ray',x:c.x,z:c.z,aimX:dx/d,aimZ:dz/d,range:d,halfWidth:0.1});this.damage(target,skills.chain_arc.baseDamage*this.powerBucket(st)*0.65,'chain_arc',false,c.x,c.z,slot);}}
   }
 
   private castOrbit(st: SkillRuntime, slot: number, src: CastSource) {
@@ -5354,14 +5391,25 @@ export class Simulation {
   private castMortar(st: SkillRuntime, slot: number, src: CastSource) {
     const mut=st.mutation,range=this.skillRange(st,skills.mortar_bloom.baseRange);let p=this.aimPoint(src,range);let r=this.skillRadius(st,skills.mortar_bloom.baseRadius,slot),mult=1;
     if(this.mutationIs(st,'mortar_spotter')){
-      const marked=this.targetsFor(src).filter(e=>e.hp>0&&e.kind==='elite'&&e.markUntil>this.time&&Math.hypot(e.x-src.x,e.z-src.z)<=range+3).sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0];
+      const marked=this.bestTarget(
+        src,
+        (e)=>{
+          if(e.kind!=='elite'||e.markUntil<=this.time) return false;
+          const dx=e.x-src.x,dz=e.z-src.z;
+          return dx*dx+dz*dz<=(range+3)*(range+3);
+        },
+        (a,b)=>{
+          const adx=a.x-p.x,adz=a.z-p.z,bdx=b.x-p.x,bdz=b.z-p.z;
+          return adx*adx+adz*adz-(bdx*bdx+bdz*bdz);
+        }
+      );
       if(marked)p={x:marked.x,z:marked.z};
     }
     if(mut==='mortar_fuse'){r*=1.35;mult*=1.35;}if(this.mutationIs(st,'mortar_airburst')){r*=1.2;mult*=0.86;}
     const baseDamage=skills.mortar_bloom.baseDamage*this.powerBucket(st)*this.slotAmp(slot)*mult;
     let points:{x:number;z:number;delay:number}[]=[];
     if(this.mutationIs(st,'mortar_carpet')){for(let i=-2;i<=2;i++)points.push({x:p.x+src.aimX*i*1.7,z:p.z+src.aimZ*i*1.7,delay:0.25+(i+2)*0.13});}
-    else if(this.mutationIs(st,'mortar_hunter_pass')){const elite=this.targetsFor(src).filter(e=>e.kind==='elite'&&e.hp>0).sort((a,b)=>Number(b.markUntil>this.time)-Number(a.markUntil>this.time)||Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];const t=elite??({x:p.x,z:p.z} as Ent);for(let i=0;i<3;i++){const a=i*Math.PI*2/3;points.push({x:t.x+Math.cos(a)*1.35,z:t.z+Math.sin(a)*1.35,delay:0.28+i*0.22});}}
+    else if(this.mutationIs(st,'mortar_hunter_pass')){const elite=this.bestTarget(src,(e)=>e.kind==='elite',(a,b)=>{const marked=Number(b.markUntil>this.time)-Number(a.markUntil>this.time);if(marked)return marked;const adx=a.x-src.x,adz=a.z-src.z,bdx=b.x-src.x,bdz=b.z-src.z;return adx*adx+adz*adz-(bdx*bdx+bdz*bdz);});const t=elite??({x:p.x,z:p.z} as Ent);for(let i=0;i<3;i++){const a=i*Math.PI*2/3;points.push({x:t.x+Math.cos(a)*1.35,z:t.z+Math.sin(a)*1.35,delay:0.28+i*0.22});}}
     else {const n=mut==='mortar_cluster'?3:Math.max(1,Math.min(3,this.projectileCount(st,slot)));for(let i=0;i<n;i++){const a=i?this.rng.range(0,Math.PI*2):0,rr=i?this.rng.range(0.7,1.5):0;points.push({x:p.x+Math.cos(a)*rr,z:p.z+Math.sin(a)*rr,delay:0.38+i*0.12});}}
     for(const q of points)this.scheduleStrike({
       at:this.time+q.delay,x:q.x,z:q.z,radius:r,damage:baseDamage,faction:src.faction,
@@ -5586,8 +5634,8 @@ export class Simulation {
     }
     if (e.exposedUntil > this.time) actual *= 1.3;
     if (e.kind !== 'binder' && e.linkedTo) {
-      const binder = this.ents.find((o) => o.id === e.linkedTo && o.kind === 'binder' && o.hp > 0);
-      if (binder) actual *= 0.65;
+      const binder = this.entityStore.getAlive(e.linkedTo);
+      if (binder?.kind === 'binder') actual *= 0.65;
     }
     if (e.kind === 'elite' && e.affix === 'shielded' && directional) {
       const state=e.shieldState??'guard';
@@ -5794,7 +5842,7 @@ export class Simulation {
         continue;
       }
       if (e.cloneParent) {
-        const parent = this.ents.find((o) => o.id === e.cloneParent && o.hp > 0);
+        const parent = this.entityStore.getAlive(e.cloneParent);
         if (parent) {
           const feedback = parent.maxHp * 0.055;
           parent.hp -= feedback;
@@ -5906,7 +5954,7 @@ export class Simulation {
     for (const e of this.ents) if (e.kind !== 'binder') e.linkedTo = 0;
     for (const b of this.ents)
       if (b.kind === 'binder' && b.linkedTo) {
-        const target = this.ents.find((e) => e.id === b.linkedTo);
+        const target = this.entityStore.get(b.linkedTo);
         if (target) target.linkedTo = b.id;
       }
   }

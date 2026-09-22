@@ -7,6 +7,7 @@ function assert(ok: unknown, message: string): asserts ok {
 const simulation=readFileSync('src/core/simulation.ts','utf8');
 const state=readFileSync('src/core/state.ts','utf8');
 const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
+const entityStore=readFileSync('src/core/entityStore.ts','utf8');
 const types=readFileSync('src/core/types.ts','utf8');
 const ui=readFileSync('src/platform/main.ts','utf8');
 const eliteUi=readFileSync('src/content/eliteUi.ts','utf8');
@@ -21,6 +22,10 @@ for (const token of ['activationPending =','catalystBindings:','physicalEvents:'
   assert(!simulation.includes(token), 'physical lifecycle storage leaked back into Simulation: '+token);
 assert(simulation.includes('private physical = new PhysicalLifecycle()'),
   'Simulation no longer delegates causal activation bookkeeping');
+assert(entityStore.includes('export class EntityStore'), 'entity roster has no dedicated owner/query boundary');
+assert(simulation.includes('private entityStore = new EntityStore()'), 'Simulation no longer delegates entity identity/query ownership');
+assert(!simulation.includes('this.ents.find('), 'hot-path id lookup bypasses EntityStore index');
+assert(!simulation.includes('this.ents.filter('), 'hot-path entity query allocates through raw roster filter again');
 
 assert(types.includes('export type DamageSourceId ='), 'player damage sources are stringly typed again');
 assert(types.includes('export type EliteActionId ='), 'elite actions are stringly typed again');
@@ -46,5 +51,6 @@ console.log('architecture-regression OK', {
   separatedEliteAdaptation:true,
   sharedEliteMetadata:true,
   frameSnapshotReuse:true,
-  physicalLifecycleOwner:true
+  physicalLifecycleOwner:true,
+  entityStore:true
 });
