@@ -8,6 +8,7 @@ const simulation=readFileSync('src/core/simulation.ts','utf8');
 const state=readFileSync('src/core/state.ts','utf8');
 const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const entityStore=readFileSync('src/core/entityStore.ts','utf8');
+const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
 const stateModel=readFileSync('src/core/state.ts','utf8');
 const types=readFileSync('src/core/types.ts','utf8');
 const ui=readFileSync('src/platform/main.ts','utf8');
@@ -27,6 +28,10 @@ assert(entityStore.includes('export class EntityStore'), 'entity roster has no d
 assert(simulation.includes('private entityStore = new EntityStore()'), 'Simulation no longer delegates entity identity/query ownership');
 assert(!simulation.includes('this.ents.find('), 'hot-path id lookup bypasses EntityStore index');
 assert(!simulation.includes('this.ents.filter('), 'hot-path entity query allocates through raw roster filter again');
+assert(encounterDirector.includes('export class EncounterDirector'), 'run pacing has no dedicated director');
+for (const token of ['private spawnCredits =','private eliteAcc =','private firstElite ='])
+  assert(!simulation.includes(token), 'encounter cadence state leaked back into Simulation: '+token);
+assert(simulation.includes('private encounterDirector'), 'Simulation no longer delegates encounter pacing');
 for (const component of ['BodyComponent','VitalComponent','RelationComponent','EliteRuntimeComponent','StatusComponent','EliteProgressionComponent'])
   assert(stateModel.includes('export interface '+component), 'entity domain component missing: '+component);
 assert(stateModel.includes('export function makeEnt('), 'combat entity construction has no single factory');
@@ -58,5 +63,6 @@ console.log('architecture-regression OK', {
   frameSnapshotReuse:true,
   physicalLifecycleOwner:true,
   entityStore:true,
+  encounterDirector:true,
   entityComponents:true
 });
