@@ -255,7 +255,7 @@ export interface FieldSnapshot {
   faction: 'hero' | 'rival';
   source: string;
   mutation: MutationId | null;
-  behavior?: 'host';
+  behavior?: 'host' | 'pull';
 }
 export interface ConstructSnapshot {
   id: number;

@@ -1294,7 +1294,7 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     id: 'source',
     name: 'Источник',
     shortName: 'ИЗ A',
-    desc: 'Правый феномен возникает из физической точки, где закончился левый: удара, якоря или конца его пути.',
+    desc: 'Правый феномен возникает только когда левый реально достигает физического terminal: удара, якоря, столкновения или конца живого пути. Телеграф и будущая точка не считаются.',
     color: '#74e4ff',
     scope: 'хореография · источник'
   },
@@ -1302,7 +1302,7 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     id: 'carrier',
     name: 'Носитель',
     shortName: 'НА A',
-    desc: 'Правый феномен разыгрывается из существующих объектов левого: лезвий, осколков, валов или турелей.',
+    desc: 'Правый феномен разыгрывается в момент реального соприкосновения носителя левого с целью или миром: столкновения снаряда, касания лезвия, выстрела турели или фактического impact.',
     color: '#d7a0ff',
     scope: 'хореография · носитель'
   },
@@ -1310,7 +1310,7 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     id: 'trail',
     name: 'След',
     shortName: 'ПО ПУТИ',
-    desc: 'Правый феномен разыгрывается вдоль траектории, которую только что прочертил левый.',
+    desc: 'Правый феномен появляется по мере того, как реальный hitbox левого проходит траекторию. Точки впереди ещё не пройденного объекта не существуют для Следа.',
     color: '#8ff0b0',
     scope: 'хореография · путь'
   },
@@ -1318,7 +1318,7 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     id: 'reverse',
     name: 'Обратный ход',
     shortName: 'НАЗАД',
-    desc: 'Правый феномен стартует в конце пути левого и разыгрывается обратно к его началу.',
+    desc: 'Правый феномен стартует только после фактического terminal левого и направляется назад по его реально пройденному пути к origin активации.',
     color: '#ffb06a',
     scope: 'хореография · возврат'
   },
@@ -1326,7 +1326,7 @@ export const catalysts: Record<CatalystId, CatalystDef> = {
     id: 'collapse',
     name: 'Схлопывание',
     shortName: 'К ЦЕНТРУ',
-    desc: 'Правый феномен использует область левого: внешние точки сходятся к общему центру и меняют рисунок розыгрыша.',
+    desc: 'Правый феномен использует точный hitbox области левого: окружность или сектор схлопываются к собственному центру без воображаемого bounding-circle между раздельными зонами.',
     color: '#ff7ec8',
     scope: 'хореография · схлопывание'
   },
@@ -1520,8 +1520,11 @@ export const phenomenonChoreography: Record<SkillId, PhenomenonChoreographyDef> 
   rail_spear:    { emits:['terminal','path'],              accepts:['source','carrier','trail','reverse','collapse'] },
   cleaver:       { emits:['terminal','area'],              accepts:['source','carrier','trail','reverse','collapse'] },
   chain_arc:     { emits:['terminal','path'],              accepts:['source','carrier','trail','reverse','collapse'] },
-  orbit_blades:  { emits:['carrier','area'],               accepts:['source','carrier','collapse'] },
-  mortar_bloom:  { emits:['terminal','path','area'],       accepts:['source','carrier','trail','reverse','collapse'] },
+  // Runtime owns one continuous Orbit set. Multi-carrier Orbit is impossible, but a
+  // single Source endpoint or the center of one real Collapse area is physically representable.
+  orbit_blades:  { emits:['carrier','area'],               accepts:['source','collapse'] },
+  // Mortar is a delayed impact actor, not a ground-travelling ray: impact is its Carrier.
+  mortar_bloom:  { emits:['terminal','carrier','area'],    accepts:['source','carrier','trail','reverse','collapse'] },
   sentry:        { emits:['carrier','area'],               accepts:['source','carrier','trail','reverse','collapse'] },
   toxic_mist:    { emits:['area'],                         accepts:['source','carrier','trail','collapse'] },
   mass_driver:   { emits:['terminal','path','carrier'],    accepts:['source','carrier','trail','reverse','collapse'] },
@@ -1541,7 +1544,9 @@ export function catalystPairCompatible(id: CatalystId, left: SkillId, right: Ski
   if (!(['source','carrier','trail','reverse','collapse'] as CatalystId[]).includes(id)) return true;
   const l = phenomenonChoreography[left], r = phenomenonChoreography[right];
   if (!l || !r || !r.accepts.includes(id as ChoreographyOperator)) return false;
-  if (id === 'source' || id === 'reverse') return l.emits.includes('terminal');
+  if (id === 'source') return l.emits.includes('terminal');
+  // Reverse is not "draw a line from origin to terminal": A must have physically traversed a path.
+  if (id === 'reverse') return l.emits.includes('terminal') && l.emits.includes('path');
   if (id === 'carrier') return l.emits.includes('carrier');
   if (id === 'trail') return l.emits.includes('path');
   if (id === 'collapse') return l.emits.includes('area');

@@ -1,8 +1,8 @@
-# Black Archive web prototype — v0.12.1 Elite Readability + Catalyst 2.0
+# Black Archive web prototype — v0.13 Physical Lifecycle + Elite Readability
 
 `prototype/current/` is the current executable browser build.
 
-Read root `00_START_HERE.md` first. Elite visual-language authority: `38_ELITE_VISUAL_LANGUAGE_2026-09-22.md`. Catalyst authority: `37_CATALYST_2_0_CHOREOGRAPHY_2026-09-22.md`.
+Read root `00_START_HERE.md` first. Runtime hitbox/Catalyst authority: `39_PHYSICAL_LIFECYCLE_HITBOX_AUDIT_2026-09-22.md`. Catalyst design authority: `37_CATALYST_2_0_CHOREOGRAPHY_2026-09-22.md`. Elite visual-language authority: `38_ELITE_VISUAL_LANGUAGE_2026-09-22.md`.
 
 ## Run
 
@@ -35,43 +35,67 @@ Examples:
 - R — restart;
 - F8 — technical debug.
 
-## Elite visual language
+## Physical lifecycle / hitboxes
 
-Live combat follows a shape-first readability contract:
+Catalyst 2.x no longer executes from “whatever the previous chain tick remembered.”
 
-- chassis = persistent physical motif and matching minimap/off-screen shape;
-- affix = compact shoulder/HP-bar badge;
-- rarity/evolution tier = scale + blue/gold frame treatment;
-- current dangerous action = body pose + authored geometry + final red warning layer;
-- red is reserved for immediate hostile danger, not passive elite identity;
-- the center threat panel is sticky and uses short action-specific imperatives;
-- full rarity/chassis/affix strings are no longer printed over every elite.
+The runtime contract is:
 
-## Catalyst 2.0
+`Chain activation → activationId → live physical actor/hitbox → path/contact/impact/area/terminal → Catalyst reaction → B`
+
+Consequences:
+
+- **Source** waits for a real terminal.
+- **Carrier** fires on an actual projectile/blade/turret/impact contact, not actor creation.
+- **Trail** grows behind an actually travelled route and cannot place B ahead of a moving A.
+- **Reverse** requires a real traversed path plus terminal; if A has no path (currently Mortar), the edge is incompatible rather than fabricated.
+- **Collapse** uses exact circle/sector hitboxes instead of one bounding circle over disconnected areas.
+
+`src/core/geometry.ts` is the shared source of truth for circle/ray/sector overlap, swept moving-circle collision and polyline sampling.
+
+Mortar has no simulated shell path in the current core, so it truthfully emits **terminal + impact carrier + impact area**, not `path`. The discussed Mortar → Carrier → Frost interaction therefore fires Frost on the actual impact tick.
+
+Orbit gameplay now uses the same discrete blade positions that presentation shows. Standing on the orbit radius between blades is not a hit.
+
+The legacy next-beat `executeChoreography()` path was removed.
+
+Compatible B nodes are event-owned across cycle boundaries. Persistent producers keep Catalyst lineage for the lifetime of their real physical actors, not a fixed timeout.
+
+The physical lifecycle suite also exhausts **240 mutation × advertised-signal cases** so a mutation cannot silently break a base Phenomenon's Catalyst contract.
+
+## Catalyst 2.x
 
 Current Discovery contains five physical operators:
 
-- **Источник** — B originates where A physically finishes;
-- **Носитель** — B is emitted from live A actors;
-- **След** — B is staged along A's path;
-- **Обратный ход** — B begins at A's far endpoint and plays back;
-- **Схлопывание** — B uses A's area/perimeter and converges toward its center.
+- **Источник** — B originates when/where A physically finishes;
+- **Носитель** — B is emitted on real contact/fire/impact of A;
+- **След** — B is staged progressively along A's travelled path;
+- **Обратный ход** — B begins at A's actual terminal and faces back;
+- **Схлопывание** — B consumes A's exact physical area and converges inward.
 
-Compatibility is partial by design. The Chain and planner show when the current A → B pair is incompatible.
-
-The gameplay criterion is visual: without reading text, the player should see B physically using A's geometry. A generic proc or multiplier is not sufficient.
+Compatibility is intentionally partial. The exhaustive lifecycle regression currently exercises **266 compatible ordered pairs**, and it never manually invokes the right-hand Phenomenon to manufacture success.
 
 Old Catalyst 1.x definitions remain executable only for old save/replay compatibility and are not offered by Discovery.
 
 ## Sentry
 
-Sentry is spatial infrastructure:
+Sentry remains spatial infrastructure:
 
 - each beat builds a short forward battery instead of spawning a turret beside the hero;
 - recent waves can coexist;
-- turrets are physical Catalyst carriers;
-- Trail places enough batteries on long routes to keep network nodes connectable;
+- a turret becomes a Carrier only when it actually fires/hits;
+- Trail can build connectable infrastructure;
 - Gravity Grid creates real control links between nearby turrets.
+
+## Elite visual language
+
+The v0.12.1 shape-first readability contract remains:
+
+- chassis = persistent physical motif + matching minimap/off-screen shape;
+- affix = compact badge;
+- rarity/evolution = scale + frame treatment;
+- current danger = body pose + authored geometry + final red warning layer;
+- red = immediate hostile danger.
 
 ## Active Phenomena
 
@@ -89,18 +113,7 @@ Discovery uses 11 active Phenomena:
 - Возвратные осколки;
 - Гравиякорь.
 
-Every one emits physical Catalyst signals in simulation; a regression rejects advertised capabilities that are not actually produced.
-
-## Existing combat rules retained
-
-- XP → Doctrines; structural content uses separate world/elite channels.
-- Quantity is allowed to create real throughput.
-- Jackpot combinations are allowed; tests catch broken contracts rather than equalizing all build TTK.
-- Elite ecosystem / Warden behaviour follows document 36.
-
-## Presentation contract
-
-Simulation owns physical origins, paths, objects and areas. Renderer visualizes that truth and adds distinct choreography cues; it does not invent a second Catalyst model.
+Each advertised Catalyst signal must be consumable by a real live lifecycle; a regression rejects aspirational catalogue capabilities.
 
 ## Tests
 
@@ -109,4 +122,4 @@ npm test
 npm run test:builds
 ```
 
-The Catalyst regression checks every live Phenomenon signal and physically exercises every currently advertised compatible pair. Manual play remains mandatory for the GIF-test and game feel.
+`physical_lifecycle_regression` locks exact timing and negative cases. `catalyst_choreography_regression` physically executes the complete advertised pair matrix. Manual play remains mandatory for the GIF-test and game feel.

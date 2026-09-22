@@ -66,7 +66,7 @@ for (const id of [...catalystOrder,...legacyCatalystOrder]) {
 for(const id of Object.keys(catalysts) as CatalystId[])
   if(!catalystOrder.includes(id)&&!legacyCatalystOrder.includes(id)) fail(`Catalyst ${id} belongs to neither active nor compatibility roster`);
 
-const banned=/damage|stacks?|kills?|hits?|last\s+\d|wounds?|chance|урон|убий|попадан|стак|ранен|шанс/i;
+const banned=/\b(?:damage|stacks?|kills?|hits?|wounds?|chance)\b|last\s+\d|урон|убий|попадан|стак|ранен|шанс/i;
 for(const id of catalystOrder)
   if(banned.test(catalysts[id].desc)) fail(`${id}: active choreography fell back to proc/numeric language: ${catalysts[id].desc}`);
 

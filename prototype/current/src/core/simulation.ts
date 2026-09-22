@@ -15,6 +15,7 @@ import {
   mutationDef,
   mutationRoots,
   mutationChildren,
+  phenomenonChoreography,
   resonance,
   resonanceOrder,
   skillOrder,
@@ -23,6 +24,7 @@ import {
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
 import { Rng } from './rng.js';
+import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, pointAlongPolyline, polylineLength, sweepCircleT } from './geometry.js';
 import { items, itemOrder, itemCategoryName, itemRivalEffect } from '../content/items.js';
 import type {
   ItemId,
@@ -228,6 +230,8 @@ type Pickup = { id: number; x: number; z: number; value: number; kind: 'xp' | 'c
 type Relic = { id: number; x: number; z: number; item: ItemId; bornAt: number };
 type Field = {
   id: number;
+  activationId?: number;
+  insideIds?: number[];
   x: number;
   z: number;
   radius: number;
@@ -241,10 +245,11 @@ type Field = {
   sourceSlot?: number;
   mutation?: MutationId | null;
   rivalConcentration?: number;
-  behavior?: 'host';
+  behavior?: 'host' | 'pull';
 };
 type Construct = {
   id: number;
+  activationId?: number;
   x: number;
   z: number;
   ttl: number;
@@ -262,6 +267,7 @@ type Construct = {
 };
 type Projectile = {
   id: number;
+  activationId?: number;
   x: number;
   z: number;
   vx: number;
@@ -292,6 +298,7 @@ type Projectile = {
 };
 type DelayedStrike = {
   id: number;
+  activationId?: number;
   at: number;
   x: number;
   z: number;
@@ -306,6 +313,8 @@ type DelayedStrike = {
   fieldKind?: 'frost' | 'arc' | 'toxic' | 'fire';
   fieldDuration?: number;
   fieldDps?: number;
+  /** Persistent behaviour begins only after the delayed impact creates the field. */
+  fieldBehavior?: 'pull';
 };
 type EliteEchoState = {
   entityId: number;
@@ -364,9 +373,46 @@ type ChoreographyTrace = {
   terminal: ChoreographyPoint | null;
   points: ChoreographyPoint[];
   areaPoints: ChoreographyPoint[];
+  areas: CombatShape[];
+  /** Exact target hitbox positions at the instant synchronous damage resolved. */
+  contacts: ChoreographyPoint[];
   paths: ChoreographyPoint[][];
   carriers: ChoreographyCarrier[];
   scheduled: ChoreographyPoint[];
+};
+
+type PhysicalEventKind = 'path' | 'area' | 'contact' | 'impact' | 'terminal';
+type PhysicalEvent = {
+  activationId: number;
+  slot: number;
+  skill: SkillId;
+  kind: PhysicalEventKind;
+  x: number;
+  z: number;
+  previousX?: number;
+  previousZ?: number;
+  radius?: number;
+  areaPoints?: ChoreographyPoint[];
+  shape?: CombatShape;
+  carrierKind?: 'projectile' | 'construct' | 'orbit' | 'impact';
+  carrierId?: number;
+  targetId?: number;
+};
+type CatalystBinding = {
+  producerActivationId: number;
+  fromSlot: number;
+  toSlot: number;
+  fromSkill: SkillId;
+  toSkill: SkillId;
+  mode: 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse';
+  origin: ChoreographyPoint;
+  path: ChoreographyPoint[];
+  areaPoints: ChoreographyPoint[];
+  nextTrailDistance: number;
+  firedCount: number;
+  carrierKeys: Set<string>;
+  pathCarrierKey: string | null;
+  done: boolean;
 };
 
 export interface SimConfig {
@@ -652,6 +698,19 @@ export class Simulation {
   private aegisCharge = 0;
   private backflowBonus = new Map<number, number>();
   private currentChoreography: ChoreographyTrace | null = null;
+  // Catalyst 2.1 is driven by the real physical lifecycle, not by the next chain beat.
+  private nextActivationId = 1;
+  private currentActivationId = 0;
+  private orbitActivationId = 0;
+  private catalystBindings: CatalystBinding[] = [];
+  private physicalEvents: PhysicalEvent[] = [];
+  private drainingPhysicalEvents = false;
+  private activationPending = new Map<number, number>();
+  /** Activations whose last owned physical actor has actually ended; retired after queued events drain. */
+  private completedPhysicalActivations = new Set<number>();
+  private activationTerminalSeen = new Set<number>();
+  private activationLastPoint = new Map<number, ChoreographyPoint>();
+  private activationMeta = new Map<number, { skill: SkillId; slot: number }>();
   private orbitChoreoUntil = -1;
   private orbitChoreoX = 0;
   private orbitChoreoZ = 0;
@@ -935,25 +994,10 @@ export class Simulation {
     cz: number,
     radius: number
   ) {
-    const dx = x1 - x0,
-      dz = z1 - z0,
-      fx = x0 - cx,
-      fz = z0 - cz,
-      a = dx * dx + dz * dz;
-    if (a < 1e-8) return Math.hypot(fx, fz) <= radius ? 0 : null;
-    const b = 2 * (fx * dx + fz * dz),
-      c = fx * fx + fz * fz - radius * radius,
-      disc = b * b - 4 * a * c;
-    if (disc < 0) return null;
-    const root = Math.sqrt(disc),
-      t0 = (-b - root) / (2 * a),
-      t1 = (-b + root) / (2 * a);
-    if (t0 >= 0 && t0 <= 1) return t0;
-    if (t1 >= 0 && t1 <= 1) return t1;
-    return c <= 0 ? 0 : null;
+    return sweepCircleT(x0, z0, x1, z1, cx, cz, radius);
   }
 
-  private firstBlockingObstacle(
+  private firstBlockingObstacleHit(
     x0: number,
     z0: number,
     x1: number,
@@ -972,11 +1016,21 @@ export class Simulation {
         bestT = t;
       }
     }
-    return best;
+    return best ? { obstacle: best, t: bestT } : null;
+  }
+
+  private firstBlockingObstacle(
+    x0: number,
+    z0: number,
+    x1: number,
+    z1: number,
+    padding = 0.08
+  ) {
+    return this.firstBlockingObstacleHit(x0,z0,x1,z1,padding)?.obstacle ?? null;
   }
 
   private lineOfSight(x0: number, z0: number, x1: number, z1: number, padding = 0.08) {
-    return !this.firstBlockingObstacle(x0, z0, x1, z1, padding);
+    return !this.firstBlockingObstacleHit(x0, z0, x1, z1, padding);
   }
 
   private damageObstacle(o: Obstacle, amount: number) {
@@ -990,15 +1044,27 @@ export class Simulation {
   }
 
   private spawnProjectile(p: Omit<Projectile, 'id' | 'guarded'>) {
-    const id = this.nextId++;
-    this.projectiles.push({ id, guarded: false, ...p });
+    const id = this.nextId++,
+      activationId = p.faction === 'hero' ? (p.activationId ?? this.currentActivationId) : 0;
+    this.projectiles.push({ id, guarded: false, ...p, activationId });
+    if (activationId) this.registerAsyncPhysical(activationId);
     if (
       this.currentChoreography &&
       p.faction === 'hero' &&
       p.sourceSlot === this.currentSlot &&
       p.source === this.currentChoreography.skill
-    )
+    ) {
+      // For an async path Phenomenon, the first real moving body owns the route origin.
+      // This matters when the cast itself displaced its source (Mass recoil) or spawns offset shards.
+      if (
+        this.currentChoreography.carriers.length===0 &&
+        (p.source==='mass_driver'||p.source==='shard_fan')
+      ) {
+        this.currentChoreography.origin={x:p.x,z:p.z};
+        if(activationId)this.activationLastPoint.set(activationId,{x:p.x,z:p.z});
+      }
       this.currentChoreography.carriers.push({ kind: 'projectile', id });
+    }
     return id;
   }
 
@@ -1015,18 +1081,67 @@ export class Simulation {
   private updateProjectiles() {
     if (!this.projectiles.length) return;
     const alive: Projectile[] = [];
+    const pathEvent = (p: Projectile, x0:number,z0:number,x1:number,z1:number) => {
+      if (p.faction !== 'hero' || !p.activationId) return;
+      if (Math.hypot(x1-x0,z1-z0) < 1e-5) return;
+      this.queuePhysicalEvent({
+        activationId:p.activationId,
+        slot:p.sourceSlot,
+        skill:p.source,
+        kind:'path',
+        previousX:x0,
+        previousZ:z0,
+        x:x1,
+        z:z1,
+        carrierKind:'projectile',
+        carrierId:p.id
+      });
+    };
+    const contactEvent = (p: Projectile, target?: Ent) => {
+      if (p.faction !== 'hero' || !p.activationId) return;
+      this.queuePhysicalEvent({
+        activationId:p.activationId,
+        slot:p.sourceSlot,
+        skill:p.source,
+        kind:'contact',
+        x:p.x,
+        z:p.z,
+        radius:p.radius,
+        carrierKind:'projectile',
+        carrierId:p.id,
+        targetId:target?.id
+      });
+    };
     for (const p of this.projectiles) {
       p.ttl -= this.dt;
       if (p.ttl <= 0) {
         if (p.behavior === 'roller' && p.apotheosis === 'mass_singularity')
-          this.scheduleStrike({ at:this.time+0.18,x:p.x,z:p.z,radius:p.radius*1.8,damage:p.damage*1.45,faction:p.faction,ownerId:p.ownerId,source:'mass_driver',sourceSlot:p.sourceSlot,intent:'control',telegraph:'mass_singularity_collapse' });
+          this.scheduleStrike({
+            at:this.time+0.18,x:p.x,z:p.z,radius:p.radius*1.8,damage:p.damage*1.45,
+            faction:p.faction,ownerId:p.ownerId,source:'mass_driver',sourceSlot:p.sourceSlot,
+            intent:'control',telegraph:'mass_singularity_collapse',activationId:p.activationId
+          });
+        this.finishAsyncPhysical(p.activationId,p.x,p.z);
         continue;
       }
 
-      // A Returner is not "three ordinary projectiles with another sprite": the same actor
-      // turns around, clears its hit memory and traces a second damaging path back home.
+      // A Returner is one physical actor. Its outward, carousel and return legs all contribute
+      // to the same activation path, and only its actual home arrival/expiry closes the route.
       if (p.behavior === 'returner' && (p.phase ?? 0) === 0 && p.returnAt !== undefined && p.ttl <= p.returnAt) {
         p.hitIds = [];
+        if(p.faction==='hero'&&p.activationId){
+          this.queuePhysicalEvent({
+            activationId:p.activationId,
+            slot:p.sourceSlot,
+            skill:p.source,
+            kind:'terminal',
+            x:p.x,
+            z:p.z,
+            radius:p.radius,
+            carrierKind:'projectile',
+            carrierId:p.id
+          });
+        }
         if (p.carousel) {
           const vm=Math.hypot(p.vx,p.vz)||1;
           p.phase=1;p.phaseAt=this.time+0.72;p.orbitX=p.x-(p.vx/vm)*1.25;p.orbitZ=p.z-(p.vz/vm)*1.25;
@@ -1045,11 +1160,21 @@ export class Simulation {
         const hz = p.faction === 'hero' ? this.pz : (owner?.z ?? p.z);
         const dx=hx-p.x,dz=hz-p.z,m=Math.hypot(dx,dz)||1,speed=Math.max(5.2,Math.hypot(p.vx,p.vz));
         p.vx=dx/m*speed;p.vz=dz/m*speed;
-        if(m<0.5)continue;
+        if(m<0.5){
+          this.finishAsyncPhysical(p.activationId,p.x,p.z);
+          continue;
+        }
       }
       if (p.apotheosis === 'returner_phoenix') {
         p.trailAcc=(p.trailAcc??0)+this.dt;
-        if(p.trailAcc>=0.14){p.trailAcc-=0.14;this.fields.push({id:this.nextId++,x:p.x,z:p.z,radius:0.46,ttl:1.35,kind:'fire',dps:p.damage*0.24,tickAcc:0,faction:p.faction,ownerId:p.ownerId,source:'shard_fan',sourceSlot:p.sourceSlot,mutation:p.mutation,rivalConcentration:p.rivalConcentration});}
+        if(p.trailAcc>=0.14){
+          p.trailAcc-=0.14;
+          this.fields.push({
+            id:this.nextId++,activationId:p.activationId,insideIds:[],x:p.x,z:p.z,radius:0.46,ttl:1.35,
+            kind:'fire',dps:p.damage*0.24,tickAcc:0,faction:p.faction,ownerId:p.ownerId,
+            source:'shard_fan',sourceSlot:p.sourceSlot,mutation:p.mutation,rivalConcentration:p.rivalConcentration
+          });
+        }
       }
       if (p.behavior === 'roller' && p.growth) p.radius = Math.min(2.2,p.radius+p.growth*this.dt);
 
@@ -1077,7 +1202,9 @@ export class Simulation {
         if(t!==null&&t<coverT){cover=o;coverT=t;}
       }
 
-      const src:CastSource=p.faction==='hero'?{faction:'hero',owner:null,x:x0,z:z0,aimX:p.vx,aimZ:p.vz,vx:p.vx,vz:p.vz}:{faction:'rival',owner:this.projectileOwner(p),x:x0,z:z0,aimX:p.vx,aimZ:p.vz,vx:p.vx,vz:p.vz};
+      const src:CastSource=p.faction==='hero'
+        ? {faction:'hero',owner:null,x:x0,z:z0,aimX:p.vx,aimZ:p.vz,vx:p.vx,vz:p.vz}
+        : {faction:'rival',owner:this.projectileOwner(p),x:x0,z:z0,aimX:p.vx,aimZ:p.vz,vx:p.vx,vz:p.vz};
       let target:Ent|null=null,targetT=Infinity;
       for(const e of this.targetsFor(src)){
         if(e.hp<=0 || (p.hitIds??[]).includes(e.id)) continue;
@@ -1087,43 +1214,63 @@ export class Simulation {
 
       if(cover&&coverT<=targetT){
         p.x=x0+(x1-x0)*coverT;p.z=z0+(z1-z0)*coverT;
+        pathEvent(p,x0,z0,p.x,p.z);
+        contactEvent(p); // cover/world contact is physical Carrier data too.
         const destroyed=this.damageObstacle(cover,p.coverDamage);
-        if(p.behavior==='roller'&&destroyed){p.damage*=1.06;p.radius=Math.min(2.2,p.radius+0.09);p.x=x1;p.z=z1;alive.push(p);}
-        continue;
-      }
-      if(target){
-        p.x=x0+(x1-x0)*targetT;p.z=z0+(z1-z0)*targetT;
-        if(p.faction==='hero'){
-          this.damage(target,p.damage,p.source,true,p.x,p.z,p.sourceSlot);
-          if(p.source==='shard_fan'&&p.mutation==='fan_burn'){target.igniteUntil=Math.max(target.igniteUntil,this.time+2.6*this.memoryFactor());this.noteState('ignite');}
-          if(p.behavior==='roller'){
-            const m=Math.hypot(p.vx,p.vz)||1,push=0.45+this.doctrines.force*0.08;target.x+=p.vx/m*push;target.z+=p.vz/m*push;target.displacedUntil=this.time+0.8;
-          }
-        } else this.damageHero(p.damage,p.source,this.projectileOwner(p),p.rivalConcentration);
-        if(p.behavior==='roller'||p.behavior==='returner'){
-          (p.hitIds??=[]).push(target.id);p.x=x1;p.z=z1;if(p.behavior==='roller')p.damage*=1.035;alive.push(p);
-        }
+        if(p.behavior==='roller'&&destroyed){
+          p.damage*=1.06;p.radius=Math.min(2.2,p.radius+0.09);
+          pathEvent(p,p.x,p.z,x1,z1);
+          p.x=x1;p.z=z1;alive.push(p);
+        } else this.finishAsyncPhysical(p.activationId,p.x,p.z);
         continue;
       }
 
+      if(target){
+        p.x=x0+(x1-x0)*targetT;p.z=z0+(z1-z0)*targetT;
+        pathEvent(p,x0,z0,p.x,p.z);
+        if(p.faction==='hero'){
+          this.damage(target,p.damage,p.source,true,p.x,p.z,p.sourceSlot);
+          contactEvent(p,target);
+          if(p.source==='shard_fan'&&p.mutation==='fan_burn'){
+            target.igniteUntil=Math.max(target.igniteUntil,this.time+2.6*this.memoryFactor());this.noteState('ignite');
+          }
+          if(p.behavior==='roller'){
+            const m=Math.hypot(p.vx,p.vz)||1,push=0.45+this.doctrines.force*0.08;
+            target.x+=p.vx/m*push;target.z+=p.vz/m*push;target.displacedUntil=this.time+0.8;
+          }
+        } else this.damageHero(p.damage,p.source,this.projectileOwner(p),p.rivalConcentration);
+        if(p.behavior==='roller'||p.behavior==='returner'){
+          (p.hitIds??=[]).push(target.id);
+          pathEvent(p,p.x,p.z,x1,z1);
+          p.x=x1;p.z=z1;
+          if(p.behavior==='roller')p.damage*=1.035;
+          alive.push(p);
+        } else this.finishAsyncPhysical(p.activationId,p.x,p.z);
+        continue;
+      }
+
+      pathEvent(p,x0,z0,x1,z1);
       p.x=x1;p.z=z1;
-      if(p.x<this.world.minX-1||p.x>this.world.maxX+1||p.z<this.world.minZ-1||p.z>this.world.maxZ+1)continue;
+      if(p.x<this.world.minX-1||p.x>this.world.maxX+1||p.z<this.world.minZ-1||p.z>this.world.maxZ+1){
+        this.finishAsyncPhysical(p.activationId,p.x,p.z);
+        continue;
+      }
       alive.push(p);
     }
     this.projectiles=alive;
   }
 
   private scheduleStrike(strike: Omit<DelayedStrike, 'id'>) {
-    this.delayedStrikes.push({ id: this.nextId++, ...strike });
+    const activationId = strike.faction === 'hero' ? (strike.activationId ?? this.currentActivationId) : 0;
+    this.delayedStrikes.push({ id: this.nextId++, activationId, ...strike });
+    if (activationId) this.registerAsyncPhysical(activationId);
     if (
       this.currentChoreography &&
       strike.faction === 'hero' &&
       strike.sourceSlot === this.currentSlot
     ) {
-      const p = { x: strike.x, z: strike.z };
-      this.currentChoreography.scheduled.push(p);
-      this.tracePoint(p.x, p.z, true);
-      this.traceArea(p.x, p.z, strike.radius);
+      // This is a PLAN only. It is deliberately excluded from terminal/area/path truth.
+      this.currentChoreography.scheduled.push({ x: strike.x, z: strike.z });
     }
     this.events.push({
       type: 'CombatShape',
@@ -1147,24 +1294,55 @@ export class Simulation {
         keep.push(q);
         continue;
       }
+      const impactShape: CombatShape = { kind: 'circle', x: q.x, z: q.z, radius: q.radius };
       this.events.push({
         type: 'CombatShape',
         tick: this.tick,
-        source: `${q.source}_impact`,
+        source: String(q.source) + '_impact',
         intent: q.intent,
-        shape: { kind: 'circle', x: q.x, z: q.z, radius: q.radius }
+        shape: impactShape
       });
+      if(q.faction==='hero' && q.activationId){
+        const areaPoints=[0,1,2,3].map((i)=>{
+          const a=i*Math.PI/2;
+          return {x:q.x+Math.cos(a)*q.radius,z:q.z+Math.sin(a)*q.radius};
+        });
+        // This event is emitted at impact time, not at scheduling/telegraph time.
+        this.queuePhysicalEvent({
+          activationId:q.activationId,
+          slot:q.sourceSlot,
+          skill:q.source as SkillId,
+          kind:'impact',
+          x:q.x,
+          z:q.z,
+          radius:q.radius,
+          areaPoints,
+          shape:{...impactShape},
+          carrierKind:'impact',
+          carrierId:q.id
+        });
+      }
       const owner = q.ownerId ? this.ents.find((e) => e.id === q.ownerId) ?? null : null;
       if (q.faction === 'rival') {
-        if (Math.hypot(this.px - q.x, this.pz - q.z) <= q.radius + HERO_HIT_RADIUS)
+        if (combatShapeIntersectsCircle(impactShape,this.px,this.pz,HERO_HIT_RADIUS))
           this.damageHero(q.damage, String(q.source), owner, 1);
       } else {
         for (const e of this.ents) {
-          if (e.hp <= 0 || Math.hypot(e.x - q.x, e.z - q.z) > q.radius + e.radius) continue;
+          if (e.hp <= 0 || !combatShapeIntersectsCircle(impactShape,e.x,e.z,e.radius)) continue;
           this.damage(e, q.damage, String(q.source), false, q.x, q.z, q.sourceSlot);
         }
       }
-      if (q.fieldKind) this.fields.push({id:this.nextId++,x:q.x,z:q.z,radius:q.radius*0.92,ttl:q.fieldDuration??2.5,kind:q.fieldKind,dps:q.fieldDps??q.damage*0.18,tickAcc:0,faction:q.faction,ownerId:q.ownerId,source:String(q.source),sourceSlot:q.sourceSlot,mutation:null,rivalConcentration:1});
+      if (q.fieldKind)
+        this.fields.push({
+          id:this.nextId++,
+          activationId:q.activationId,
+          insideIds:[],
+          x:q.x,z:q.z,radius:q.radius*0.92,ttl:q.fieldDuration??2.5,kind:q.fieldKind,
+          dps:q.fieldDps??q.damage*0.18,tickAcc:0,faction:q.faction,ownerId:q.ownerId,
+          source:String(q.source),sourceSlot:q.sourceSlot,mutation:null,rivalConcentration:1,
+          behavior:q.fieldBehavior
+        });
+      this.finishAsyncPhysical(q.activationId,q.x,q.z);
     }
     this.delayedStrikes = keep;
   }
@@ -1575,14 +1753,20 @@ export class Simulation {
     this.updateEliteEchoes();
     this.resolveEntityObstacles();
     this.updateProjectiles();
+    this.flushPhysicalEvents();
     this.updateDelayedStrikes();
+    this.flushPhysicalEvents();
     this.updateFields();
+    this.flushPhysicalEvents();
     this.updateConstructs();
+    this.flushPhysicalEvents();
     this.updateDots();
     this.updatePickups();
     this.updateRelics();
     this.updateOrbitBlades();
+    this.flushPhysicalEvents();
     this.chainTick();
+    this.flushPhysicalEvents();
     this.cleanup();
     if (!this.benchmark) this.checkProgression();
     const aliveNow = this.ents.filter((e) => e.hp > 0).length;
@@ -2846,13 +3030,10 @@ export class Simulation {
     radius: number,
     halfAngle: number
   ) {
-    const dx = this.px - x,
-      dz = this.pz - z,
-      d = Math.hypot(dx, dz);
-    if (d > radius) return false;
-    const m = Math.hypot(ax, az) || 1,
-      dot = ((dx / d) * ax) / m + ((dz / d) * az) / m;
-    return d < 0.001 || Math.acos(Math.max(-1, Math.min(1, dot))) <= halfAngle;
+    return combatShapeIntersectsCircle(
+      {kind:'sector',x,z,aimX:ax,aimZ:az,radius,halfAngle},
+      this.px,this.pz,HERO_HIT_RADIUS
+    );
   }
   private playerInRay(
     x: number,
@@ -2862,15 +3043,12 @@ export class Simulation {
     range: number,
     halfWidth: number
   ) {
-    const m = Math.hypot(ax, az) || 1;
-    ax /= m;
-    az /= m;
-    const dx = this.px - x,
-      dz = this.pz - z,
-      t = dx * ax + dz * az,
-      lat = Math.abs(dx * az - dz * ax);
-    return t >= 0 && t <= range && lat <= halfWidth;
+    return combatShapeIntersectsCircle(
+      {kind:'ray',x,z,aimX:ax,aimZ:az,range,halfWidth},
+      this.px,this.pz,HERO_HIT_RADIUS
+    );
   }
+
   private updateBossAI(e: Ent, speed: number, d: number, nx: number, nz: number) {
     const nextPhase =
       e.bossPhase === 1 && e.hp <= e.maxHp * 0.66 ? 2 :
@@ -3074,32 +3252,49 @@ export class Simulation {
     const alive: Field[] = [];
     for (const f of this.fields) {
       f.ttl -= this.dt;
+      if(f.ttl<=0)continue;
       f.tickAcc += this.dt;
       const compatibilityRival = f.kind === 'ink' || f.kind === 'architect';
       const faction: CastFaction = f.faction ?? (compatibilityRival ? 'rival' : 'hero');
       const owner = f.ownerId ? this.ents.find((e) => e.id === f.ownerId) ?? null : null;
       if (f.behavior === 'host' && f.faction === 'hero') {
         const target=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number(b.kind==='elite')-Number(a.kind==='elite')||Math.hypot(a.x-f.x,a.z-f.z)-Math.hypot(b.x-f.x,b.z-f.z))[0];
-        if(target){const dx=target.x-f.x,dz=target.z-f.z,d=Math.hypot(dx,dz)||1;f.x+=dx/d*1.75*this.dt;f.z+=dz/d*1.75*this.dt;}
+        if(target){
+          const dx=target.x-f.x,dz=target.z-f.z,d=Math.hypot(dx,dz)||1;
+          f.x+=dx/d*1.75*this.dt;f.z+=dz/d*1.75*this.dt;
+        }
       }
 
+      const shape:CombatShape={kind:'circle',x:f.x,z:f.z,radius:f.radius};
+      if(f.behavior==='pull' && faction==='hero'){
+        for(const e of this.ents){
+          if(e.hp<=0 || !combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;
+          const dx=f.x-e.x,dz=f.z-e.z,d=Math.hypot(dx,dz)||1,
+            step=Math.min(d*0.3,1.15*this.dt);
+          if(d>0.03){
+            e.x+=dx/d*step;
+            e.z+=dz/d*step;
+            e.displacedUntil=Math.max(e.displacedUntil,this.time+0.18);
+          }
+        }
+      }
       if (f.kind === 'ink' || f.kind === 'architect') {
-        if (Math.hypot(this.px - f.x, this.pz - f.z) < f.radius)
+        if (combatShapeIntersectsCircle(shape,this.px,this.pz,HERO_HIT_RADIUS))
           this.hitPlayer(f.dps * this.dt, owner);
       } else if (f.kind !== 'index' && f.kind !== 'veil' && f.tickAcc >= 0.25) {
         f.tickAcc -= 0.25;
         if (faction === 'rival') {
-          if (Math.hypot(this.px - f.x, this.pz - f.z) <= f.radius + HERO_HIT_RADIUS) {
+          if (combatShapeIntersectsCircle(shape,this.px,this.pz,HERO_HIT_RADIUS)) {
             this.damageHero(
               f.dps * 0.25,
-              f.source ?? `${f.kind}_field`,
+              f.source ?? (f.kind + '_field'),
               owner,
               f.rivalConcentration ?? 1
             );
           }
         } else {
           for (const e of this.ents) {
-            if (e.hp <= 0 || Math.hypot(e.x - f.x, e.z - f.z) > f.radius) continue;
+            if (e.hp <= 0 || !combatShapeIntersectsCircle(shape,e.x,e.z,e.radius)) continue;
             if (f.kind === 'frost')
               e.chillUntil = Math.max(e.chillUntil, this.time + 1.2 * this.memoryFactor());
             if (f.kind === 'fire')
@@ -3135,10 +3330,36 @@ export class Simulation {
           }
         }
       }
-      if (f.ttl > 0) alive.push(f);
+
+      // Contact is edge-triggered independently from damage cadence. A target crossing a field
+      // hitbox is a physical event now; it is not inferred later from a 250 ms damage tick.
+      if (faction === 'hero' && f.activationId && f.source && f.sourceSlot !== undefined) {
+        const previous = new Set(f.insideIds ?? []),
+          inside:number[]=[];
+        for(const e of this.ents){
+          if(e.hp<=0 || !combatShapeIntersectsCircle(shape,e.x,e.z,e.radius)) continue;
+          inside.push(e.id);
+          if(!previous.has(e.id)){
+            this.queuePhysicalEvent({
+              activationId:f.activationId,
+              slot:f.sourceSlot,
+              skill:f.source as SkillId,
+              kind:'contact',
+              x:e.x,
+              z:e.z,
+              radius:f.radius,
+              targetId:e.id
+            });
+          }
+        }
+        f.insideIds=inside;
+      }
+
+      alive.push(f);
     }
     this.fields = alive;
   }
+
   private updateDots() {
     for (const e of this.ents) {
       if (e.hp <= 0) continue;
@@ -3467,6 +3688,10 @@ export class Simulation {
     const alive: Construct[] = [];
     for (const c of this.constructs) {
       c.ttl -= this.dt;
+      if(c.ttl<=0){
+        if(c.activationId)this.finishAsyncPhysical(c.activationId,c.x,c.z);
+        continue;
+      }
       c.cooldown -= this.dt;
       const owner = c.ownerId ? this.ents.find((e) => e.id === c.ownerId) ?? null : null;
       const followX = c.faction === 'rival' && owner ? owner.x : this.px;
@@ -3505,7 +3730,7 @@ export class Simulation {
           vz: 0
         };
         const targets = this.targetsFor(cs).filter(
-          (e) => e.hp > 0 && this.targetVisible(cs, e) && Math.hypot(e.x - c.x, e.z - c.z) <= c.range
+          (e) => e.hp > 0 && this.targetVisible(cs, e) && Math.hypot(e.x - c.x, e.z - c.z) <= c.range + e.radius
         );
         if (c.mutation === 'sentry_rail' || c.mutationApotheosis === 'sentry_hunter_battery') {
           targets.sort(
@@ -3545,6 +3770,19 @@ export class Simulation {
           }
           try {
             this.damage(t, dmg, 'sentry', true, c.x, c.z, c.sourceSlot);
+            if(c.faction==='hero'&&c.activationId){
+              this.queuePhysicalEvent({
+                activationId:c.activationId,
+                slot:c.sourceSlot,
+                skill:'sentry',
+                kind:'contact',
+                x:c.x,
+                z:c.z,
+                carrierKind:'construct',
+                carrierId:c.id,
+                targetId:t.id
+              });
+            }
           } finally {
             this.castOwner = prevOwner;
             this.castRivalConcentration = prevC;
@@ -3566,7 +3804,7 @@ export class Simulation {
             this.grantBarrier(1.4);
         }
       }
-      if (c.ttl > 0) alive.push(c);
+      alive.push(c);
     }
     this.constructs = alive;
 
@@ -3577,7 +3815,7 @@ export class Simulation {
     );
     if (battery.length && this.time >= this.sentryBatteryAt) {
       const target = this.ents
-        .filter((e) => e.hp > 0 && battery.some((c) => Math.hypot(e.x - c.x, e.z - c.z) <= c.range))
+        .filter((e) => e.hp > 0 && battery.some((c) => Math.hypot(e.x - c.x, e.z - c.z) <= c.range + e.radius))
         .sort(
           (a, b) =>
             Number(b.kind === 'elite') - Number(a.kind === 'elite') ||
@@ -3615,7 +3853,8 @@ export class Simulation {
           source: 'sentry',
           sourceSlot: battery[0].sourceSlot,
           intent: 'damage',
-          telegraph: 'sentry_battery_beacon'
+          telegraph: 'sentry_battery_beacon',
+          activationId: battery[0].activationId
         });
       }
     }
@@ -3646,29 +3885,28 @@ export class Simulation {
       for (const [a,b] of links) {
         const dx = b.x - a.x,
           dz = b.z - a.z,
-          len = Math.hypot(dx, dz) || 1;
-        this.combatShape(
-          'sentry_gravity_grid',
-          { kind: 'ray', x: a.x, z: a.z, aimX: dx / len, aimZ: dz / len, range: len, halfWidth: 0.42 },
-          'control'
-        );
+          len = Math.hypot(dx, dz) || 1,
+          shape: CombatShape = {
+            kind: 'ray',
+            x: a.x,
+            z: a.z,
+            aimX: dx / len,
+            aimZ: dz / len,
+            range: len,
+            halfWidth: 0.42
+          };
+        this.combatShape('sentry_gravity_grid', shape, 'control');
         for (const e of this.ents) {
-          if (e.hp <= 0) continue;
-          const ex = e.x - a.x,
-            ez = e.z - a.z,
-            t = Math.max(0, Math.min(len, (ex * dx + ez * dz) / len)),
-            cx = a.x + (dx / len) * t,
-            cz = a.z + (dz / len) * t,
-            ddx = cx - e.x,
-            ddz = cz - e.z,
+          if (e.hp <= 0 || !combatShapeIntersectsCircle(shape, e.x, e.z, e.radius)) continue;
+          const closest = closestPointOnSegment(e.x, e.z, a.x, a.z, b.x, b.z),
+            ddx = closest.x - e.x,
+            ddz = closest.z - e.z,
             d = Math.hypot(ddx, ddz);
-          if (d < 0.75 + e.radius) {
-            this.damage(e, skills.sentry.baseDamage * 0.24 * this.corePower(), 'sentry', false, cx, cz, a.sourceSlot);
-            if (d > 0.05) {
-              e.x += (ddx / d) * 0.18;
-              e.z += (ddz / d) * 0.18;
-              e.displacedUntil = this.time + 0.45;
-            }
+          this.damage(e, skills.sentry.baseDamage * 0.24 * this.corePower(), 'sentry', false, closest.x, closest.z, a.sourceSlot);
+          if (d > 0.05) {
+            e.x += (ddx / d) * 0.18;
+            e.z += (ddz / d) * 0.18;
+            e.displacedUntil = this.time + 0.45;
           }
         }
       }
@@ -3700,23 +3938,85 @@ export class Simulation {
   }
 
   private updateOrbitBlades() {
-    const st=this.skillsRuntime.get('orbit_blades');if(!st||!this.isActiveSkill('orbit_blades'))return;
-    this.orbitAcc+=this.dt;if(this.orbitAcc<0.13)return;this.orbitAcc-=0.13;
-    const center=this.orbitCenter(), mut=st.mutation, profile=this.orbitProfile(st,center);
-    const dmg=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36*profile.damageMul;
+    const st=this.skillsRuntime.get('orbit_blades');
+    if(!st||!this.isActiveSkill('orbit_blades')){
+      if(this.orbitActivationId){
+        const old=this.orbitCenter();
+        const id=this.orbitActivationId;
+        this.orbitActivationId=0;
+        this.finishAsyncPhysical(id,old.x,old.z);
+      }
+      return;
+    }
+    const center=this.orbitCenter(), mut=st.mutation, profile=this.orbitProfile(st,center),
+      damage=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36*profile.damageMul,
+      angularSpeed=mut==='orbit_saw'?2.55:3.4,
+      bladeRadius=mut==='orbit_saw'?0.58:0.42,
+      slot=this.slots.indexOf('orbit_blades');
+
+    // Gameplay uses the same discrete blade positions the renderer uses. There is no hidden
+    // annulus any more: standing on the orbit radius between blades is safe until a blade arrives.
+    const blades:{x:number;z:number;index:number}[]=[];
+    for(let i=0;i<profile.count;i++){
+      const a=this.time*angularSpeed+(i*Math.PI*2)/profile.count;
+      blades.push({
+        x:center.x+Math.cos(a)*profile.radius,
+        z:center.z+Math.sin(a)*profile.radius,
+        index:i
+      });
+    }
     for(const e of this.ents){
-      if(e.hp<=0||this.time-e.orbitHitAt<profile.hitInterval)continue;
-      const d=Math.hypot(e.x-center.x,e.z-center.z);
-      if(Math.abs(d-profile.radius)<0.62){
-        e.orbitHitAt=this.time;let m=dmg;
-        if(mut==='orbit_saw'&&e.kind==='elite')m*=1.9;
-        this.damage(e,m,'orbit_blades',false,center.x,center.z,this.slots.indexOf('orbit_blades'));
-        this.closeDamage+=m;
-        if(this.mutationIs(st,'orbit_sanguine_crown')&&profile.crowd>=5)this.grantBarrier(Math.min(3.2,m*0.02));
+      if(e.hp<=0)continue;
+      const blade=blades.find(b=>circleIntersectsCircle(b.x,b.z,bladeRadius,e.x,e.z,e.radius));
+      if(!blade)continue;
+      if(this.time-e.orbitHitAt<profile.hitInterval)continue;
+      e.orbitHitAt=this.time;
+      let m=damage;
+      if(mut==='orbit_saw'&&e.kind==='elite')m*=1.9;
+      this.damage(e,m,'orbit_blades',false,blade.x,blade.z,slot);
+      this.closeDamage+=m;
+      if(this.orbitActivationId){
+        this.queuePhysicalEvent({
+          activationId:this.orbitActivationId,
+          slot,
+          skill:'orbit_blades',
+          kind:'contact',
+          x:blade.x,
+          z:blade.z,
+          radius:bladeRadius,
+          carrierKind:'orbit',
+          carrierId:blade.index,
+          targetId:e.id
+        });
+      }
+      if(this.mutationIs(st,'orbit_sanguine_crown')&&profile.crowd>=5)
+        this.grantBarrier(Math.min(3.2,m*0.02));
+    }
+    if(this.mutationIs(st,'orbit_aegis_crown')&&this.aegisCharge>=6){
+      this.aegisCharge=0;this.grantBarrier(16);
+      const rr=profile.radius+1.8,shape:CombatShape={kind:'circle',x:center.x,z:center.z,radius:rr};
+      this.combatShape('orbit_aegis_crown',shape,'control');
+      for(const e of this.ents){
+        if(e.hp<=0||!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;
+        const dx=e.x-center.x,dz=e.z-center.z,d=Math.hypot(dx,dz)||1;
+        this.damage(e,22*this.powerBucket(st),'orbit_blades',false,center.x,center.z);
+        e.x+=dx/d*0.75;e.z+=dz/d*0.75;
+      }
+      this.events.push({type:'RareEvent',tick:this.tick,title:'КОРОНА ЭГИДЫ',detail:'Перехваты выпущены ударной волной',x:center.x,z:center.z});
+    }
+    if(this.mutationIs(st,'orbit_phoenix')&&this.time>=this.orbitPhoenixAt){
+      this.orbitPhoenixAt=this.time+1.35;
+      const t=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number((b.markUntil>this.time)||b.kind==='elite')-Number((a.markUntil>this.time)||a.kind==='elite')||Math.hypot(a.x-center.x,a.z-center.z)-Math.hypot(b.x-center.x,b.z-center.z))[0];
+      if(t){
+        const dx=t.x-center.x,dz=t.z-center.z,m=Math.hypot(dx,dz)||1;
+        this.spawnProjectile({
+          x:center.x+dx/m*profile.radius,z:center.z+dz/m*profile.radius,vx:dx/m*8.5,vz:dz/m*8.5,
+          radius:0.28,ttl:2.8,damage:skills.orbit_blades.baseDamage*this.powerBucket(st)*1.25,coverDamage:16,
+          faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:slot,mutation:st.mutation,activationId:this.orbitActivationId||undefined,
+          apotheosis:'orbit_phoenix',rivalConcentration:1,behavior:'returner',returnAt:1.3,phase:0,hitIds:[]
+        });
       }
     }
-    if(this.mutationIs(st,'orbit_aegis_crown')&&this.aegisCharge>=6){this.aegisCharge=0;this.grantBarrier(16);const rr=profile.radius+1.8;this.combatShape('orbit_aegis_crown',{kind:'circle',x:center.x,z:center.z,radius:rr},'control');for(const e of this.ents){const dx=e.x-center.x,dz=e.z-center.z,d=Math.hypot(dx,dz)||1;if(d<rr+e.radius){this.damage(e,22*this.powerBucket(st),'orbit_blades',false,center.x,center.z);e.x+=dx/d*0.75;e.z+=dz/d*0.75;}}this.events.push({type:'RareEvent',tick:this.tick,title:'КОРОНА ЭГИДЫ',detail:'Перехваты выпущены ударной волной',x:center.x,z:center.z});}
-    if(this.mutationIs(st,'orbit_phoenix')&&this.time>=this.orbitPhoenixAt){this.orbitPhoenixAt=this.time+1.35;const t=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number((b.markUntil>this.time)||b.kind==='elite')-Number((a.markUntil>this.time)||a.kind==='elite')||Math.hypot(a.x-center.x,a.z-center.z)-Math.hypot(b.x-center.x,b.z-center.z))[0];if(t){const dx=t.x-center.x,dz=t.z-center.z,m=Math.hypot(dx,dz)||1;this.spawnProjectile({x:center.x+dx/m*profile.radius,z:center.z+dz/m*profile.radius,vx:dx/m*8.5,vz:dz/m*8.5,radius:0.28,ttl:2.8,damage:skills.orbit_blades.baseDamage*this.powerBucket(st)*1.25,coverDamage:16,faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:this.slots.indexOf('orbit_blades'),mutation:st.mutation,apotheosis:'orbit_phoenix',rivalConcentration:1,behavior:'returner',returnAt:1.3,phase:0,hitIds:[]});}}
   }
 
   private effectiveTempo() {
@@ -3945,7 +4245,7 @@ export class Simulation {
     }
     for(let i=0;i<count;i++){
       const ang=count===1?0:(i-(count-1)/2)*spread, c=Math.cos(ang),sn=Math.sin(ang), ax=baseAimX*c-baseAimZ*sn,az=baseAimX*sn+baseAimZ*c;
-      this.combatShape('shard_fan',{kind:'ray',x:src.x,z:src.z,aimX:ax,aimZ:az,range,halfWidth:0.18});
+      this.combatShape('shard_fan',{kind:'ray',x:src.x,z:src.z,aimX:ax,aimZ:az,range,halfWidth:0.18},'damage',false);
       this.spawnProjectile({x:src.x+ax*0.55,z:src.z+az*0.55,vx:ax*speed,vz:az*speed,radius:0.22,ttl:Math.max(1.8,range/speed*2.2),damage,coverDamage:damage*0.7,faction:src.faction,ownerId:src.owner?.id??0,source:'shard_fan',sourceSlot:slot,mutation:mut,apotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.shard_fan.rivalConcentration,behavior:'returner',returnAt:Math.max(0.75,range/speed*0.78),phase:0,hitIds:[],carousel:this.mutationIs(st,'returner_carousel'),trailAcc:0});
     }
   }
@@ -3960,9 +4260,10 @@ export class Simulation {
     for(const anchor of anchors){
       const dx0=anchor.x-src.x,dz0=anchor.z-src.z,d0=Math.hypot(dx0,dz0)||1;
       this.combatShape('tether_line',{kind:'ray',x:src.x,z:src.z,aimX:dx0/d0,aimZ:dz0/d0,range:d0,halfWidth:0.08},'control');
-      this.combatShape('tether_drag',{kind:'circle',x:anchor.x,z:anchor.z,radius},'control');
+      const dragShape:CombatShape={kind:'circle',x:anchor.x,z:anchor.z,radius};
+      this.combatShape('tether_drag',dragShape,'control');
       let pulled=0;
-      const candidates=this.targetsFor(src).filter(e=>e.hp>0&&Math.hypot(e.x-anchor.x,e.z-anchor.z)<=radius+e.radius).sort((a,b)=>Math.hypot(a.x-anchor.x,a.z-anchor.z)-Math.hypot(b.x-anchor.x,b.z-anchor.z));
+      const candidates=this.targetsFor(src).filter(e=>e.hp>0&&combatShapeIntersectsCircle(dragShape,e.x,e.z,e.radius)).sort((a,b)=>Math.hypot(a.x-anchor.x,a.z-anchor.z)-Math.hypot(b.x-anchor.x,b.z-anchor.z));
       const cap=mut==='tether_hook'?2:mut==='tether_net'?10:6;
       for(const e of candidates){if(pulled++>=cap)break;const dx=anchor.x-e.x,dz=anchor.z-e.z,d=Math.hypot(dx,dz)||1,pull=(mut==='tether_hook'?2.4:1.35)*(1+st.control*0.25);this.damage(e,skills.tether_drag.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e),'tether_drag',false,anchor.x,anchor.z,slot);e.x+=dx/d*Math.min(pull,d*0.62);e.z+=dz/d*Math.min(pull,d*0.62);e.displacedUntil=Math.max(e.displacedUntil,this.time+(this.mutationIs(st,'tether_lock')?1.85:this.mutationIs(st,'tether_bind')?1.2:0.65));this.currentActivationControl+=1.2+st.control;this.noteState('displaced');
         if(this.mutationIs(st,'gravity_prison')&&e.kind==='elite'){e.exposedUntil=Math.max(e.exposedUntil,this.time+2.1);e.chillUntil=Math.max(e.chillUntil,this.time+1.2);if(e.affix==='shielded')e.shieldStability=Math.max(0,(e.shieldStability??100)-28);this.combatShape('gravity_prison',{kind:'circle',x:e.x,z:e.z,radius:e.radius+1.2},'control');}
@@ -4037,6 +4338,18 @@ export class Simulation {
     const st = this.skillsRuntime.get(id);
     if (!st) return;
 
+    // A compatible physical Catalyst owns the right node completely. B is a payload of A,
+    // not an independent clocked cast. This must hold across cycle boundaries: a slow projectile
+    // may reach its terminal long after the beat that armed the edge.
+    const incomingPhysical = this.incomingCatalyst(slot),
+      producerSkill = slot > 0 ? this.slots[slot - 1] : undefined;
+    if (
+      this.isPhysicalCatalyst(incomingPhysical) &&
+      producerSkill &&
+      catalystPairCompatible(incomingPhysical, producerSkill, id)
+    )
+      return;
+
     this.currentSlot = slot;
     this.currentHits.clear();
     this.currentActivationDamage = 0;
@@ -4047,20 +4360,13 @@ export class Simulation {
     this.activationScale = 1;
     this.activationCountBonus = 0;
     this.activationDerived = false;
+    const activationId = this.beginPhysicalActivation(slot, id);
     this.beginChoreographyTrace(id);
 
     const incoming = this.incomingCatalyst(slot),
       conduct = 1 + this.resonance.conductivity * 0.16,
       previousContext = this.lastContext,
-      choreographyId =
-        incoming !== null &&
-        (['source', 'carrier', 'trail', 'reverse', 'collapse'] as CatalystId[]).includes(incoming),
-      choreographyReady =
-        !!incoming &&
-        choreographyId &&
-        !!previousContext.trace &&
-        !!previousContext.skill &&
-        catalystPairCompatible(incoming, previousContext.skill, id);
+      choreographyId = this.isPhysicalCatalyst(incoming);
 
     // Compatibility-only Catalyst 1.x operators remain executable for old saves/replays.
     // Current Discovery never offers them; the active five are handled below as physical choreography.
@@ -4146,17 +4452,8 @@ export class Simulation {
     }
 
     this.metrics.activations++;
-    let choreographyHandled = false;
-    if (choreographyReady && incoming)
-      choreographyHandled = this.executeChoreography(
-        incoming,
-        id,
-        st,
-        slot,
-        previousContext.trace
-      );
-    if (!choreographyHandled)
-      this.castWithTrace(id, st, slot, this.heroSource());
+    // Catalyst 2.x no longer teleports B on this beat. A's live lifecycle owns when/where B fires.
+    this.castWithTrace(id, st, slot, this.heroSource());
 
     this.aimX = oldAimX;
     this.aimZ = oldAimZ;
@@ -4265,7 +4562,12 @@ export class Simulation {
     }
 
     const trace = this.finishChoreographyTrace(),
-      previous = this.lastContext;
+      previous = this.lastContext,
+      physicalOrigin = trace?.origin ?? {x:this.px,z:this.pz};
+    this.activationLastPoint.set(activationId,{...physicalOrigin});
+    this.armOutgoingPhysicalCatalyst(slot,id,activationId,physicalOrigin);
+    this.publishImmediatePhysicalTrace(id, slot, activationId, trace);
+    this.flushPhysicalEvents();
     this.lastContext = {
       skill: id,
       damage: this.currentActivationDamage,
@@ -4338,10 +4640,405 @@ export class Simulation {
       };
     }
     this.currentSlot = -1;
+    this.currentActivationId = 0;
     this.activationScale = 1;
     this.activationCountBonus = 0;
     this.activationDerived = false;
     this.currentChoreography = null;
+  }
+
+  private isPhysicalCatalyst(id: CatalystId | null): id is 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse' {
+    return id === 'source' || id === 'carrier' || id === 'trail' || id === 'reverse' || id === 'collapse';
+  }
+
+  private beginPhysicalActivation(slot: number, skill: SkillId) {
+    const id = this.nextActivationId++;
+    this.currentActivationId = id;
+    this.activationMeta.set(id, { skill, slot });
+    this.activationLastPoint.set(id, { x: this.px, z: this.pz });
+    return id;
+  }
+
+  private armOutgoingPhysicalCatalyst(
+    fromSlot: number,
+    fromSkill: SkillId,
+    activationId: number,
+    origin: ChoreographyPoint
+  ) {
+    const catalyst = this.catalysts[fromSlot] ?? null,
+      toSlot = fromSlot + 1,
+      toSkill = this.slots[toSlot];
+    if (!this.isPhysicalCatalyst(catalyst) || !toSkill) return;
+    if (!catalystPairCompatible(catalyst, fromSkill, toSkill)) return;
+    const binding: CatalystBinding = {
+      producerActivationId: activationId,
+      fromSlot,
+      toSlot,
+      fromSkill,
+      toSkill,
+      mode: catalyst,
+      origin:{...origin},
+      path: [],
+      areaPoints: [],
+      nextTrailDistance: toSkill === 'sentry' ? 1.8 : 1.35,
+      firedCount: 0,
+      carrierKeys: new Set<string>(),
+      pathCarrierKey: null,
+      done: false
+    };
+    this.catalystBindings.push(binding);
+  }
+
+  private registerAsyncPhysical(activationId: number) {
+    if (activationId <= 0) return;
+    this.activationPending.set(activationId, (this.activationPending.get(activationId) ?? 0) + 1);
+  }
+
+  private finishAsyncPhysical(activationId: number | undefined, x: number, z: number) {
+    if (!activationId) return;
+    this.activationLastPoint.set(activationId, { x, z });
+    const n = Math.max(0, (this.activationPending.get(activationId) ?? 1) - 1);
+    if (n > 0) {
+      this.activationPending.set(activationId, n);
+      return;
+    }
+    this.activationPending.delete(activationId);
+    const meta = this.activationMeta.get(activationId);
+    if (
+      meta &&
+      phenomenonChoreography[meta.skill].emits.includes('terminal') &&
+      !this.activationTerminalSeen.has(activationId)
+    )
+      this.queuePhysicalEvent({
+        activationId,
+        slot: meta.slot,
+        skill: meta.skill,
+        kind: 'terminal',
+        x,
+        z
+      });
+    this.completedPhysicalActivations.add(activationId);
+  }
+
+  private retirePhysicalActivation(id: number) {
+    if (!id) return;
+    this.activationMeta.delete(id);
+    this.activationLastPoint.delete(id);
+    this.activationTerminalSeen.delete(id);
+    this.completedPhysicalActivations.delete(id);
+  }
+
+  private retirePhysicalActivationIfIdle(id: number) {
+    if (
+      !id ||
+      this.activationPending.has(id) ||
+      id === this.orbitActivationId ||
+      this.catalystBindings.some((b) => !b.done && b.producerActivationId === id) ||
+      this.constructs.some((c) => c.activationId === id)
+    ) return;
+    this.retirePhysicalActivation(id);
+  }
+
+  private queuePhysicalEvent(e: PhysicalEvent) {
+    if (!e.activationId) return;
+    this.physicalEvents.push(e);
+    if(e.kind==='terminal') this.activationTerminalSeen.add(e.activationId);
+    this.activationLastPoint.set(e.activationId, { x: e.x, z: e.z });
+  }
+
+  private appendBindingPath(binding: CatalystBinding, points: ChoreographyPoint[]) {
+    for (const p of points) {
+      const last = binding.path[binding.path.length - 1];
+      if (!last || !this.sameChoreographyPoint(last, p, 0.08)) binding.path.push({ ...p });
+    }
+  }
+
+  private trailAim(binding: CatalystBinding, distance: number) {
+    const a = pointAlongPolyline(binding.path, Math.max(0, distance - 0.22)),
+      b = pointAlongPolyline(binding.path, distance + 0.22);
+    if (!a || !b) return { x: this.aimX, z: this.aimZ };
+    const dx = b.x - a.x,
+      dz = b.z - a.z,
+      m = Math.hypot(dx, dz) || 1;
+    return { x: dx / m, z: dz / m };
+  }
+
+  private castCatalystPayload(
+    binding: CatalystBinding,
+    x: number,
+    z: number,
+    aimX?: number,
+    aimZ?: number
+  ) {
+    const st = this.skillsRuntime.get(binding.toSkill);
+    if (!st) return false;
+    const save = {
+      currentSlot: this.currentSlot,
+      currentActivationId: this.currentActivationId,
+      currentChoreography: this.currentChoreography,
+      currentHits: this.currentHits,
+      currentActivationDamage: this.currentActivationDamage,
+      currentActivationKills: this.currentActivationKills,
+      currentActivationOverkill: this.currentActivationOverkill,
+      currentActivationControl: this.currentActivationControl,
+      currentProducedState: this.currentProducedState,
+      activationScale: this.activationScale,
+      activationCountBonus: this.activationCountBonus,
+      activationDerived: this.activationDerived
+    };
+    this.currentSlot = binding.toSlot;
+    this.currentHits = new Set<number>();
+    this.currentActivationDamage = 0;
+    this.currentActivationKills = 0;
+    this.currentActivationOverkill = 0;
+    this.currentActivationControl = 0;
+    this.currentProducedState = '';
+    this.activationScale = 1;
+    this.activationCountBonus = 0;
+    this.activationDerived = true;
+    const src = this.choreographySource(x, z, aimX, aimZ),
+      activationId = this.nextActivationId++;
+    this.currentActivationId = activationId;
+    this.activationMeta.set(activationId, { skill: binding.toSkill, slot: binding.toSlot });
+    this.activationLastPoint.set(activationId, { x: src.x, z: src.z });
+    if(binding.toSkill==='orbit_blades') this.setOrbitChoreography(src.x,src.z);
+    this.beginChoreographyTrace(binding.toSkill);
+    this.metrics.activations++;
+    this.castWithTrace(binding.toSkill, st, binding.toSlot, src);
+    const trace = this.finishChoreographyTrace(),
+      physicalOrigin = trace?.origin ?? {x:src.x,z:src.z};
+    this.activationLastPoint.set(activationId,{...physicalOrigin});
+    this.armOutgoingPhysicalCatalyst(
+      binding.toSlot,
+      binding.toSkill,
+      activationId,
+      physicalOrigin
+    );
+    this.publishImmediatePhysicalTrace(binding.toSkill, binding.toSlot, activationId, trace);
+
+    this.currentSlot = save.currentSlot;
+    this.currentActivationId = save.currentActivationId;
+    this.currentChoreography = save.currentChoreography;
+    this.currentHits = save.currentHits;
+    this.currentActivationDamage = save.currentActivationDamage;
+    this.currentActivationKills = save.currentActivationKills;
+    this.currentActivationOverkill = save.currentActivationOverkill;
+    this.currentActivationControl = save.currentActivationControl;
+    this.currentProducedState = save.currentProducedState;
+    this.activationScale = save.activationScale;
+    this.activationCountBonus = save.activationCountBonus;
+    this.activationDerived = save.activationDerived;
+    return true;
+  }
+
+  private publishImmediatePhysicalTrace(
+    skill: SkillId,
+    slot: number,
+    activationId: number,
+    trace: ChoreographyTrace | null
+  ) {
+    if (!trace || !activationId) return;
+    const asyncSkill = skill === 'mortar_bloom' || skill === 'mass_driver' || skill === 'shard_fan';
+    if (!asyncSkill && phenomenonChoreography[skill].emits.includes('path')) {
+      const path = this.tracePath(trace);
+      for (let i = 1; i < path.length; i++)
+        this.queuePhysicalEvent({
+          activationId,
+          slot,
+          skill,
+          kind: 'path',
+          previousX: path[i - 1].x,
+          previousZ: path[i - 1].z,
+          x: path[i].x,
+          z: path[i].z
+        });
+    }
+
+    if (trace.areas.length && phenomenonChoreography[skill].emits.includes('area')) {
+      for(const shape of trace.areas){
+        const radius=shape.kind==='ray'?shape.halfWidth:shape.radius,
+          areaPoints:ChoreographyPoint[]=[];
+        if(shape.kind==='circle'){
+          for(let i=0;i<4;i++){const a=i*Math.PI/2;areaPoints.push({x:shape.x+Math.cos(a)*shape.radius,z:shape.z+Math.sin(a)*shape.radius});}
+        } else if(shape.kind==='sector'){
+          const base=Math.atan2(shape.aimZ,shape.aimX);
+          for(const off of [-shape.halfAngle,0,shape.halfAngle]){
+            const a=base+off;areaPoints.push({x:shape.x+Math.cos(a)*shape.radius,z:shape.z+Math.sin(a)*shape.radius});
+          }
+        }
+        this.queuePhysicalEvent({
+          activationId,
+          slot,
+          skill,
+          kind:'area',
+          x:shape.x,
+          z:shape.z,
+          radius,
+          areaPoints,
+          shape:{...shape}
+        });
+      }
+    }
+
+    if (
+      !asyncSkill &&
+      trace.terminal &&
+      (skill === 'rail_spear' || skill === 'cleaver' || skill === 'chain_arc' || skill === 'tether_drag')
+    )
+      this.queuePhysicalEvent({ activationId, slot, skill, kind: 'terminal', x: trace.terminal.x, z: trace.terminal.z });
+  }
+
+  private fireCollapse(binding: CatalystBinding, e: PhysicalEvent) {
+    const multiArea = binding.fromSkill === 'mortar_bloom' || binding.fromSkill === 'sentry' ||
+      binding.fromSkill === 'orbit_blades' || binding.fromSkill === 'tether_drag';
+    // Orbit is one continuous actor in the current core, so a Collapse may relocate it once,
+    // never pretend that independent Orbit copies exist on several areas.
+    const limit = binding.toSkill === 'orbit_blades' ? 1 : multiArea ? 3 : 1;
+    if (binding.firedCount >= limit) return;
+    const center = { x: e.x, z: e.z },
+      radius = Math.max(0.35, e.radius ?? 1),
+      shape=e.shape ?? ({kind:'circle',x:e.x,z:e.z,radius} as CombatShape),
+      outer = e.areaPoints?.length
+        ? e.areaPoints
+        : shape.kind==='sector'
+          ? [-shape.halfAngle,0,shape.halfAngle].map((off)=>{
+              const a=Math.atan2(shape.aimZ,shape.aimX)+off;
+              return {x:shape.x+Math.cos(a)*shape.radius,z:shape.z+Math.sin(a)*shape.radius};
+            })
+          : [0, 1, 2, 3].map((i) => {
+              const a = (i * Math.PI) / 2;
+              return { x: center.x + Math.cos(a) * radius, z: center.z + Math.sin(a) * radius };
+            });
+    binding.areaPoints.push(...outer.map((p) => ({ ...p })));
+    if (skills[binding.toSkill].directional) {
+      const spokes = outer.length <= 4 ? outer : [outer[0], outer[Math.floor(outer.length/2)]];
+      for (const p of spokes)
+        this.castCatalystPayload(binding, p.x, p.z, center.x - p.x, center.z - p.z);
+    } else {
+      for (const target of this.ents) {
+        if (target.hp <= 0 || !combatShapeIntersectsCircle(shape,target.x,target.z,target.radius)) continue;
+        const dx = center.x - target.x,
+          dz = center.z - target.z,
+          d = Math.hypot(dx, dz) || 1;
+        target.x += (dx / d) * Math.min(1.1, d * 0.35);
+        target.z += (dz / d) * Math.min(1.1, d * 0.35);
+        target.displacedUntil = Math.max(target.displacedUntil, this.time + 0.55);
+      }
+      this.castCatalystPayload(binding, center.x, center.z);
+    }
+    binding.firedCount++;
+    if (binding.firedCount >= limit) binding.done = true;
+    this.emitChoreography(binding.mode, binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [...outer, center]);
+  }
+
+  private handlePhysicalBinding(binding: CatalystBinding, e: PhysicalEvent) {
+    if (binding.done || e.activationId !== binding.producerActivationId) return;
+
+    const eventCarrierKey=e.carrierKind&&e.carrierId!==undefined
+      ? e.carrierKind+':'+e.carrierId
+      : null;
+    if ((binding.mode==='trail'||binding.mode==='reverse') && eventCarrierKey) {
+      if (!binding.pathCarrierKey) binding.pathCarrierKey=eventCarrierKey;
+      else if (binding.pathCarrierKey!==eventCarrierKey) return;
+    }
+
+    if ((binding.mode==='trail'||binding.mode==='reverse') && e.kind === 'path') {
+      if (e.previousX !== undefined && e.previousZ !== undefined)
+        this.appendBindingPath(binding, [{ x: e.previousX, z: e.previousZ }, { x: e.x, z: e.z }]);
+      else this.appendBindingPath(binding, [{ x: e.x, z: e.z }]);
+    } else if (
+      (binding.mode==='trail'||binding.mode==='reverse') &&
+      (e.kind === 'impact' || e.kind === 'contact' || e.kind === 'terminal')
+    ) {
+      const last = binding.path[binding.path.length - 1];
+      if (last) this.appendBindingPath(binding, [last, { x: e.x, z: e.z }]);
+    }
+
+    if (binding.mode === 'source' && e.kind === 'terminal') {
+      if (this.castCatalystPayload(binding, e.x, e.z)) {
+        binding.firedCount = 1;
+        binding.done = true;
+        this.emitChoreography('source', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [binding.origin, { x: e.x, z: e.z }]);
+      }
+      return;
+    }
+
+    if (binding.mode === 'carrier' && (e.kind === 'contact' || e.kind === 'impact') && e.carrierKind && e.carrierId !== undefined) {
+      const key = e.carrierKind + ':' + e.carrierId;
+      if (binding.carrierKeys.has(key) || binding.firedCount >= 3) return;
+      binding.carrierKeys.add(key);
+      if (this.castCatalystPayload(binding, e.x, e.z)) {
+        binding.firedCount++;
+        this.emitChoreography('carrier', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [{ x: e.x, z: e.z }]);
+      }
+      if (binding.firedCount >= 3) binding.done = true;
+      return;
+    }
+
+    if (binding.mode === 'trail' && (e.kind === 'path' || e.kind === 'impact' || e.kind === 'terminal')) {
+      const spacing = binding.toSkill === 'sentry' ? 4.2 : 3.0,
+        max = binding.toSkill === 'sentry' ? 6 : 4;
+      let length = polylineLength(binding.path);
+      while (binding.firedCount < max && length + 1e-6 >= binding.nextTrailDistance) {
+        const p = pointAlongPolyline(binding.path, binding.nextTrailDistance);
+        if (!p) break;
+        const aim = this.trailAim(binding, binding.nextTrailDistance);
+        if (this.castCatalystPayload(binding, p.x, p.z, aim.x, aim.z)) binding.firedCount++;
+        binding.nextTrailDistance += spacing;
+        length = polylineLength(binding.path);
+      }
+      if (e.kind === 'terminal') {
+        if (!binding.firedCount) this.castCatalystPayload(binding, e.x, e.z);
+        binding.done = true;
+        this.emitChoreography('trail', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, binding.path.length ? binding.path : [{ x: e.x, z: e.z }]);
+      }
+      return;
+    }
+
+    if (binding.mode === 'reverse' && e.kind === 'terminal') {
+      // Reverse consumes a traversed route. A terminal without path data is teleport-like
+      // information and must never be converted into an imaginary line.
+      if(binding.path.length<2){binding.done=true;return;}
+      const path=binding.path,
+        end=path[path.length-1],
+        prev=path[path.length-2],
+        dx=prev.x-end.x,
+        dz=prev.z-end.z;
+      if (this.castCatalystPayload(binding, end.x, end.z, dx, dz)) {
+        binding.firedCount = 1;
+        binding.done = true;
+        this.emitChoreography('reverse', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [...path].reverse());
+      }
+      return;
+    }
+
+    if (binding.mode === 'collapse' && (e.kind === 'area' || e.kind === 'impact')) this.fireCollapse(binding, e);
+  }
+
+  private flushPhysicalEvents() {
+    if (this.drainingPhysicalEvents) return;
+    this.drainingPhysicalEvents = true;
+    let guard = 0;
+    try {
+      while (this.physicalEvents.length && guard++ < 256) {
+        const e = this.physicalEvents.shift()!;
+        for (const binding of this.catalystBindings) this.handlePhysicalBinding(binding, e);
+      }
+    } finally {
+      this.drainingPhysicalEvents = false;
+    }
+    if (this.completedPhysicalActivations.size) {
+      this.catalystBindings = this.catalystBindings.filter(
+        (b) => !b.done && !this.completedPhysicalActivations.has(b.producerActivationId)
+      );
+      for (const id of [...this.completedPhysicalActivations]) this.retirePhysicalActivation(id);
+      this.completedPhysicalActivations.clear();
+    } else {
+      this.catalystBindings = this.catalystBindings.filter((b) => !b.done);
+    }
+    // Immediate activations have no owned async actors. Once their causal events/bindings are
+    // exhausted they can be forgotten immediately instead of leaking activation maps for a run.
+    for (const id of [...this.activationMeta.keys()]) this.retirePhysicalActivationIfIdle(id);
   }
 
   private sameChoreographyPoint(a: ChoreographyPoint, b: ChoreographyPoint, eps = 0.12) {
@@ -4360,7 +5057,10 @@ export class Simulation {
     const t = this.currentChoreography;
     if (!t) return;
     this.tracePoint(x, z);
-    const r = Math.max(0.35, radius);
+    const r = Math.max(0.35, radius),
+      shape:CombatShape={kind:'circle',x,z,radius:r};
+    if(!t.areas.some((q)=>q.kind==='circle'&&Math.hypot(q.x-x,q.z-z)<0.08&&Math.abs(q.radius-r)<0.08))
+      t.areas.push(shape);
     for (let i = 0; i < 4; i++) {
       const a = (i * Math.PI) / 2;
       const p = { x: x + Math.cos(a) * r, z: z + Math.sin(a) * r };
@@ -4388,6 +5088,9 @@ export class Simulation {
       this.traceSegment({ x: shape.x, z: shape.z }, end);
       return;
     }
+    if(!this.currentChoreography.areas.some((q)=>
+      q.kind==='sector'&&Math.hypot(q.x-shape.x,q.z-shape.z)<0.08&&Math.abs(q.radius-shape.radius)<0.08
+    )) this.currentChoreography.areas.push({...shape});
     const tip = {
       x: shape.x + shape.aimX * shape.radius,
       z: shape.z + shape.aimZ * shape.radius
@@ -4411,6 +5114,8 @@ export class Simulation {
       terminal: null,
       points: [],
       areaPoints: [],
+      areas: [],
+      contacts: [],
       paths: [],
       carriers: [],
       scheduled: []
@@ -4449,40 +5154,48 @@ export class Simulation {
       st = this.skillsRuntime.get('orbit_blades');
     if (!t || !st) return;
     const center = this.orbitCenter(),
-      p = this.orbitProfile(st, center);
-    this.traceArea(center.x, center.z, p.radius);
-    for (let i = 0; i < p.count; i++)
+      p = this.orbitProfile(st, center),
+      bladeRadius=st.mutation==='orbit_saw'?0.58:0.42,
+      speed=st.mutation==='orbit_saw'?2.55:3.4;
+    for (let i = 0; i < p.count; i++) {
+      const a=this.time*speed+(i*Math.PI*2)/p.count,
+        x=center.x+Math.cos(a)*p.radius,
+        z=center.z+Math.sin(a)*p.radius;
+      this.traceArea(x,z,bladeRadius);
       t.carriers.push({ kind: 'orbit', index: i });
+    }
   }
 
   private finishChoreographyTrace() {
     const t = this.currentChoreography;
     if (!t) return null;
-    const resolvedHits: ChoreographyPoint[] = [];
-    for (const eid of this.currentHits) {
-      const e = this.ents.find((q) => q.id === eid);
-      if (e) {
-        const p = { x: e.x, z: e.z };
-        resolvedHits.push(p);
-        this.tracePoint(p.x, p.z);
-      }
+    const resolvedHits = t.contacts;
+    for (const p of resolvedHits) this.tracePoint(p.x, p.z);
+
+    // Contacts are captured at damage time, before pull/knockback can move the target. Terminal
+    // semantics are skill-authored: a Rail/Cleaver finishes at its farthest useful contact,
+    // Chain Arc at its final hop, while Tether owns its authored anchor independently of targets.
+    if (resolvedHits.length && (t.skill === 'rail_spear' || t.skill === 'cleaver')) {
+      t.terminal = { ...resolvedHits.reduce((best,p) =>
+        Math.hypot(p.x-t.origin.x,p.z-t.origin.z) > Math.hypot(best.x-t.origin.x,best.z-t.origin.z) ? p : best
+      ) };
+    } else if (resolvedHits.length && t.skill === 'chain_arc') {
+      t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
+    } else if (resolvedHits.length && t.skill !== 'tether_drag') {
+      t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
+    } else if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
+    if (t.skill === 'mortar_bloom' || t.skill === 'mass_driver' || t.skill === 'shard_fan') {
+      t.terminal = null;
+      t.paths = [];
     }
-    if (t.scheduled.length >= 2) {
-      for (let i = 1; i < t.scheduled.length; i++)
-        this.traceSegment(t.scheduled[i - 1], t.scheduled[i]);
-    }
-    // "Источник" means the place where A physically finished doing useful work, not the
-    // abstract maximum range of its telegraph. This matters especially for Rail: a mist or
-    // turret should appear at the last pierced body, not eighteen empty metres behind it.
-    if (t.scheduled.length) t.terminal = { ...t.scheduled[t.scheduled.length - 1] };
-    else if (resolvedHits.length) t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
-    else if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
     const out: ChoreographyTrace = {
       ...t,
       origin: { ...t.origin },
       terminal: t.terminal ? { ...t.terminal } : null,
       points: t.points.map((p) => ({ ...p })),
       areaPoints: t.areaPoints.map((p) => ({ ...p })),
+      areas: t.areas.map((q) => ({ ...q })),
+      contacts: t.contacts.map((p) => ({ ...p })),
       paths: t.paths.map((path) => path.map((p) => ({ ...p }))),
       carriers: t.carriers.map((q) => ({ ...q })),
       scheduled: t.scheduled.map((p) => ({ ...p }))
@@ -4509,16 +5222,6 @@ export class Simulation {
     return { x: center.x + Math.cos(a) * profile.radius, z: center.z + Math.sin(a) * profile.radius };
   }
 
-  private traceCarriers(trace: ChoreographyTrace) {
-    const out: { ref: ChoreographyCarrier; x: number; z: number }[] = [];
-    for (const ref of trace.carriers) {
-      const p = this.resolveChoreographyCarrier(ref);
-      if (p && !out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 0.25))
-        out.push({ ref, ...p });
-    }
-    return out;
-  }
-
   private tracePath(trace: ChoreographyTrace) {
     let best: ChoreographyPoint[] = [];
     let bestLen = 0;
@@ -4534,30 +5237,6 @@ export class Simulation {
     if (trace.terminal && !this.sameChoreographyPoint(trace.origin, trace.terminal))
       return [{ ...trace.origin }, { ...trace.terminal }];
     return [];
-  }
-
-  private sampleChoreographyPath(path: ChoreographyPoint[], count = 3) {
-    if (path.length <= 1 || count <= 1) return path.slice(0,1).map((p) => ({ ...p }));
-    const seg: number[] = [0];
-    let total = 0;
-    for (let i = 1; i < path.length; i++) {
-      total += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
-      seg.push(total);
-    }
-    if (total <= 0.001) return [path[0]];
-    const out: ChoreographyPoint[] = [];
-    for (let n = 0; n < count; n++) {
-      const d = (total * n) / Math.max(1, count - 1);
-      let i = 1;
-      while (i < seg.length && seg[i] < d) i++;
-      i = Math.min(i, path.length - 1);
-      const a = path[i - 1],
-        b = path[i],
-        span = Math.max(0.001, seg[i] - seg[i - 1]),
-        t = (d - seg[i - 1]) / span;
-      out.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
-    }
-    return out;
   }
 
   private choreographyAim(x: number, z: number, fallbackX = this.aimX, fallbackZ = this.aimZ) {
@@ -4632,13 +5311,17 @@ export class Simulation {
         t.carriers.push({ kind: 'projectile', id: p.id });
     for (const q of this.constructs)
       if (q.id >= firstNewId && q.sourceSlot === slot && q.faction === 'hero') {
+        q.activationId = this.currentActivationId;
         t.carriers.push({ kind: 'construct', id: q.id });
         this.tracePoint(q.x, q.z);
         this.traceArea(q.x, q.z, 0.7);
       }
     for (const f of this.fields)
-      if (f.id >= firstNewId && f.sourceSlot === slot && f.faction !== 'rival')
+      if (f.id >= firstNewId && f.sourceSlot === slot && f.faction !== 'rival') {
+        f.activationId = this.currentActivationId;
+        f.insideIds ??= [];
         this.traceArea(f.x, f.z, f.radius);
+      }
     if (id === 'orbit_blades') this.noteOrbitTrace();
   }
 
@@ -4667,127 +5350,6 @@ export class Simulation {
       centerZ
     });
     this.metrics.reactions++;
-  }
-
-  private executeChoreography(
-    incoming: CatalystId,
-    id: SkillId,
-    st: SkillRuntime,
-    slot: number,
-    previous: ChoreographyTrace | null
-  ) {
-    if (
-      !previous ||
-      !previous.skill ||
-      !catalystPairCompatible(incoming, previous.skill, id) ||
-      !(['source', 'carrier', 'trail', 'reverse', 'collapse'] as CatalystId[]).includes(incoming)
-    )
-      return false;
-
-    const mode = incoming as 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse',
-      path = this.tracePath(previous),
-      carriers = this.traceCarriers(previous);
-
-    if (mode === 'source') {
-      const p = previous.terminal ?? path[path.length - 1];
-      if (!p) return false;
-      if (id === 'orbit_blades') {
-        this.setOrbitChoreography(p.x, p.z);
-        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
-      } else this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
-      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [previous.origin, p]);
-      return true;
-    }
-
-    if (mode === 'carrier') {
-      const live = carriers.slice(0, 3);
-      if (!live.length) return false;
-      if (id === 'orbit_blades') {
-        this.setOrbitChoreography(live[0].x, live[0].z, live[0].ref);
-        this.castWithTrace(id, st, slot, this.choreographySource(live[0].x, live[0].z));
-      } else {
-        for (const p of live)
-          this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
-      }
-      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, live);
-      return true;
-    }
-
-    if (mode === 'trail') {
-      if (path.length < 2) return false;
-      let sampleCount = 3;
-      if (id === 'sentry') {
-        let pathLength = 0;
-        for (let i = 1; i < path.length; i++)
-          pathLength += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
-        // A Sentry trail is supposed to become infrastructure. Keep consecutive batteries
-        // close enough that Gravity Grid / Living Circuit can physically connect them,
-        // instead of drawing a pretty line of isolated towers that cannot interact.
-        sampleCount = Math.min(6, Math.max(3, Math.ceil(pathLength / 4.6) + 1));
-      }
-      const samples = this.sampleChoreographyPath(path, sampleCount);
-      if (id === 'orbit_blades') {
-        const p = samples[Math.floor(samples.length / 2)];
-        this.setOrbitChoreography(p.x, p.z);
-        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z));
-      } else {
-        for (let i = 0; i < samples.length; i++) {
-          const p = samples[i],
-            q = samples[Math.min(samples.length - 1, i + 1)],
-            prev = samples[Math.max(0, i - 1)],
-            dx = q.x - prev.x,
-            dz = q.z - prev.z;
-          this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, dx, dz));
-        }
-      }
-      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, path);
-      return true;
-    }
-
-    if (mode === 'reverse') {
-      if (path.length < 2) return false;
-      const start = path[0],
-        end = path[path.length - 1],
-        dx = start.x - end.x,
-        dz = start.z - end.z;
-      if (id === 'orbit_blades') {
-        this.setOrbitChoreography(end.x, end.z);
-        this.castWithTrace(id, st, slot, this.choreographySource(end.x, end.z, dx, dz));
-      } else this.castWithTrace(id, st, slot, this.choreographySource(end.x, end.z, dx, dz));
-      this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [...path].reverse());
-      return true;
-    }
-
-    const outer = previous.areaPoints.slice(0, 16);
-    if (!outer.length) return false;
-    const center = {
-      x: outer.reduce((a, p) => a + p.x, 0) / outer.length,
-      z: outer.reduce((a, p) => a + p.z, 0) / outer.length
-    };
-    if (id === 'orbit_blades') {
-      this.setOrbitChoreography(center.x, center.z);
-      this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
-    } else if (skills[id].directional) {
-      const spokes = outer.length <= 4
-        ? outer.slice(0, 3)
-        : [outer[0], outer[Math.floor(outer.length / 3)], outer[Math.floor((outer.length * 2) / 3)]];
-      for (const p of spokes)
-        this.castWithTrace(id, st, slot, this.choreographySource(p.x, p.z, center.x - p.x, center.z - p.z));
-    } else {
-      for (const eid of this.lastContext.hitIds) {
-        const e = this.ents.find((q) => q.id === eid && q.hp > 0);
-        if (!e) continue;
-        const dx = center.x - e.x,
-          dz = center.z - e.z,
-          d = Math.hypot(dx, dz) || 1;
-        e.x += (dx / d) * Math.min(1.1, d * 0.35);
-        e.z += (dz / d) * Math.min(1.1, d * 0.35);
-        e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.55);
-      }
-      this.castWithTrace(id, st, slot, this.choreographySource(center.x, center.z));
-    }
-    this.emitChoreography(mode, slot - 1, slot, previous.skill, id, [...outer, center]);
-    return true;
   }
 
   private stateActive(e: Ent, state: string) {
@@ -4881,19 +5443,22 @@ export class Simulation {
     width: number,
     maxHits = 99
   ) {
-    const hits: { e: Ent; t: number; lat: number }[] = [];
-    for (const e of this.targetsFor(src)) {
-      if (e.hp <= 0 || !this.lineOfSight(src.x, src.z, e.x, e.z, width * 0.2)) continue;
-      const dx = e.x - src.x,
-        dz = e.z - src.z,
-        t = dx * ax + dz * az;
-      if (t < 0 || t > range) continue;
-      const lat = Math.abs(dx * az - dz * ax);
-      if (lat <= width + e.radius * 0.45) hits.push({ e, t, lat });
+    const m=Math.hypot(ax,az)||1,
+      nx=ax/m,nz=az/m,
+      shape:CombatShape={kind:'ray',x:src.x,z:src.z,aimX:nx,aimZ:nz,range,halfWidth:width},
+      hits:{ e:Ent;t:number;lat:number }[]=[];
+    for(const e of this.targetsFor(src)){
+      if(e.hp<=0||!this.lineOfSight(src.x,src.z,e.x,e.z,width*0.2))continue;
+      if(!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;
+      const dx=e.x-src.x,dz=e.z-src.z,
+        t=dx*nx+dz*nz,
+        lat=Math.abs(dx*nz-dz*nx);
+      hits.push({e,t,lat});
     }
-    hits.sort((a, b) => a.t - b.t);
-    return hits.slice(0, maxHits);
+    hits.sort((a,b)=>a.t-b.t);
+    return hits.slice(0,maxHits);
   }
+
   private rotatedAim(src: CastSource, rad: number) {
     const c = Math.cos(rad),
       s = Math.sin(rad);
@@ -4960,9 +5525,12 @@ export class Simulation {
   private combatShape(
     source: string,
     shape: CombatShape,
-    intent: 'damage' | 'control' | 'field' = 'damage'
+    intent: 'damage' | 'control' | 'field' = 'damage',
+    physicalTrace = true
   ) {
-    this.traceCombatShape(shape);
+    // Render geometry and simulation truth are separate contracts. A moving projectile may
+    // draw its intended lane now, but its Catalyst path is published only as the body moves.
+    if (physicalTrace) this.traceCombatShape(shape);
     this.events.push({ type: 'CombatShape', tick: this.tick, source, intent, shape });
   }
 
@@ -5047,11 +5615,12 @@ export class Simulation {
     }
   }
   private castFrost(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut=st.mutation,r=this.skillRadius(st,skills.frost_ring.baseRadius,slot);
-    this.combatShape('frost_ring',{kind:'circle',x:src.x,z:src.z,radius:r},'control');
+    const mut=st.mutation,r=this.skillRadius(st,skills.frost_ring.baseRadius,slot),
+      shape:CombatShape={kind:'circle',x:src.x,z:src.z,radius:r};
+    this.combatShape('frost_ring',shape,'control');
     let shattered=0; let firstShatter:Ent|null=null;
     for(const e of this.targetsFor(src)){
-      const d=Math.hypot(e.x-src.x,e.z-src.z); if(d>r+e.radius)continue;
+      const d=Math.hypot(e.x-src.x,e.z-src.z); if(!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;
       const wasChilled=e.chillUntil>this.time, wasFrozen=(e.frozenUntil??0)>this.time;
       let dmg=skills.frost_ring.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e);
       if(mut==='frost_rim')dmg*=d>r*0.62?2:0.48;
@@ -5088,7 +5657,7 @@ export class Simulation {
     const requestedCount=this.projectileCount(st,slot), count=mut==='rail_gun'?1:requestedCount+(mut==='rail_fan'?2:0),rays:number[]=[];
     for(let i=0;i<count;i++)rays.push((i-(count-1)/2)*(mut==='rail_fan'?0.11:0.072));
     let latticePoint:{x:number;z:number}|null=null;
-    for(const ang of rays){const a=this.rotatedAim(src,ang);let base=skills.rail_spear.baseDamage*this.powerBucket(st)*(mut==='rail_gun'?2.35:mut==='rail_fan'?0.58:mut==='rail_rack'?0.78:1);const range=this.skillRange(st,mut==='rail_gun'?25:skills.rail_spear.baseRange),width=this.skillRadius(st,0.34,slot);this.combatShape('rail_spear',{kind:'ray',x:src.x,z:src.z,aimX:a.x,aimZ:a.z,range,halfWidth:width});const hits=this.rayHits(src,a.x,a.z,range,width,mut==='rail_gun'?14:mut==='rail_fan'?5:8);let first=true;
+    for(const ang of rays){const a=this.rotatedAim(src,ang);let base=skills.rail_spear.baseDamage*this.powerBucket(st)*(mut==='rail_gun'?2.35:mut==='rail_fan'?0.58:mut==='rail_rack'?0.78:1);const requestedRange=this.skillRange(st,mut==='rail_gun'?25:skills.rail_spear.baseRange),width=this.skillRadius(st,0.34,slot),endX=src.x+a.x*requestedRange,endZ=src.z+a.z*requestedRange,block=this.firstBlockingObstacleHit(src.x,src.z,endX,endZ,width*0.2),range=requestedRange*(block?.t??1);this.combatShape('rail_spear',{kind:'ray',x:src.x,z:src.z,aimX:a.x,aimZ:a.z,range,halfWidth:width});const hits=this.rayHits(src,a.x,a.z,range,width,mut==='rail_gun'?14:mut==='rail_fan'?5:8);let first=true;
       for(const h of hits){let dmg=base*this.slotAmp(slot,h.e);if(this.mutationIs(st,'rail_spot')&&h.e.markUntil>this.time)dmg*=1.25;const hadMark=h.e.markUntil>this.time;this.damage(h.e,dmg,'rail_spear',true,src.x,src.z,slot);h.e.embedded=Math.min(8,h.e.embedded+(mut==='rail_rack'?2:1));this.noteState('embed');if((this.mutationIs(st,'rail_spot')||hadMark)&&hadMark)h.e.exposedUntil=this.time+3;if(this.mutationIs(st,'rail_harpoon')&&first&&h.e.kind==='elite'){const dx=src.x-h.e.x,dz=src.z-h.e.z,d=Math.hypot(dx,dz)||1;h.e.x+=dx/d*1.25;h.e.z+=dz/d*1.25;}
         if(this.mutationIs(st,'rail_execution_line')&&first&&h.e.kind==='elite')this.scheduleStrike({at:this.time+0.55,x:h.e.x,z:h.e.z,radius:0.85,damage:base*1.25,faction:src.faction,ownerId:src.owner?.id??0,source:'rail_spear',sourceSlot:slot,intent:'damage',telegraph:'rail_execution_beacon'});
         if(this.mutationIs(st,'rail_sky_lance')&&hadMark)this.scheduleStrike({at:this.time+0.72,x:h.e.x,z:h.e.z,radius:1.0,damage:base*1.7,faction:src.faction,ownerId:src.owner?.id??0,source:'rail_spear',sourceSlot:slot,intent:'damage',telegraph:'rail_sky_lance_beacon'});
@@ -5098,11 +5667,11 @@ export class Simulation {
   }
 
   private castCleaver(st: SkillRuntime, slot: number, src: CastSource, repeat = false) {
-    const mut=st.mutation,r=this.skillRadius(st,skills.cleaver.baseRadius,slot);let half=mut==='cleaver_guillotine'?0.65:1.12;if(mut==='cleaver_roundhouse')half=Math.PI;this.combatShape('cleaver',{kind:'sector',x:src.x,z:src.z,radius:r,aimX:src.aimX,aimZ:src.aimZ,halfAngle:half});let kills=0,hookX=0,hookZ=0,hookN=0,ruptures=0;
-    for(const e of this.targetsFor(src)){const dx=e.x-src.x,dz=e.z-src.z,d=Math.hypot(dx,dz);if(d>r+e.radius||d<0.01)continue;const dot=dx/d*src.aimX+dz/d*src.aimZ;if(Math.acos(Math.max(-1,Math.min(1,dot)))>half)continue;let dmg=skills.cleaver.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e)*(repeat?0.65:1);if(mut==='cleaver_guillotine'&&e.hp/e.maxHp<0.25)dmg*=2;if(this.mutationIs(st,'cleaver_deep'))dmg*=1.22;const killed=this.damage(e,dmg,'cleaver',true,src.x,src.z,slot);this.closeDamage+=dmg;if(killed)kills++;
+    const mut=st.mutation,r=this.skillRadius(st,skills.cleaver.baseRadius,slot);let half=mut==='cleaver_guillotine'?0.65:1.12;if(mut==='cleaver_roundhouse')half=Math.PI;const shape:CombatShape={kind:'sector',x:src.x,z:src.z,radius:r,aimX:src.aimX,aimZ:src.aimZ,halfAngle:half};this.combatShape('cleaver',shape);let kills=0,hookX=0,hookZ=0,hookN=0,ruptures=0;
+    for(const e of this.targetsFor(src)){const dx=e.x-src.x,dz=e.z-src.z,d=Math.hypot(dx,dz);if(d<0.01||!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;let dmg=skills.cleaver.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e)*(repeat?0.65:1);if(mut==='cleaver_guillotine'&&e.hp/e.maxHp<0.25)dmg*=2;if(this.mutationIs(st,'cleaver_deep'))dmg*=1.22;const killed=this.damage(e,dmg,'cleaver',true,src.x,src.z,slot);this.closeDamage+=dmg;if(killed)kills++;
       if(this.mutationIs(st,'cleaver_deep')){const push=e.kind==='elite'?0.22:0.62;e.x+=dx/d*push;e.z+=dz/d*push;e.displacedUntil=Math.max(e.displacedUntil,this.time+0.45);this.noteState('displaced');}
       if(mut==='cleaver_hook'||this.mutationIs(st,'cleaver_chainhook')){const tx=src.x-e.x,tz=src.z-e.z,td=Math.hypot(tx,tz)||1,pull=this.mutationIs(st,'cleaver_chainhook')?1.05:0.65;e.x+=tx/td*pull*(1+st.control);e.z+=tz/td*pull*(1+st.control);hookX+=e.x;hookZ+=e.z;hookN++;}
-      if(this.mutationIs(st,'cleaver_rupture')&&ruptures<6){ruptures++;const burst=skills.cleaver.baseDamage*this.powerBucket(st)*0.48,rr=1.55;this.combatShape('cleaver_rupture',{kind:'circle',x:e.x,z:e.z,radius:rr});for(const o of this.targetsFor(src))if(o.hp>0&&o.id!==e.id&&Math.hypot(o.x-e.x,o.z-e.z)<rr+o.radius)this.damage(o,burst,'cleaver',false,e.x,e.z,slot);}
+      if(this.mutationIs(st,'cleaver_rupture')&&ruptures<6){ruptures++;const burst=skills.cleaver.baseDamage*this.powerBucket(st)*0.48,rr=1.55,rupture:CombatShape={kind:'circle',x:e.x,z:e.z,radius:rr};this.combatShape('cleaver_rupture',rupture);for(const o of this.targetsFor(src))if(o.hp>0&&o.id!==e.id&&combatShapeIntersectsCircle(rupture,o.x,o.z,o.radius))this.damage(o,burst,'cleaver',false,e.x,e.z,slot);}
     }
     if(this.mutationIs(st,'cleaver_rift_hook')&&hookN){const x=hookX/hookN,z=hookZ/hookN;this.scheduleStrike({at:this.time+0.24,x,z,radius:2.1,damage:skills.cleaver.baseDamage*this.powerBucket(st)*0.72,faction:src.faction,ownerId:src.owner?.id??0,source:'cleaver',sourceSlot:slot,intent:'control',telegraph:'cleaver_rift_tell'});}
     if(this.mutationIs(st,'cleaver_rhythm')&&kills>0&&!repeat){this.butcherStacks=Math.min(6,this.butcherStacks+kills);if(this.mutationIs(st,'cleaver_harvest_dance')||this.rng.float()<Math.min(0.65,this.butcherStacks*0.16)){const ax=src.aimX,az=src.aimZ;src.aimX=-az;src.aimZ=ax;this.combatShape('cleaver_harvest_dance',{kind:'circle',x:src.x,z:src.z,radius:r*1.18});this.castCleaver(st,slot,src,true);src.aimX=ax;src.aimZ=az;if(this.mutationIs(st,'cleaver_harvest_dance'))this.grantBarrier(3.5*kills);this.butcherStacks=0;}}
@@ -5115,36 +5684,50 @@ export class Simulation {
         (!src.owner?Math.min(3,Math.floor(this.doctrines.quantity/2)):0)+
         this.activationCountBonus+(this.mutationContinuation(st)?.countAdd??0),
       jumpRange=this.skillRange(st,this.mutationIs(st,'arc_relay')?5.8:4.2);
-    const available=this.targetsFor(src).filter(e=>e.hp>0&&this.targetVisible(src,e)&&Math.hypot(e.x-src.x,e.z-src.z)<this.skillRange(st,skills.chain_arc.baseRange));
+    const available=this.targetsFor(src).filter(e=>e.hp>0&&this.targetVisible(src,e)&&Math.hypot(e.x-src.x,e.z-src.z)<=this.skillRange(st,skills.chain_arc.baseRange)+e.radius);
     let current:Ent|undefined;const embedded=available.filter(e=>e.embedded>0);if(embedded.length)current=embedded.sort((a,b)=>b.embedded-a.embedded)[0];if(mut==='arc_ground')current=available.filter(e=>e.markUntil>this.time||e.embedded>0).sort((a,b)=>Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];if(!current)current=available.sort((a,b)=>Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];if(!current)return;
     const hit=new Set<number>(),path:Ent[]=[];let jumps=0,prevX=src.x,prevZ=src.z;
-    while(current&&jumps<maxJumps){hit.add(current.id);path.push(current);let dmg=skills.chain_arc.baseDamage*this.powerBucket(st)*this.slotAmp(slot,current)*Math.pow(mut==='arc_forked'?0.93:0.88,jumps);if(mut==='arc_ground'&&(current.markUntil>this.time||current.embedded>0))dmg*=1.45;if(current.embedded>0){dmg*=1.28;current.embedded--;this.metrics.reactions++;}this.combatShape('chain_arc',{kind:'ray',x:prevX,z:prevZ,aimX:(current.x-prevX)/(Math.hypot(current.x-prevX,current.z-prevZ)||1),aimZ:(current.z-prevZ)/(Math.hypot(current.x-prevX,current.z-prevZ)||1),range:Math.hypot(current.x-prevX,current.z-prevZ),halfWidth:0.08});this.damage(current,dmg,'chain_arc',false,prevX,prevZ,slot);this.noteState('charge');if(this.mutationIs(st,'arc_cage')&&this.time-current.lastArcAt<2.2)this.fields.push({id:this.nextId++,x:current.x,z:current.z,radius:1.25,ttl:1.7*(1+st.duration),kind:'arc',dps:13*this.powerBucket(st),tickAcc:0,faction:src.faction,ownerId:src.owner?.id??0,source:st.id,sourceSlot:slot,mutation:st.mutation,rivalConcentration:effectGrammar[st.id].rivalConcentration});current.lastArcAt=this.time;prevX=current.x;prevZ=current.z;jumps++;let next:Ent|undefined,best=999;for(const e of this.targetsFor(src)){if(e.hp<=0||hit.has(e.id))continue;const dd=Math.hypot(e.x-prevX,e.z-prevZ);if(dd<jumpRange&&dd<best){best=dd;next=e;}}current=next;}
+    while(current&&jumps<maxJumps){hit.add(current.id);path.push(current);let dmg=skills.chain_arc.baseDamage*this.powerBucket(st)*this.slotAmp(slot,current)*Math.pow(mut==='arc_forked'?0.93:0.88,jumps);if(mut==='arc_ground'&&(current.markUntil>this.time||current.embedded>0))dmg*=1.45;if(current.embedded>0){dmg*=1.28;current.embedded--;this.metrics.reactions++;}this.combatShape('chain_arc',{kind:'ray',x:prevX,z:prevZ,aimX:(current.x-prevX)/(Math.hypot(current.x-prevX,current.z-prevZ)||1),aimZ:(current.z-prevZ)/(Math.hypot(current.x-prevX,current.z-prevZ)||1),range:Math.hypot(current.x-prevX,current.z-prevZ),halfWidth:0.08});this.damage(current,dmg,'chain_arc',false,prevX,prevZ,slot);this.noteState('charge');if(this.mutationIs(st,'arc_cage')&&this.time-current.lastArcAt<2.2)this.fields.push({id:this.nextId++,x:current.x,z:current.z,radius:1.25,ttl:1.7*(1+st.duration),kind:'arc',dps:13*this.powerBucket(st),tickAcc:0,faction:src.faction,ownerId:src.owner?.id??0,source:st.id,sourceSlot:slot,mutation:st.mutation,rivalConcentration:effectGrammar[st.id].rivalConcentration});current.lastArcAt=this.time;prevX=current.x;prevZ=current.z;jumps++;let next:Ent|undefined,best=999;for(const e of this.targetsFor(src)){if(e.hp<=0||hit.has(e.id))continue;const dd=Math.hypot(e.x-prevX,e.z-prevZ);if(dd<=jumpRange+e.radius&&dd<best){best=dd;next=e;}}current=next;}
     if(this.mutationIs(st,'arc_capacitive')&&path.length&&jumps<maxJumps){
       const unused=Math.min(4,maxJumps-jumps), target=path[0], relay=this.mutationIs(st,'arc_relay');
       for(let i=0;i<unused;i++)this.scheduleStrike({at:this.time+0.07*(i+1),x:target.x,z:target.z,radius:relay?0.72:0.46,damage:skills.chain_arc.baseDamage*this.powerBucket(st)*(relay?0.68:0.52),faction:src.faction,ownerId:src.owner?.id??0,source:'chain_arc',sourceSlot:slot,intent:'damage',telegraph:'arc_return_pulse',fieldKind:relay?'arc':undefined,fieldDuration:relay?0.7:0,fieldDps:relay?4*this.powerBucket(st):0});
     }
     if(this.mutationIs(st,'arc_closed_loop')&&path.length>1){const first=path[0],last=path[path.length-1],d=Math.hypot(first.x-last.x,first.z-last.z)||1;this.combatShape('arc_closed_loop',{kind:'ray',x:last.x,z:last.z,aimX:(first.x-last.x)/d,aimZ:(first.z-last.z)/d,range:d,halfWidth:0.14});this.damage(first,skills.chain_arc.baseDamage*this.powerBucket(st)*1.55,'chain_arc',false,last.x,last.z,slot);}
     if(this.mutationIs(st,'arc_hunting_storm')){const extra=this.targetsFor(src).filter(e=>e.hp>0&&!hit.has(e.id)&&path.some(h=>Math.hypot(e.x-h.x,e.z-h.z)<jumpRange*1.2)).slice(0,3);for(const e of extra)this.scheduleStrike({at:this.time+0.18,x:e.x,z:e.z,radius:0.72,damage:skills.chain_arc.baseDamage*this.powerBucket(st)*0.82,faction:src.faction,ownerId:src.owner?.id??0,source:'chain_arc',sourceSlot:slot,intent:'damage',telegraph:'arc_hunting_node',fieldKind:'arc',fieldDuration:1.25,fieldDps:7*this.powerBucket(st)});}
-    if(this.mutationIs(st,'arc_living_circuit')&&src.faction==='hero'){for(const c of this.constructs.filter(q=>q.faction==='hero').slice(0,4)){const target=this.ents.filter(e=>e.hp>0&&Math.hypot(e.x-c.x,e.z-c.z)<c.range).sort((a,b)=>Math.hypot(a.x-c.x,a.z-c.z)-Math.hypot(b.x-c.x,b.z-c.z))[0];if(!target)continue;const dx=target.x-c.x,dz=target.z-c.z,d=Math.hypot(dx,dz)||1;this.combatShape('arc_living_circuit',{kind:'ray',x:c.x,z:c.z,aimX:dx/d,aimZ:dz/d,range:d,halfWidth:0.1});this.damage(target,skills.chain_arc.baseDamage*this.powerBucket(st)*0.65,'chain_arc',false,c.x,c.z,slot);}}
+    if(this.mutationIs(st,'arc_living_circuit')&&src.faction==='hero'){for(const c of this.constructs.filter(q=>q.faction==='hero').slice(0,4)){const target=this.ents.filter(e=>e.hp>0&&Math.hypot(e.x-c.x,e.z-c.z)<=c.range+e.radius).sort((a,b)=>Math.hypot(a.x-c.x,a.z-c.z)-Math.hypot(b.x-c.x,b.z-c.z))[0];if(!target)continue;const dx=target.x-c.x,dz=target.z-c.z,d=Math.hypot(dx,dz)||1;this.combatShape('arc_living_circuit',{kind:'ray',x:c.x,z:c.z,aimX:dx/d,aimZ:dz/d,range:d,halfWidth:0.1});this.damage(target,skills.chain_arc.baseDamage*this.powerBucket(st)*0.65,'chain_arc',false,c.x,c.z,slot);}}
   }
 
   private castOrbit(st: SkillRuntime, slot: number, src: CastSource) {
-    // The hero owns a continuously simulated orbit; a rival cannot borrow that global loop.
-    // D41 therefore mirrors the function as a readable ring pulse around the elite.
+    // The persistent hero Orbit always keeps activation lineage, including the Outbound mutation:
+    // Outbound adds a pulse but does not erase the continuously simulated blade actors.
+    if(src.faction==='hero'){
+      if(this.orbitActivationId && this.orbitActivationId!==this.currentActivationId){
+        const oldCenter=this.orbitCenter();
+        this.finishAsyncPhysical(this.orbitActivationId,oldCenter.x,oldCenter.z);
+      }
+      if(this.currentActivationId && this.orbitActivationId!==this.currentActivationId)
+        this.registerAsyncPhysical(this.currentActivationId);
+      this.orbitActivationId=this.currentActivationId;
+    }
+    // A rival cannot borrow the hero's global orbit loop; its echo remains an authored pulse.
     if (src.faction === 'rival' || st.mutation === 'orbit_outbound') {
-      const r = this.skillRadius(st, src.faction === 'rival' ? 2.8 : 4.6, slot);
-      this.combatShape('orbit_blades', { kind: 'circle', x: src.x, z: src.z, radius: r });
+      const r = this.skillRadius(st, src.faction === 'rival' ? 2.8 : 4.6, slot),
+        shape:CombatShape={ kind: 'circle', x: src.x, z: src.z, radius: r };
+      this.combatShape('orbit_blades', shape);
       for (const e of this.targetsFor(src)) {
-        if (Math.hypot(e.x - src.x, e.z - src.z) < r + e.radius)
-          this.damage(
-            e,
-            skills.orbit_blades.baseDamage *
-              (src.faction === 'rival' ? 1.45 : 2.2) *
-              this.powerBucket(st) *
-              this.slotAmp(slot, e),
-            'orbit_blades',
-            false
-          );
+        if (!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius)) continue;
+        this.damage(
+          e,
+          skills.orbit_blades.baseDamage *
+            (src.faction === 'rival' ? 1.45 : 2.2) *
+            this.powerBucket(st) *
+            this.slotAmp(slot, e),
+          'orbit_blades',
+          false,
+          src.x,
+          src.z,
+          slot
+        );
       }
     }
   }
@@ -5154,15 +5737,21 @@ export class Simulation {
       const marked=this.targetsFor(src).filter(e=>e.hp>0&&e.kind==='elite'&&e.markUntil>this.time&&Math.hypot(e.x-src.x,e.z-src.z)<=range+3).sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0];
       if(marked)p={x:marked.x,z:marked.z};
     }
-    if(this.currentChoreography) this.traceSegment({x:src.x,z:src.z},{x:p.x,z:p.z});
     if(mut==='mortar_fuse'){r*=1.35;mult*=1.35;}if(this.mutationIs(st,'mortar_airburst')){r*=1.2;mult*=0.86;}
     const baseDamage=skills.mortar_bloom.baseDamage*this.powerBucket(st)*this.slotAmp(slot)*mult;
     let points:{x:number;z:number;delay:number}[]=[];
     if(this.mutationIs(st,'mortar_carpet')){for(let i=-2;i<=2;i++)points.push({x:p.x+src.aimX*i*1.7,z:p.z+src.aimZ*i*1.7,delay:0.25+(i+2)*0.13});}
     else if(this.mutationIs(st,'mortar_hunter_pass')){const elite=this.targetsFor(src).filter(e=>e.kind==='elite'&&e.hp>0).sort((a,b)=>Number(b.markUntil>this.time)-Number(a.markUntil>this.time)||Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];const t=elite??({x:p.x,z:p.z} as Ent);for(let i=0;i<3;i++){const a=i*Math.PI*2/3;points.push({x:t.x+Math.cos(a)*1.35,z:t.z+Math.sin(a)*1.35,delay:0.28+i*0.22});}}
     else {const n=mut==='mortar_cluster'?3:Math.max(1,Math.min(3,this.projectileCount(st,slot)));for(let i=0;i<n;i++){const a=i?this.rng.range(0,Math.PI*2):0,rr=i?this.rng.range(0.7,1.5):0;points.push({x:p.x+Math.cos(a)*rr,z:p.z+Math.sin(a)*rr,delay:0.38+i*0.12});}}
-    for(const q of points)this.scheduleStrike({at:this.time+q.delay,x:q.x,z:q.z,radius:r,damage:baseDamage,faction:src.faction,ownerId:src.owner?.id??0,source:'mortar_bloom',sourceSlot:slot,intent:'damage',telegraph:'bombardier_marker',fieldKind:this.mutationIs(st,'mortar_gravity_field')?'arc':this.mutationIs(st,'mortar_crater')?'frost':undefined,fieldDuration:this.mutationIs(st,'mortar_gravity_field')?3.4:2.5,fieldDps:this.mutationIs(st,'mortar_gravity_field')?5*this.powerBucket(st):6*this.powerBucket(st)});
-    if(this.mutationIs(st,'mortar_gravity_field')){for(const e of this.targetsFor(src)){const dx=p.x-e.x,dz=p.z-e.z,d=Math.hypot(dx,dz)||1;if(d<r*2.2){e.x+=dx/d*0.55;e.z+=dz/d*0.55;e.displacedUntil=this.time+0.8;}}}
+    for(const q of points)this.scheduleStrike({
+      at:this.time+q.delay,x:q.x,z:q.z,radius:r,damage:baseDamage,faction:src.faction,
+      ownerId:src.owner?.id??0,source:'mortar_bloom',sourceSlot:slot,intent:'damage',
+      telegraph:'bombardier_marker',
+      fieldKind:this.mutationIs(st,'mortar_gravity_field')?'arc':this.mutationIs(st,'mortar_crater')?'frost':undefined,
+      fieldDuration:this.mutationIs(st,'mortar_gravity_field')?3.4:2.5,
+      fieldDps:this.mutationIs(st,'mortar_gravity_field')?5*this.powerBucket(st):6*this.powerBucket(st),
+      fieldBehavior:this.mutationIs(st,'mortar_gravity_field')?'pull':undefined
+    });
     this.noteState('field');
   }
 
@@ -5185,20 +5774,26 @@ export class Simulation {
         rawZ=src.z+src.aimZ*(forward+stagger)+perpZ*lane*spacing,
         p=this.freeOf(rawX,rawZ,0.38),
         id=this.nextId++;
-      this.constructs.push({id,x:p.x,z:p.z,ttl:this.persistentDuration(st,5.25,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.powerBucket(st)*this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
+      const activationId=src.faction==='hero'?this.currentActivationId:0;
+      this.constructs.push({id,activationId:activationId||undefined,x:p.x,z:p.z,ttl:this.persistentDuration(st,5.25,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.powerBucket(st)*this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
+      if(activationId)this.registerAsyncPhysical(activationId);
       if(this.currentChoreography&&src.faction==='hero')this.currentChoreography.carriers.push({kind:'construct',id});
       this.events.push({type:'ConstructSpawned',tick:this.tick,skill:'sentry',x:p.x,z:p.z});
       this.combatShape('sentry_placement',{kind:'circle',x:p.x,z:p.z,radius:0.42},'field');
     }
-    while(this.constructs.length>18)this.constructs.shift();
+    while(this.constructs.length>18){
+      const removed=this.constructs.shift();
+      if(removed?.activationId)this.finishAsyncPhysical(removed.activationId,removed.x,removed.z);
+    }
     this.noteState('construct');
   }
 
   private castToxic(st: SkillRuntime, slot: number, src: CastSource) {
     let r=this.skillRadius(st,skills.toxic_mist.baseRadius,slot),dps=skills.toxic_mist.baseDamage*this.powerBucket(st)*this.slotAmp(slot);if(st.mutation==='toxic_distilled'){r*=0.58;dps*=1.85;}const x=this.mutationIs(st,'toxic_plume')?src.x-src.vx*0.55:src.x,z=this.mutationIs(st,'toxic_plume')?src.z-src.vz*0.55:src.z;
-    const reactiveTargets:Ent[]=[];if(this.mutationIs(st,'toxic_reactive'))for(const e of this.targetsFor(src)){if(e.hp<=0||Math.hypot(e.x-x,e.z-z)>r+e.radius)continue;const reactive=e.igniteUntil>this.time||e.chillUntil>this.time||(e.frozenUntil??0)>this.time||e.exposedUntil>this.time||e.displacedUntil>this.time;if(reactive){this.damage(e,dps*1.25,'septic_cut',false,x,z,slot);this.metrics.reactions++;reactiveTargets.push(e);}}
+    const mistShape:CombatShape={kind:'circle',x,z,radius:r};
+    const reactiveTargets:Ent[]=[];if(this.mutationIs(st,'toxic_reactive'))for(const e of this.targetsFor(src)){if(e.hp<=0||!combatShapeIntersectsCircle(mistShape,e.x,e.z,e.radius))continue;const reactive=e.igniteUntil>this.time||e.chillUntil>this.time||(e.frozenUntil??0)>this.time||e.exposedUntil>this.time||e.displacedUntil>this.time;if(reactive){this.damage(e,dps*1.25,'septic_cut',false,x,z,slot);this.metrics.reactions++;reactiveTargets.push(e);}}
     const pushField=(fx:number,fz:number,fr:number,ttl:number,behavior?:'host')=>this.fields.push({id:this.nextId++,x:fx,z:fz,radius:fr,ttl,kind:'toxic',dps,tickAcc:0,faction:src.faction,ownerId:src.owner?.id??0,source:st.id,sourceSlot:slot,mutation:st.mutation,rivalConcentration:effectGrammar[st.id].rivalConcentration,behavior});
-    this.combatShape('toxic_mist',{kind:'circle',x,z,radius:r},'field');pushField(x,z,r,this.persistentDuration(st,4.2,slot),this.mutationIs(st,'toxic_pestilent_host')?'host':undefined);
+    this.combatShape('toxic_mist',mistShape,'field');pushField(x,z,r,this.persistentDuration(st,4.2,slot),this.mutationIs(st,'toxic_pestilent_host')?'host':undefined);
     if(this.mutationIs(st,'toxic_plague_road')){const m=Math.hypot(src.vx,src.vz)||1,dx=src.vx/m,dz=src.vz/m;for(let i=1;i<=3;i++)pushField(x-dx*i*1.3,z-dz*i*1.3,r*0.55,2.4);}
     if(this.mutationIs(st,'toxic_septic_bloom'))for(const e of reactiveTargets){for(let i=0;i<4;i++){const a=i*Math.PI/2;pushField(e.x+Math.cos(a)*1.1,e.z+Math.sin(a)*1.1,r*0.42,2.2);this.scheduleStrike({at:this.time+0.12+i*0.04,x:e.x+Math.cos(a)*1.1,z:e.z+Math.sin(a)*1.1,radius:r*0.45,damage:dps*0.72,faction:src.faction,ownerId:src.owner?.id??0,source:'toxic_mist',sourceSlot:slot,intent:'field',telegraph:'septic_bloom'});}}
     this.noteState('toxin');
@@ -5257,7 +5852,7 @@ export class Simulation {
     if(this.mutationIs(st,'mass_terminal')){speed*=1.38;damage*=1.42;radius*=0.9;}
     if(mut==='mass_recoil'||this.mutationIs(st,'mass_counterthrust')){const kick=this.mutationIs(st,'mass_comet_recoil')?1.8:1.05;this.displaceSource(src,-src.aimX*kick,-src.aimZ*kick);if(!src.owner&&this.mutationIs(st,'mass_comet_recoil'))this.dashIFramesUntil=Math.max(this.dashIFramesUntil,this.time+0.16);}
     if(this.mutationIs(st,'mass_comet_recoil')){speed*=1.35;damage*=1.28;radius*=1.18;}
-    this.combatShape('mass_driver',{kind:'ray',x:src.x,z:src.z,aimX:src.aimX,aimZ:src.aimZ,range,halfWidth:radius},'control');
+    this.combatShape('mass_driver',{kind:'ray',x:src.x,z:src.z,aimX:src.aimX,aimZ:src.aimZ,range,halfWidth:radius},'control',false);
     this.spawnProjectile({x:src.x+src.aimX*(radius+0.25),z:src.z+src.aimZ*(radius+0.25),vx:src.aimX*speed,vz:src.aimZ*speed,radius,ttl:range/speed,damage,coverDamage:cover+damage*0.8,faction:src.faction,ownerId:src.owner?.id??0,source:'mass_driver',sourceSlot:slot,mutation:mut,apotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.mass_driver.rivalConcentration,behavior:'roller',phase:0,hitIds:[],growth:this.mutationIs(st,'mass_avalanche')?0.12:mut==='mass_snowball'?0.06:0});
   }
 
@@ -5435,6 +6030,12 @@ export class Simulation {
     if (skill && this.currentSlot >= 0) {
       this.currentHits.add(e.id);
       this.currentActivationDamage += actual;
+      if (this.currentChoreography?.skill === skill.id) {
+        const p={x:e.x,z:e.z},
+          last=this.currentChoreography.contacts[this.currentChoreography.contacts.length-1];
+        if(!last || !this.sameChoreographyPoint(last,p,0.02))
+          this.currentChoreography.contacts.push(p);
+      }
     }
     this.events.push({
       type: 'DamageResolved',
