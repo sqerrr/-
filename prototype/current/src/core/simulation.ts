@@ -15,6 +15,7 @@ import {
   mutationDef,
   mutationRoots,
   mutationChildren,
+  phenomenonChoreography,
   resonance,
   resonanceOrder,
   skillOrder,
@@ -4661,7 +4662,11 @@ export class Simulation {
     }
     this.activationPending.delete(activationId);
     const meta = this.activationMeta.get(activationId);
-    if (meta && !this.activationTerminalSeen.has(activationId))
+    if (
+      meta &&
+      phenomenonChoreography[meta.skill].emits.includes('terminal') &&
+      !this.activationTerminalSeen.has(activationId)
+    )
       this.queuePhysicalEvent({
         activationId,
         slot: meta.slot,
@@ -4891,7 +4896,7 @@ export class Simulation {
       return;
     }
 
-    if (binding.mode === 'carrier' && e.kind === 'contact' && e.carrierKind && e.carrierId !== undefined) {
+    if (binding.mode === 'carrier' && (e.kind === 'contact' || e.kind === 'impact') && e.carrierKind && e.carrierId !== undefined) {
       const key = e.carrierKind + ':' + e.carrierId;
       if (binding.carrierKeys.has(key) || binding.firedCount >= 3) return;
       binding.carrierKeys.add(key);
