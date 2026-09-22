@@ -3217,26 +3217,30 @@ export class Simulation {
       const owner = f.ownerId ? this.ents.find((e) => e.id === f.ownerId) ?? null : null;
       if (f.behavior === 'host' && f.faction === 'hero') {
         const target=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number(b.kind==='elite')-Number(a.kind==='elite')||Math.hypot(a.x-f.x,a.z-f.z)-Math.hypot(b.x-f.x,b.z-f.z))[0];
-        if(target){const dx=target.x-f.x,dz=target.z-f.z,d=Math.hypot(dx,dz)||1;f.x+=dx/d*1.75*this.dt;f.z+=dz/d*1.75*this.dt;}
+        if(target){
+          const dx=target.x-f.x,dz=target.z-f.z,d=Math.hypot(dx,dz)||1;
+          f.x+=dx/d*1.75*this.dt;f.z+=dz/d*1.75*this.dt;
+        }
       }
 
+      const shape:CombatShape={kind:'circle',x:f.x,z:f.z,radius:f.radius};
       if (f.kind === 'ink' || f.kind === 'architect') {
-        if (Math.hypot(this.px - f.x, this.pz - f.z) < f.radius)
+        if (combatShapeIntersectsCircle(shape,this.px,this.pz,HERO_HIT_RADIUS))
           this.hitPlayer(f.dps * this.dt, owner);
       } else if (f.kind !== 'index' && f.kind !== 'veil' && f.tickAcc >= 0.25) {
         f.tickAcc -= 0.25;
         if (faction === 'rival') {
-          if (Math.hypot(this.px - f.x, this.pz - f.z) <= f.radius + HERO_HIT_RADIUS) {
+          if (combatShapeIntersectsCircle(shape,this.px,this.pz,HERO_HIT_RADIUS)) {
             this.damageHero(
               f.dps * 0.25,
-              f.source ?? `${f.kind}_field`,
+              f.source ?? (f.kind + '_field'),
               owner,
               f.rivalConcentration ?? 1
             );
           }
         } else {
           for (const e of this.ents) {
-            if (e.hp <= 0 || Math.hypot(e.x - f.x, e.z - f.z) > f.radius) continue;
+            if (e.hp <= 0 || !combatShapeIntersectsCircle(shape,e.x,e.z,e.radius)) continue;
             if (f.kind === 'frost')
               e.chillUntil = Math.max(e.chillUntil, this.time + 1.2 * this.memoryFactor());
             if (f.kind === 'fire')
@@ -3272,10 +3276,36 @@ export class Simulation {
           }
         }
       }
+
+      // Contact is edge-triggered independently from damage cadence. A target crossing a field
+      // hitbox is a physical event now; it is not inferred later from a 250 ms damage tick.
+      if (faction === 'hero' && f.activationId && f.source && f.sourceSlot !== undefined) {
+        const previous = new Set(f.insideIds ?? []),
+          inside:number[]=[];
+        for(const e of this.ents){
+          if(e.hp<=0 || !combatShapeIntersectsCircle(shape,e.x,e.z,e.radius)) continue;
+          inside.push(e.id);
+          if(!previous.has(e.id)){
+            this.queuePhysicalEvent({
+              activationId:f.activationId,
+              slot:f.sourceSlot,
+              skill:f.source as SkillId,
+              kind:'contact',
+              x:e.x,
+              z:e.z,
+              radius:f.radius,
+              targetId:e.id
+            });
+          }
+        }
+        f.insideIds=inside;
+      }
+
       if (f.ttl > 0) alive.push(f);
     }
     this.fields = alive;
   }
+
   private updateDots() {
     for (const e of this.ents) {
       if (e.hp <= 0) continue;
