@@ -31,6 +31,7 @@ import {
 import { Simulation } from '../core/simulation.js';
 import type {
   CatalystId,
+  EliteAffix,
   GameEvent,
   RewardOffer,
   RunMode,
@@ -1059,7 +1060,7 @@ function drawEliteMapMarker(
 }
 function drawAffixBadge2d(
   ctx: CanvasRenderingContext2D,
-  affix: string,
+  affix: EliteAffix,
   x: number,
   y: number,
   size = 16
