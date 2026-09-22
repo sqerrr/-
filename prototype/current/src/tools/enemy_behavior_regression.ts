@@ -37,10 +37,10 @@ function enemy(kind:Ent['kind'],id:number,x=0,z=0){
   assert(e.state==='telegraph' && e.cooldown===99,'bookmark tell changed');
   e.stateTimer=0;
   system.update(e,e.speed,6,1,0);
-  assert(e.state==='dash','bookmark did not enter dash');
+  assert(String(e.state)==='dash','bookmark did not enter dash');
   e.stateTimer=0;
   system.update(e,e.speed,6,1,0);
-  assert(e.state==='normal' && e.cooldown===2.9,'bookmark recovery changed');
+  assert(String(e.state)==='normal' && Number(e.cooldown)===2.9,'bookmark recovery changed');
 }
 
 // Binder chooses a nearby non-binder and keeps identity by id.
