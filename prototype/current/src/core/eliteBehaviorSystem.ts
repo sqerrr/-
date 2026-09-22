@@ -21,7 +21,7 @@ export interface EliteBehaviorPort {
   addField(field: Omit<Field, 'id'>): void;
   emitCombatShape(source: string, shape: CombatShape, intent?: 'damage' | 'control' | 'field'): void;
   combatShape(source: string, shape: CombatShape, intent?: 'damage' | 'control' | 'field'): void;
-  emitOrder(entity: Ent, order: EliteActionId): void;
+  emitOrder(entity: Ent, order: Exclude<EliteActionId, 'predator_dash'>): void;
   hitPlayer(amount: number, attacker: Ent, source: DamageSourceId): void;
   damageScale(): number;
   spawnReplicant(entity: Ent): void;
