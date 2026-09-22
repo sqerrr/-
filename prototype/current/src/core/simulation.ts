@@ -4072,6 +4072,13 @@ export class Simulation {
     const st = this.skillsRuntime.get(id);
     if (!st) return;
 
+    // A live Catalyst 2.x edge turns the right node into a physical payload for this cycle.
+    // Its ordinary beat is consumed, but the payload itself fires from a real contact/impact/path event.
+    if (this.catalystDeferredCycle.get(slot) === this.cycle) {
+      this.catalystDeferredCycle.delete(slot);
+      return;
+    }
+
     this.currentSlot = slot;
     this.currentHits.clear();
     this.currentActivationDamage = 0;
@@ -4082,20 +4089,14 @@ export class Simulation {
     this.activationScale = 1;
     this.activationCountBonus = 0;
     this.activationDerived = false;
+    const activationId = this.beginPhysicalActivation(slot, id);
     this.beginChoreographyTrace(id);
 
     const incoming = this.incomingCatalyst(slot),
       conduct = 1 + this.resonance.conductivity * 0.16,
       previousContext = this.lastContext,
-      choreographyId =
-        incoming !== null &&
-        (['source', 'carrier', 'trail', 'reverse', 'collapse'] as CatalystId[]).includes(incoming),
-      choreographyReady =
-        !!incoming &&
-        choreographyId &&
-        !!previousContext.trace &&
-        !!previousContext.skill &&
-        catalystPairCompatible(incoming, previousContext.skill, id);
+      choreographyId = this.isPhysicalCatalyst(incoming),
+      choreographyReady = false;
 
     // Compatibility-only Catalyst 1.x operators remain executable for old saves/replays.
     // Current Discovery never offers them; the active five are handled below as physical choreography.
@@ -4181,17 +4182,8 @@ export class Simulation {
     }
 
     this.metrics.activations++;
-    let choreographyHandled = false;
-    if (choreographyReady && incoming)
-      choreographyHandled = this.executeChoreography(
-        incoming,
-        id,
-        st,
-        slot,
-        previousContext.trace
-      );
-    if (!choreographyHandled)
-      this.castWithTrace(id, st, slot, this.heroSource());
+    // Catalyst 2.x no longer teleports B on this beat. A's live lifecycle owns when/where B fires.
+    this.castWithTrace(id, st, slot, this.heroSource());
 
     this.aimX = oldAimX;
     this.aimZ = oldAimZ;
@@ -4301,6 +4293,8 @@ export class Simulation {
 
     const trace = this.finishChoreographyTrace(),
       previous = this.lastContext;
+    this.publishImmediatePhysicalTrace(id, slot, activationId, trace);
+    this.flushPhysicalEvents();
     this.lastContext = {
       skill: id,
       damage: this.currentActivationDamage,
@@ -4373,6 +4367,7 @@ export class Simulation {
       };
     }
     this.currentSlot = -1;
+    this.currentActivationId = 0;
     this.activationScale = 1;
     this.activationCountBonus = 0;
     this.activationDerived = false;
