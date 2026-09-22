@@ -4733,6 +4733,7 @@ export class Simulation {
     this.currentActivationId = activationId;
     this.activationMeta.set(activationId, { skill: binding.toSkill, slot: binding.toSlot });
     this.activationLastPoint.set(activationId, { x, z });
+    if(binding.toSkill==='orbit_blades') this.setOrbitChoreography(x,z);
     this.beginChoreographyTrace(binding.toSkill);
     this.armOutgoingPhysicalCatalyst(binding.toSlot, binding.toSkill, activationId, {x,z});
     this.metrics.activations++;
