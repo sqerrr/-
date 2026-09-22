@@ -28,7 +28,9 @@ const lifecycle=read('../../39_PHYSICAL_LIFECYCLE_HITBOX_AUDIT_2026-09-22.md');
 assert(lifecycle.includes('activationId'),'physical lifecycle authority lost activation lineage');
 assert(lifecycle.includes('Mortar -> Carrier -> Frost'),'physical lifecycle authority lost the concrete impact-timing example');
 assert(lifecycle.includes('executeChoreography()'),'physical lifecycle authority no longer records removal of next-beat engine');
-assert(lifecycle.includes('280'),'physical lifecycle authority lost exhaustive pair count');
+assert(lifecycle.includes('266'),'physical lifecycle authority lost exhaustive pair count');
+assert(lifecycle.includes('240'),'physical lifecycle authority lost mutation-signal audit count');
+assert(lifecycle.includes('Reverse requires both a real `path` and a real `terminal`'),'physical lifecycle authority permits fabricated Reverse routes');
 
 assert(read('../../38_ELITE_VISUAL_LANGUAGE_2026-09-22.md').includes('Red is reserved for immediate hostile danger'),'elite visual-language authority lost the danger-color contract');
 assert(read('../../37_CATALYST_2_0_CHOREOGRAPHY_2026-09-22.md').includes('GIF test'),'Catalyst design authority lost the visual interaction criterion');
