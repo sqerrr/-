@@ -103,6 +103,7 @@ export type EliteOrderId =
 export type BossPatternId = 'sweep' | 'rupture' | 'charge';
 export type DamageSourceId =
   | SkillId
+  | `echo_${SkillId}`
   | 'contact'
   | 'temporal_shift'
   | 'brood_pulse'
