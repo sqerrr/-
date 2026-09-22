@@ -173,7 +173,9 @@ For multi-projectile Phenomena, one real carrier path is kept coherent; events f
 
 B waits for a real terminal and starts there.
 
-Its backwards direction uses the recorded physical route; if the Phenomenon has no simulated ground path (for example Mortar), it uses the activation's immutable physical origin rather than inventing a path.
+Its backwards direction uses the recorded physical route. **Reverse requires both a real `path` and a real `terminal`.**
+
+If a Phenomenon has no simulated route (currently Mortar), Reverse is incompatible. The runtime never fabricates an origin → terminal segment just to make the operator fit.
 
 ### Collapse
 
@@ -274,9 +276,9 @@ Exhaustive live runtime result after the audit:
 | Source | 70 | 63.6% |
 | Carrier | 46 | 41.8% |
 | Trail | 45 | 40.9% |
-| Reverse | 49 | 44.5% |
+| Reverse | 35 | 31.8% |
 | Collapse | 70 | 63.6% |
-| **Total exercised** | **280** | — |
+| **Total exercised** | **266** | — |
 
 Every advertised pair is run through physical lifecycle simulation. The test never manually activates B.
 
@@ -313,11 +315,44 @@ This is an explicit capability boundary, not a renderer workaround.
 8. Sentry Carrier does not fire at deployment; it fires on a real turret shot;
 9. Orbit does not damage an enemy between blades;
 10. Orbit Carrier fires on a real blade collision;
-11. Mortar Reverse waits for impact and aims back to activation origin;
+11. Mortar Reverse is rejected because Mortar has no simulated path; Mass Driver Reverse consumes its real travelled route;
 12. immediate Frost Collapse still works immediately because its area exists immediately;
 13. the ordinary B chain beat does not duplicate the reactive B cast.
 
-`catalyst_choreography_regression` now exercises all **280** advertised pairs through the same lifecycle.
+`catalyst_choreography_regression` now exercises all **266** advertised pairs through the same lifecycle.
+
+## Additional collision/timing defects found during the audit
+
+The first lifecycle rewrite exposed several second-order collisions that are now part of the contract:
+
+- a compatible right-hand node **never receives an independent Chain-clock cast**, even if A takes several cycles to reach its terminal;
+- Catalyst bindings have no arbitrary six-second timeout: Sentry/Orbit lineage lives as long as the real owning physical actors live;
+- exact synchronous contact coordinates are captured inside damage resolution **before** Hook/pull/knockback can move the target;
+- projectile collision with solid cover is a real Carrier contact, at the swept collision point;
+- Gravity Grid uses the same rendered ray/capsule shape for damage/control instead of a second hand-written width formula;
+- Rail uses the shared capsule-vs-actor test with the full actor radius;
+- expired fields and constructs cease to exist before damage/contact/fire logic, eliminating one-tick ghost interactions;
+- Mass Driver recoil cannot leave Catalyst origin at the hero's old position: the path begins at the real spawned moving body;
+- disconnected impacts/contacts are never appended into a fake route;
+- Mortar Gravity no longer pulls on marker creation. The marker is only a plan; the pull field begins after the actual impact creates it.
+
+### Actor-owned lifetime
+
+Async activation ownership is explicit rather than time-based:
+
+- projectiles and delayed strikes register and close their physical lifetime;
+- Sentry constructs hold lineage until destruction/TTL/capacity eviction;
+- the continuous Orbit set holds lineage until replaced/removed;
+- derived physical actors inherit lineage;
+- activation bookkeeping is retired only after its causal event queue drains.
+
+This is required for a slow A: the system must not decide that its Catalyst “expired” merely because an arbitrary number of seconds passed.
+
+### Mutation coverage
+
+The lifecycle regression also executes **240 catalogue-derived mutation × physical-signal cases**.
+
+For every active Phenomenon it tests the base form plus every root/continuation/apotheosis entry against every physical signal that Phenomenon advertises. B is never manually activated to make these cases pass.
 
 ## Removed legacy architecture
 
