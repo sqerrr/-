@@ -23,6 +23,7 @@ import {
   statBase
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
+import { BossBehaviorSystem } from './bossBehaviorSystem.js';
 import { EncounterDirector } from './encounterDirector.js';
 import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
 import { EntityStore } from './entityStore.js';
@@ -276,6 +277,7 @@ export class Simulation {
   private rng: Rng;
   private encounterDirector!: EncounterDirector;
   private eliteBehavior!: EliteBehaviorSystem;
+  private bossBehavior!: BossBehaviorSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -540,6 +542,52 @@ export class Simulation {
         this.clampWorld();
       },
       entities: () => this.ents
+    });
+    this.bossBehavior = new BossBehaviorSystem({
+      world: this.world,
+      time: () => this.time,
+      tick: () => this.tick,
+      dt: () => this.dt,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      playerVX: () => this.playerVX,
+      playerVZ: () => this.playerVZ,
+      hasEcho: (entityId) => this.eliteEchoes.has(entityId),
+      fieldRefusals: (entity, distance) => this.fieldRefusals(entity, distance),
+      steerTo: (entity, x, z, speed, multiplier = 1) =>
+        this.steerTo(entity, x, z, speed, multiplier),
+      playerInSector: (x, z, ax, az, radius, halfAngle) =>
+        this.playerInSector(x, z, ax, az, radius, halfAngle),
+      playerInRay: (x, z, ax, az, range, halfWidth) =>
+        this.playerInRay(x, z, ax, az, range, halfWidth),
+      hitPlayer: (amount, attacker, source) => this.hitPlayer(amount, attacker, source),
+      damageScale: () => this.damageScale(),
+      addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
+      spawnEnemyAt: (kind, x, z, buffedFor = 0) => {
+        this.spawnEnemyAt(kind, x, z, buffedFor);
+      },
+      randomFloat: () => this.rng.float(),
+      randomRange: (min, max) => this.rng.range(min, max),
+      emitPhase: (entity, phase) =>
+        this.events.push({
+          type: 'BossPhase',
+          tick: this.tick,
+          entity: entity.id,
+          phase,
+          x: entity.x,
+          z: entity.z
+        }),
+      emitTelegraph: (source, shape) =>
+        this.events.push({ type: 'CombatShape', tick: this.tick, source, intent: 'damage', shape }),
+      emitPattern: (entity, pattern) =>
+        this.events.push({
+          type: 'BossPattern',
+          tick: this.tick,
+          entity: entity.id,
+          pattern,
+          x: entity.x,
+          z: entity.z
+        })
     });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
@@ -2350,144 +2398,7 @@ export class Simulation {
   }
 
   private updateBossAI(e: Ent, speed: number, d: number, nx: number, nz: number) {
-    const nextPhase =
-      e.bossPhase === 1 && e.hp <= e.maxHp * 0.66 ? 2 :
-      e.bossPhase === 2 && e.hp <= e.maxHp * 0.33 ? 3 : 0;
-    if (nextPhase) {
-      e.bossPhase = nextPhase;
-      e.adaptCooldown = nextPhase === 3 ? 0.15 : 0.45;
-      e.buffUntil = this.time + 1.1;
-      this.events.push({
-        type: 'BossPhase',
-        tick: this.tick,
-        entity: e.id,
-        phase: nextPhase,
-        x: e.x,
-        z: e.z
-      });
-      if (nextPhase === 3) {
-        for (let i=0;i<4;i++) {
-          const a=i*Math.PI/2+0.35;
-          this.spawnEnemyAt(i%2?'bookmark':'marginwalker',e.x+Math.cos(a)*2.6,e.z+Math.sin(a)*2.6,2.0);
-        }
-      }
-    }
-    // Between Warden patterns the boss can field the same authored Echo language as elites.
-    // This reuses collected run history without copying the player's dispatcher.
-    if (e.adaptStage === 0 && !e.eliteAction && !this.eliteEchoes.has(e.id) && e.repertoire.length) {
-      this.fieldRefusals(e, d);
-      if (this.eliteEchoes.has(e.id)) return;
-    }
-    if (e.adaptStage === 2 && e.bossPattern === 'charge') {
-      e.x += e.lockedX * (e.bossPhase >= 3 ? 15.2 : e.bossPhase >= 2 ? 13.5 : 11.5) * this.dt;
-      e.z += e.lockedZ * (e.bossPhase >= 3 ? 15.2 : e.bossPhase >= 2 ? 13.5 : 11.5) * this.dt;
-      e.x = Math.max(this.world.minX + 1, Math.min(this.world.maxX - 1, e.x));
-      e.z = Math.max(this.world.minZ + 1, Math.min(this.world.maxZ - 1, e.z));
-      if (e.stateTimer <= 0) {
-        e.adaptStage = 0;
-        e.adaptCooldown = e.bossPhase >= 3 ? 1.65 : e.bossPhase >= 2 ? 2.25 : 3.2;
-        e.exposedUntil = this.time + 1.25;
-      }
-      return;
-    }
-    if (e.adaptStage === 1 && e.stateTimer <= 0) {
-      if (
-        e.bossPattern === 'sweep' &&
-        this.playerInSector(e.x, e.z, e.lockedX, e.lockedZ, 7.8, e.bossPhase >= 2 ? 0.92 : 0.78)
-      )
-        this.hitPlayer((e.bossPhase >= 3 ? 61 : e.bossPhase >= 2 ? 48 : 39) * this.damageScale(), e, 'warden_sweep');
-      else if (
-        e.bossPattern === 'rupture' &&
-        this.playerInRay(e.x, e.z, e.lockedX, e.lockedZ, 16, e.bossPhase >= 2 ? 1.85 : 1.55)
-      ) {
-        this.hitPlayer((e.bossPhase >= 3 ? 55 : e.bossPhase >= 2 ? 43 : 35) * this.damageScale(), e, 'warden_rupture');
-        this.fields.push({
-          id: this.nextId++,
-          x: this.px,
-          z: this.pz,
-          radius: 1.65,
-          ttl: 2.4,
-          kind: 'architect',
-          dps: 18 * this.damageScale(),
-          tickAcc: 0
-        });
-      } else if (e.bossPattern === 'charge') {
-        e.adaptStage = 2;
-        e.stateTimer = e.bossPhase >= 2 ? 0.64 : 0.58;
-        return;
-      }
-      e.adaptStage = 0;
-      e.adaptCooldown = e.bossPhase >= 3 ? 1.65 : e.bossPhase >= 2 ? 2.25 : 3.2;
-      e.exposedUntil = this.time + 0.7;
-      return;
-    }
-    if (e.adaptStage === 0) {
-      if (d > 6.0) this.steerTo(e, this.px, this.pz, speed, e.bossPhase >= 2 ? 1.22 : 1);
-      else if (d < 3.2) {
-        e.x -= nx * speed * 0.5 * this.dt;
-        e.z -= nz * speed * 0.5 * this.dt;
-      }
-      if (e.adaptCooldown <= 0) {
-        const r = this.rng.float(),
-          pattern = r < 0.36 ? 'sweep' : r < 0.68 ? 'rupture' : 'charge',
-          tx = this.px + this.playerVX * (pattern === 'sweep' ? 0.18 : 0.55),
-          tz = this.pz + this.playerVZ * (pattern === 'sweep' ? 0.18 : 0.55),
-          dx = tx - e.x,
-          dz = tz - e.z,
-          m = Math.hypot(dx, dz) || 1;
-        e.lockedX = dx / m;
-        e.lockedZ = dz / m;
-        e.bossPattern = pattern;
-        e.adaptStage = 1;
-        e.stateTimer = pattern === 'charge' ? 1.0 : 0.88;
-        const shape: CombatShape =
-          pattern === 'sweep'
-            ? {
-                kind: 'sector',
-                x: e.x,
-                z: e.z,
-                aimX: e.lockedX,
-                aimZ: e.lockedZ,
-                radius: 7.8,
-                halfAngle: e.bossPhase >= 2 ? 0.92 : 0.78
-              }
-            : {
-                kind: 'ray',
-                x: e.x,
-                z: e.z,
-                aimX: e.lockedX,
-                aimZ: e.lockedZ,
-                range: pattern === 'rupture' ? 16 : 15,
-                halfWidth: pattern === 'rupture' ? (e.bossPhase >= 2 ? 1.85 : 1.55) : 1.05
-              };
-        this.events.push({
-          type: 'CombatShape',
-          tick: this.tick,
-          source: `telegraph_boss_${pattern}`,
-          intent: 'damage',
-          shape
-        });
-        this.events.push({
-          type: 'BossPattern',
-          tick: this.tick,
-          entity: e.id,
-          pattern,
-          x: e.x,
-          z: e.z
-        });
-        if (e.bossPhase >= 2 && this.rng.float() < 0.55) {
-          for (let i = 0; i < 3; i++) {
-            const a = this.rng.range(0, Math.PI * 2);
-            this.spawnEnemyAt(
-              i === 0 ? 'bookmark' : 'footnote',
-              e.x + Math.cos(a) * 2.2,
-              e.z + Math.sin(a) * 2.2,
-              1.6
-            );
-          }
-        }
-      }
-    }
+    this.bossBehavior.update(e, speed, d, nx, nz);
   }
 
   private hitPlayer(amount: number, attacker: Ent | null = null, source: DamageSourceId = 'contact') {
