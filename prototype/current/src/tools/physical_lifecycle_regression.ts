@@ -230,17 +230,27 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   assert(casts(sim,'frost_ring').length>0,'Outbound mutation lost real blade Carrier lineage');
 }
 
-// MORTAR REVERSE: no B at telegraph; actual final impact becomes reversed route head.
+// REVERSE requires a path that actually existed. Mortar has impacts but no simulated shell route.
 {
   const sim=fixture('mortar_bloom','rail_spear','reverse');
+  assert(!sim.catalysts.length || !sim.catalysts[0] || !sim.catalystCompatibleEdges('reverse').some((q:any)=>q.left==='mortar_bloom'&&q.right==='rail_spear'),
+    'Mortar falsely advertises Reverse without a physical flight path');
   sim.activateSlot(0);
-  assert(casts(sim,'rail_spear').length===0,'Reverse fired at Mortar scheduling time');
-  assert(until(sim,()=>!!cue(sim,'reverse'),120),'Mortar Reverse never fired');
-  const impacts=sim.events.filter((e:any)=>e.type==='CombatShape'&&e.source==='mortar_bloom_impact'),
-    impact=impacts.at(-1), rail=casts(sim,'rail_spear')[0], c=cue(sim,'reverse');
-  assert(impact&&rail&&c&&dist(rail,impact.shape)<1.0,'Reverse did not begin at actual final impact');
-  const toOrigin={x:-rail.x,z:-rail.z},m=Math.hypot(toOrigin.x,toOrigin.z)||1;
-  assert(rail.aimX*toOrigin.x/m+rail.aimZ*toOrigin.z/m>.65,'Reverse does not face back toward activation origin');
+  advance(sim,120);
+  assert(casts(sim,'rail_spear').length===0,'Mortar fabricated origin->impact route for Reverse');
+}
+
+// Moving Mass Driver does own a path, so Reverse waits for its real terminal and uses travelled geometry.
+{
+  const sim=fixture('mass_driver','rail_spear','reverse');
+  sim.activateSlot(0);
+  assert(casts(sim,'rail_spear').length===0,'Mass Reverse fired before the moving body reached terminal');
+  assert(until(sim,()=>!!cue(sim,'reverse'),360),'Mass Driver Reverse never fired at physical terminal');
+  const rail=casts(sim,'rail_spear')[0], c=cue(sim,'reverse');
+  assert(rail&&c&&c.points.length>=2,'Mass Reverse did not preserve a real travelled route');
+  assert(dist(rail,c.points[0])<1.0,'Reverse B did not begin at actual route end');
+  const next=c.points[1],dx=next.x-rail.x,dz=next.z-rail.z,m=Math.hypot(dx,dz)||1;
+  assert(rail.aimX*dx/m+rail.aimZ*dz/m>.55,'Mass Reverse does not face backward along travelled path');
 }
 
 // Terminal coordinates are captured at contact time, before Cleaver Hook moves its victim.
@@ -340,7 +350,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
 
 console.log('physical-lifecycle-regression OK',{
   geometry:'shared',
-  mortar:'impact-timed source/carrier/reverse',
+  mortar:'impact-timed source/carrier; no fabricated reverse',
   mass:'progressive trail',
   shard:'contact carrier',
   sentry:'actor-owned carrier lifetime',
