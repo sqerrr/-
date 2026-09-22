@@ -63,7 +63,8 @@ for(const signature of [
 ]) assert(renderer.includes(signature),`combat family lacks a moving visual signature: ${signature}`);
 
 const platform=readFileSync('src/platform/main.ts','utf8');
-assert(platform.includes("e.type === 'EliteEchoPhase' && e.phase === 'tell'"),'Elite Echo tell has no player-facing alert');
+assert(platform.includes("echoTell=e.echoPhase==='tell'"),'Elite Echo tell is missing from the live threat panel');
+assert(platform.includes("e.type === 'BossPattern' || e.type === 'EliteEchoPhase'"),'routine attack tells are not explicitly kept out of sentence-sized combat alerts');
 assert(platform.includes("e.type === 'RareEvent'"),'rare gameplay events have no player-facing alert');
 assert(platform.includes('rareAlertUntil')&&platform.includes('if (!rare && now < rareAlertUntil) return'),'rare alerts can be overwritten by routine telegraphs');
 
