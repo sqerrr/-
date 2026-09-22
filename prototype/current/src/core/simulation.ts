@@ -25,6 +25,26 @@ import {
 import { fnv1a } from './hash.js';
 import { Rng } from './rng.js';
 import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, pointAlongPolyline, polylineLength, sweepCircleT } from './geometry.js';
+import {
+  HERO_HIT_RADIUS,
+  makeHeroEnt,
+  type CatalystBinding,
+  type CastSource,
+  type ChoreographyCarrier,
+  type ChoreographyPoint,
+  type ChoreographyTrace,
+  type Construct,
+  type DelayedStrike,
+  type EliteEchoState,
+  type Ent,
+  type Field,
+  type Obstacle,
+  type PhysicalEvent,
+  type Pickup,
+  type Poi,
+  type Projectile,
+  type Relic
+} from './state.js';
 import { items, itemOrder, itemCategoryName, itemRivalEffect } from '../content/items.js';
 import type {
   ItemId,
@@ -61,96 +81,6 @@ import type {
   SquadTask
 } from './types.js';
 
-type EnemyState = 'normal' | 'telegraph' | 'dash';
-type Ent = {
-  id: number;
-  kind: EnemyKind;
-  cloneParent?: number;
-  x: number;
-  z: number;
-  hp: number;
-  maxHp: number;
-  radius: number;
-  speed: number;
-  contactDps: number;
-  facingX: number;
-  facingZ: number;
-  state: EnemyState;
-  stateTimer: number;
-  /** Authored elite chassis action, separate from generic mob/affix state. */
-  eliteAction?: EliteActionId;
-  eliteActionUntil?: number;
-  cooldown: number;
-  lockedX: number;
-  lockedZ: number;
-  linkedTo: number;
-  linkTimer: number;
-  revivesLeft: number;
-  revived: boolean;
-  buffUntil: number;
-  orbitHitAt: number;
-  chassis?: EliteChassis;
-  affix: EliteAffix;
-  adaptAt: number;
-  lastDamageAt: number;
-  shieldAngle: number;
-  shieldState?: 'guard' | 'commit' | 'broken';
-  shieldStability?: number;
-  shieldCommitUntil?: number;
-  boss: boolean;
-  guardianPoi: number;
-  adaptCooldown: number;
-  adaptStage: number;
-  bossPhase: number;
-  bossPattern: BossPatternId | '';
-  /** Bulwark remembers the previous hero damage family; this is not a boss attack pattern. */
-  prismMemory?: SkillId | 'derived';
-  /** Shepherd adaptation is separate from Warden attack sequencing. */
-  shepherdMode?: 'null' | 'condensed' | 'fractured' | 'migratory';
-  orderX: number;
-  orderZ: number;
-  orderUntil: number;
-  squadTask?: SquadTask;
-  squadUntil?: number;
-  regenTick: number;
-  affixTimer: number;
-  affixPulse: number;
-  markUntil: number;
-  igniteUntil: number;
-  chillUntil: number;
-  frostMeter?: number;
-  frozenUntil?: number;
-  woundStacks?: number;
-  woundUntil: number;
-  woundDps: number;
-  toxinUntil: number;
-  toxinDps: number;
-  exposedUntil: number;
-  displacedUntil: number;
-  embedded: number;
-  lastArcAt: number;
-  sentryTouchedUntil: number;
-  rarity: EliteRarity;
-  /** Serials of the refused cards this entity has claimed from the store. */
-  repertoire: number[];
-  // Gains an elite takes from relics. Optional fields keep old replay/entity literals compatible;
-  // current enemy progression is allowed to alter durability as well as behaviour.
-  relicCastMul?: number;
-  /** Subset of relicCastMul coming from ground relics, for D52 attribution. */
-  groundRelicCastMul?: number;
-  relicGapMul?: number;
-  relicReachMul?: number;
-  /** Ground/legacy items are an independent elite progression channel, not refusal-store cards. */
-  relicItems?: ItemId[];
-  /** Autonomous elite growth modules rolled from the full item catalogue, independent of player refusals. */
-  evolutionItems?: ItemId[];
-  relicDamageTakenMul?: number;
-  relicCritChance?: number;
-  relicSiphon?: number;
-  relicSeekMul?: number;
-};
-
-const HERO_HIT_RADIUS = 0.45;
 // Tier tables. D49 fixes the target fight lengths (8-12 / 15-25 / 30-45 s); each tier is a
 // step up in durability, payout and repertoire.
 const ELITE_RARITY_CAPACITY: Record<EliteRarity, number> = {
@@ -170,256 +100,6 @@ const ELITE_RARITY_SIZE: Record<EliteRarity, number> = {
   common: 1,
   uplifted: 1.1,
   legendary: 1.25
-};
-
-function makeHeroEnt(): Ent {
-  return {
-    id: -1,
-    kind: 'hero',
-    x: 0,
-    z: 0,
-    hp: 1,
-    maxHp: 1,
-    radius: HERO_HIT_RADIUS,
-    speed: 0,
-    contactDps: 0,
-    facingX: 0,
-    facingZ: 1,
-    state: 'normal',
-    stateTimer: 0,
-    cooldown: 0,
-    lockedX: 0,
-    lockedZ: 0,
-    linkedTo: 0,
-    linkTimer: 0,
-    revivesLeft: 0,
-    revived: false,
-    buffUntil: 0,
-    orbitHitAt: 0,
-    affix: 'none',
-    adaptAt: 0,
-    lastDamageAt: 0,
-    shieldAngle: 0,
-    boss: false,
-    guardianPoi: 0,
-    adaptCooldown: 0,
-    adaptStage: 0,
-    bossPhase: 0,
-    bossPattern: '',
-    orderX: 0,
-    orderZ: 0,
-    orderUntil: 0,
-    regenTick: 0,
-    affixTimer: 0,
-    affixPulse: 0,
-    markUntil: 0,
-    igniteUntil: 0,
-    chillUntil: 0,
-    woundUntil: 0,
-    woundDps: 0,
-    toxinUntil: 0,
-    toxinDps: 0,
-    exposedUntil: 0,
-    displacedUntil: 0,
-    embedded: 0,
-    lastArcAt: 0,
-    sentryTouchedUntil: 0,
-    rarity: 'common',
-    repertoire: []
-  };
-}
-type Pickup = { id: number; x: number; z: number; value: number; kind: 'xp' | 'core' | 'heal' | 'mutation' };
-/**
- * A relic lies where it fell and does not fly to anyone. That is the whole point of D14:
- * both sides draw from the same source, so reaching one first has to be a decision about
- * position and risk rather than a reward for standing near it.
- */
-type Relic = { id: number; x: number; z: number; item: ItemId; bornAt: number };
-type Field = {
-  id: number;
-  activationId?: number;
-  insideIds?: number[];
-  x: number;
-  z: number;
-  radius: number;
-  ttl: number;
-  kind: 'ink' | 'fire' | 'frost' | 'arc' | 'toxic' | 'index' | 'architect' | 'veil';
-  dps: number;
-  tickAcc: number;
-  faction?: CastFaction;
-  ownerId?: number;
-  source?: string;
-  sourceSlot?: number;
-  mutation?: MutationId | null;
-  rivalConcentration?: number;
-  behavior?: 'host' | 'pull';
-};
-type Construct = {
-  id: number;
-  activationId?: number;
-  x: number;
-  z: number;
-  ttl: number;
-  cooldown: number;
-  range: number;
-  power: number;
-  skill: SkillId;
-  faction: CastFaction;
-  ownerId: number;
-  sourceSlot: number;
-  mutation: MutationId | null;
-  mutationUpgrade: MutationId | null;
-  mutationApotheosis?: MutationId | null;
-  rivalConcentration: number;
-};
-type Projectile = {
-  id: number;
-  activationId?: number;
-  x: number;
-  z: number;
-  vx: number;
-  vz: number;
-  radius: number;
-  ttl: number;
-  damage: number;
-  coverDamage: number;
-  faction: CastFaction;
-  ownerId: number;
-  source: SkillId;
-  sourceSlot: number;
-  mutation: MutationId | null;
-  apotheosis?: MutationId | null;
-  rivalConcentration: number;
-  guarded: boolean;
-  behavior?: 'normal' | 'roller' | 'returner' | 'echo';
-  /** Countdown threshold at which a returner turns home. */
-  returnAt?: number;
-  phase?: number;
-  hitIds?: number[];
-  growth?: number;
-  carousel?: boolean;
-  phaseAt?: number;
-  orbitX?: number;
-  orbitZ?: number;
-  trailAcc?: number;
-};
-type DelayedStrike = {
-  id: number;
-  activationId?: number;
-  at: number;
-  x: number;
-  z: number;
-  radius: number;
-  damage: number;
-  faction: CastFaction;
-  ownerId: number;
-  source: SkillId | string;
-  sourceSlot: number;
-  intent: 'damage' | 'control' | 'field';
-  telegraph: string;
-  fieldKind?: 'frost' | 'arc' | 'toxic' | 'fire';
-  fieldDuration?: number;
-  fieldDps?: number;
-  /** Persistent behaviour begins only after the delayed impact creates the field. */
-  fieldBehavior?: 'pull';
-};
-type EliteEchoState = {
-  entityId: number;
-  skill: SkillId;
-  serial: number;
-  phase: 'tell' | 'active' | 'recovery';
-  until: number;
-  x: number;
-  z: number;
-  aimX: number;
-  aimZ: number;
-  targetX: number;
-  targetZ: number;
-};
-type Obstacle = {
-  id: number;
-  x: number;
-  z: number;
-  radius: number;
-  hp: number;
-  maxHp: number;
-  destructible: boolean;
-};
-type Poi = { id: number; kind: PoiKind; x: number; z: number; state: PoiState; guardianId: number };
-
-/**
- * Who is producing an effect, and from where.
- *
- * Every cast reads its origin, facing and velocity from this record instead of
- * reaching for player state directly. `owner` is null for the hero and points at
- * the entity for any rival caster, which is what lets an elite run a phenomenon
- * the player refused.
- */
-type CastFaction = 'hero' | 'rival';
-type CastSource = {
-  faction: CastFaction;
-  owner: Ent | null;
-  x: number;
-  z: number;
-  aimX: number;
-  aimZ: number;
-  vx: number;
-  vz: number;
-};
-
-type ChoreographyPoint = { x: number; z: number };
-type ChoreographyCarrier =
-  | { kind: 'projectile'; id: number }
-  | { kind: 'construct'; id: number }
-  | { kind: 'orbit'; index: number };
-type ChoreographyTrace = {
-  skill: SkillId;
-  origin: ChoreographyPoint;
-  aimX: number;
-  aimZ: number;
-  terminal: ChoreographyPoint | null;
-  points: ChoreographyPoint[];
-  areaPoints: ChoreographyPoint[];
-  areas: CombatShape[];
-  /** Exact target hitbox positions at the instant synchronous damage resolved. */
-  contacts: ChoreographyPoint[];
-  paths: ChoreographyPoint[][];
-  carriers: ChoreographyCarrier[];
-  scheduled: ChoreographyPoint[];
-};
-
-type PhysicalEventKind = 'path' | 'area' | 'contact' | 'impact' | 'terminal';
-type PhysicalEvent = {
-  activationId: number;
-  slot: number;
-  skill: SkillId;
-  kind: PhysicalEventKind;
-  x: number;
-  z: number;
-  previousX?: number;
-  previousZ?: number;
-  radius?: number;
-  areaPoints?: ChoreographyPoint[];
-  shape?: CombatShape;
-  carrierKind?: 'projectile' | 'construct' | 'orbit' | 'impact';
-  carrierId?: number;
-  targetId?: number;
-};
-type CatalystBinding = {
-  producerActivationId: number;
-  fromSlot: number;
-  toSlot: number;
-  fromSkill: SkillId;
-  toSkill: SkillId;
-  mode: 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse';
-  origin: ChoreographyPoint;
-  path: ChoreographyPoint[];
-  areaPoints: ChoreographyPoint[];
-  nextTrailDistance: number;
-  firedCount: number;
-  carrierKeys: Set<string>;
-  pathCarrierKey: string | null;
-  done: boolean;
 };
 
 export interface SimConfig {
