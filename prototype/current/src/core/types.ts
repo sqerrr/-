@@ -227,12 +227,14 @@ export interface SnapshotEntity {
   squadTask: SquadTask;
   adaptationStage: number;
   eliteRarity: EliteRarity;
-  /** D13: icons of the declined cards this elite is fielding, drawn above its name. */
+  /** Declined player cards this elite has actually learned. Kept separate from loot and passive evolution. */
   refusalIcons: string[];
-  /** Names of the held cards, so the hero can read what was taken from him. */
   refusalTitles: string[];
-  /** Kinds of the held cards, for colouring: skill | catalyst | axis | global | item. */
   refusalKinds: string[];
+  /** Ground items physically captured by this elite. */
+  relicItems: ItemId[];
+  /** Passive elite-evolution gains. UI should aggregate these as one Evolution tier. */
+  evolutionItems: ItemId[];
   bossPhase: number;
   bossPattern: string;
   status: StatusSnapshot;
@@ -637,7 +639,22 @@ export type GameEvent =
       x: number;
       z: number;
     }
-  | { type: 'PlayerHit'; tick: number; amount: number; x: number; z: number }
+  | {
+      type: 'PlayerHit';
+      tick: number;
+      /** Damage after mitigation, before barrier absorption. */
+      amount: number;
+      hpDamage: number;
+      barrierDamage: number;
+      x: number;
+      z: number;
+      source: string;
+      attackerId: number;
+      attackerKind?: EnemyKind;
+      attackerChassis?: EliteChassis;
+      attackerAffix?: EliteAffix;
+      attackerBoss: boolean;
+    }
   | { type: 'EnemyRevived'; tick: number; entity: number; x: number; z: number }
   | {
       type: 'EliteOrder';
