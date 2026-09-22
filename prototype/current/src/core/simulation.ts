@@ -23,6 +23,7 @@ import {
   statBase
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
+import { EntityStore } from './entityStore.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { Rng } from './rng.js';
 import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, pointAlongPolyline, polylineLength, sweepCircleT } from './geometry.js';
@@ -280,7 +281,10 @@ export class Simulation {
   };
   private rng: Rng;
   private nextId = 1;
-  private ents: Ent[] = [];
+  private entityStore = new EntityStore();
+  /** Compatibility view for deterministic iteration and legacy regression fixtures. */
+  private get ents(): Ent[] { return this.entityStore.all; }
+  private set ents(value: Ent[]) { this.entityStore.replace(value); }
   // Synthetic combatant standing in for the player whenever a rival owns the cast.
   // Deliberately kept OUT of `ents` so every existing loop keeps its exact behaviour.
   private hero: Ent = makeHeroEnt();
@@ -747,7 +751,7 @@ export class Simulation {
   }
 
   private projectileOwner(p: Projectile) {
-    return p.ownerId ? this.ents.find((e) => e.id === p.ownerId) ?? null : null;
+    return p.ownerId ? this.entityStore.get(p.ownerId) ?? null : null;
   }
 
   /**
@@ -1000,7 +1004,7 @@ export class Simulation {
           carrierId:q.id
         });
       }
-      const owner = q.ownerId ? this.ents.find((e) => e.id === q.ownerId) ?? null : null;
+      const owner = q.ownerId ? this.entityStore.get(q.ownerId) ?? null : null;
       if (q.faction === 'rival') {
         if (combatShapeIntersectsCircle(impactShape,this.px,this.pz,HERO_HIT_RADIUS))
           this.damageHero(q.damage, q.source as DamageSourceId, owner, 1);
@@ -1213,7 +1217,7 @@ export class Simulation {
         rarity: 'common',
         repertoire: []
       };
-    this.ents.push(e);
+    this.entityStore.add(e);
     this.metrics.spawned++;
     this.metrics.eliteSpawned++;
     this.events.push({
@@ -1293,7 +1297,7 @@ export class Simulation {
     this.claimRepertoire(e);
     this.inheritEliteLegacy(e, true);
     this.inheritEliteEvolution(e);
-    this.ents.push(e);
+    this.entityStore.add(e);
     this.metrics.spawned++;
     this.metrics.eliteSpawned++;
     this.events.push({
@@ -1311,9 +1315,9 @@ export class Simulation {
     const unresolved = this.pois.filter((p) => p.state !== 'cleared'),
       cleared = this.pois.length - unresolved.length,
       desiredSupports = cleared >= 4 ? 0 : cleared >= 2 ? 1 : 2;
-    const activePoiGuardians = this.ents.filter(
-      (o) => o.kind === 'elite' && !o.boss && o.guardianPoi > 0 && o.hp > 0
-    ).length;
+    const activePoiGuardians = this.entityStore.countAlive(
+      (o) => o.kind === 'elite' && !o.boss && o.guardianPoi > 0
+    );
     let spawned = 0;
     for (const p of unresolved) {
       if (activePoiGuardians + spawned >= desiredSupports) break;
@@ -1447,7 +1451,7 @@ export class Simulation {
     this.flushPhysicalEvents();
     this.cleanup();
     if (!this.benchmark) this.checkProgression();
-    const aliveNow = this.ents.filter((e) => e.hp > 0).length;
+    const aliveNow = this.entityStore.countAlive();
     this.metrics.maxEnemies = Math.max(this.metrics.maxEnemies, aliveNow);
     this.metrics.enemyCountSum += aliveNow;
     this.metrics.enemySamples++;
@@ -1485,7 +1489,7 @@ export class Simulation {
   private spawnDirector() {
     const target = this.populationTarget();
     // Clean Run keeps a calmer opening so the first Phenomenon can be read before density ramps.
-    const normals = this.ents.filter((e) => e.kind !== 'elite' && e.hp > 0).length;
+    const normals = this.entityStore.countAlive((e) => e.kind !== 'elite');
     this.spawnCredits += this.dt * (8.0 * this.spawnPressure());
     if (normals > target) this.spawnCredits *= 0.92;
     let guard = 0;
@@ -1557,7 +1561,7 @@ export class Simulation {
     buffedFor = 0,
     cloneParent = 0
   ) {
-    const normalCount = this.ents.filter((e) => e.kind !== 'elite' && e.hp > 0).length;
+    const normalCount = this.entityStore.countAlive((e) => e.kind !== 'elite');
     if (normalCount >= 198) return;
     if (buffedFor > 0 && normalCount >= Math.min(180, this.populationTarget() + 18)) return;
     const scale = this.worldScale(),
@@ -1649,7 +1653,7 @@ export class Simulation {
       rarity: 'common',
       repertoire: []
     };
-    this.ents.push(e);
+    this.entityStore.add(e);
     this.metrics.spawned++;
     this.events.push({
       type: 'EntitySpawned',
@@ -1665,7 +1669,7 @@ export class Simulation {
   private eliteDirector() {
     if (this.bossSpawned) return;
     this.eliteAcc += this.dt;
-    const active = this.ents.filter((e) => e.kind === 'elite' && e.hp > 0 && !e.boss).length;
+    const active = this.entityStore.countAlive((e) => e.kind === 'elite' && !e.boss);
     const cap = this.time < 85 ? 1 : this.time < 180 ? 2 : 3;
     if (!this.firstElite && this.time >= 22) {
       this.firstElite = true;
@@ -1917,7 +1921,7 @@ export class Simulation {
 
   private updateEliteEchoes() {
     for (const [id,q] of [...this.eliteEchoes]) {
-      const e=this.ents.find(x=>x.id===id && x.hp>0);
+      const e=this.entityStore.getAlive(id);
       if (!e) { this.eliteEchoes.delete(id); continue; }
       if (this.time + 1e-9 < q.until) continue;
       if (q.phase === 'tell') {
@@ -2080,7 +2084,7 @@ export class Simulation {
       this.grantNativeEliteGrowth(e);
     }
     this.noteEliteSpawn(e);
-    this.ents.push(e);
+    this.entityStore.add(e);
     this.metrics.spawned++;
     this.metrics.eliteSpawned++;
     this.events.push({
@@ -2407,7 +2411,7 @@ export class Simulation {
           }
           e.linkedTo = best?.id ?? 0;
         }
-        const target = this.ents.find((o) => o.id === e.linkedTo && o.hp > 0);
+        const target = this.entityStore.getAlive(e.linkedTo);
         if (target) {
           const td = Math.hypot(target.x - e.x, target.z - e.z) || 1;
           if (td > 3) this.steerTo(e, target.x, target.z, speed);
@@ -2946,7 +2950,7 @@ export class Simulation {
       f.tickAcc += this.dt;
       const compatibilityRival = f.kind === 'ink' || f.kind === 'architect';
       const faction: CastFaction = f.faction ?? (compatibilityRival ? 'rival' : 'hero');
-      const owner = f.ownerId ? this.ents.find((e) => e.id === f.ownerId) ?? null : null;
+      const owner = f.ownerId ? this.entityStore.get(f.ownerId) ?? null : null;
       if (f.behavior === 'host' && f.faction === 'hero') {
         const target=this.ents.filter(e=>e.hp>0).sort((a,b)=>Number(b.kind==='elite')-Number(a.kind==='elite')||Math.hypot(a.x-f.x,a.z-f.z)-Math.hypot(b.x-f.x,b.z-f.z))[0];
         if(target){
@@ -3383,7 +3387,7 @@ export class Simulation {
         continue;
       }
       c.cooldown -= this.dt;
-      const owner = c.ownerId ? this.ents.find((e) => e.id === c.ownerId) ?? null : null;
+      const owner = c.ownerId ? this.entityStore.get(c.ownerId) ?? null : null;
       const followX = c.faction === 'rival' && owner ? owner.x : this.px;
       const followZ = c.faction === 'rival' && owner ? owner.z : this.pz;
 
@@ -4102,7 +4106,7 @@ export class Simulation {
         let far: Ent | null = null,
           best = -1;
         for (const eid of this.lastContext.hitIds) {
-          const e = this.ents.find((q) => q.id === eid && q.hp > 0);
+          const e = this.entityStore.getAlive(eid);
           if (!e) continue;
           const d = Math.hypot(e.x - this.px, e.z - this.pz);
           if (d > best) {
@@ -4162,7 +4166,7 @@ export class Simulation {
     }
     if (!choreographyId && incoming === 'conduit' && this.lastContext.state && this.currentHits.size) {
       for (const eid of this.currentHits) {
-        const e = this.ents.find((q) => q.id === eid && q.hp > 0);
+        const e = this.entityStore.getAlive(eid);
         if (e) this.applyState(e, this.lastContext.state, 0.65 * conduct);
       }
       this.metrics.reactions++;
@@ -4176,7 +4180,7 @@ export class Simulation {
     }
     if (!choreographyId && incoming === 'echo_shard' && this.lastContext.damage > 0 && this.currentHits.size) {
       const targets = [...this.currentHits]
-        .map((eid) => this.ents.find((q) => q.id === eid && q.hp > 0))
+        .map((eid) => this.entityStore.getAlive(eid))
         .filter(Boolean) as Ent[];
       if (targets.length) {
         const cx = targets.reduce((a, e) => a + e.x, 0) / targets.length,
@@ -4211,7 +4215,7 @@ export class Simulation {
     if (!choreographyId && (incoming === 'brand' || incoming === 'rime') && this.currentHits.size) {
       const state = incoming === 'brand' ? 'mark' : 'chill';
       for (const eid of this.currentHits) {
-        const e = this.ents.find((q) => q.id === eid && q.hp > 0);
+        const e = this.entityStore.getAlive(eid);
         if (e) this.applyState(e, state, 0.9 * conduct);
       }
       this.metrics.reactions++;
@@ -4243,7 +4247,7 @@ export class Simulation {
       cz = this.pz;
     if (this.currentHits.size) {
       const ts = [...this.currentHits]
-        .map((eid) => this.ents.find((q) => q.id === eid))
+        .map((eid) => this.entityStore.get(eid))
         .filter(Boolean) as Ent[];
       if (ts.length) {
         cx = ts.reduce((a, e) => a + e.x, 0) / ts.length;
@@ -4860,9 +4864,7 @@ export class Simulation {
   }
 
   private choreographyAim(x: number, z: number, fallbackX = this.aimX, fallbackZ = this.aimZ) {
-    const target = this.ents
-      .filter((e) => e.hp > 0)
-      .sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z))[0];
+    const target = this.entityStore.nearest(x, z);
     if (target) {
       const dx = target.x - x,
         dz = target.z - z,
@@ -5586,7 +5588,8 @@ export class Simulation {
     }
     if (e.exposedUntil > this.time) actual *= 1.3;
     if (e.kind !== 'binder' && e.linkedTo) {
-      const binder = this.ents.find((o) => o.id === e.linkedTo && o.kind === 'binder' && o.hp > 0);
+      const binder = this.entityStore.getAlive(e.linkedTo);
+      if (binder?.kind !== 'binder') return false;
       if (binder) actual *= 0.65;
     }
     if (e.kind === 'elite' && e.affix === 'shielded' && directional) {
@@ -5794,7 +5797,7 @@ export class Simulation {
         continue;
       }
       if (e.cloneParent) {
-        const parent = this.ents.find((o) => o.id === e.cloneParent && o.hp > 0);
+        const parent = this.entityStore.getAlive(e.cloneParent);
         if (parent) {
           const feedback = parent.maxHp * 0.055;
           parent.hp -= feedback;
@@ -5906,7 +5909,7 @@ export class Simulation {
     for (const e of this.ents) if (e.kind !== 'binder') e.linkedTo = 0;
     for (const b of this.ents)
       if (b.kind === 'binder' && b.linkedTo) {
-        const target = this.ents.find((e) => e.id === b.linkedTo);
+        const target = this.entityStore.get(b.linkedTo);
         if (target) target.linkedTo = b.id;
       }
   }
