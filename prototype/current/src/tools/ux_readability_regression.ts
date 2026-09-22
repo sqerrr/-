@@ -70,10 +70,10 @@ assert(html.includes('phaseBadge') && html.includes('routeBadge') && html.includ
 assert(html.includes('формы = тип элиты · красный = атака сейчас'),
   'minimap legend does not teach the new shape/red grammar');
 
-const simulation=readFileSync('src/core/simulation.ts','utf8');
+const eliteBehavior=readFileSync('src/core/eliteBehaviorSystem.ts','utf8');
 for(const token of [
   'elite_predator_tell','elite_architect_veil_tell','elite_brood_tell',
   'elite_prism_tell','elite_null_tell','elite_shepherd_tell'
-]) assert(simulation.includes(token), token + ': missing authored elite tell');
+]) assert(eliteBehavior.includes(token), token + ': missing authored elite tell');
 
 console.log('ux-readability-regression OK', {scales:samples, lateAffixes:[...late]});
