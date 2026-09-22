@@ -4379,6 +4379,323 @@ export class Simulation {
     this.currentChoreography = null;
   }
 
+  private isPhysicalCatalyst(id: CatalystId | null): id is 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse' {
+    return id === 'source' || id === 'carrier' || id === 'trail' || id === 'reverse' || id === 'collapse';
+  }
+
+  private beginPhysicalActivation(slot: number, skill: SkillId) {
+    const id = this.nextActivationId++;
+    this.currentActivationId = id;
+    this.activationMeta.set(id, { skill, slot });
+    this.activationLastPoint.set(id, { x: this.px, z: this.pz });
+    this.armOutgoingPhysicalCatalyst(slot, skill, id);
+    return id;
+  }
+
+  private armOutgoingPhysicalCatalyst(fromSlot: number, fromSkill: SkillId, activationId: number) {
+    const catalyst = this.catalysts[fromSlot] ?? null,
+      toSlot = fromSlot + 1,
+      toSkill = this.slots[toSlot];
+    if (!this.isPhysicalCatalyst(catalyst) || !toSkill) return;
+    if (!catalystPairCompatible(catalyst, fromSkill, toSkill)) return;
+    const binding: CatalystBinding = {
+      producerActivationId: activationId,
+      fromSlot,
+      toSlot,
+      fromSkill,
+      toSkill,
+      mode: catalyst,
+      createdAt: this.time,
+      expiresAt: this.time + Math.max(6, this.cycleDuration() * 5),
+      path: [],
+      areaPoints: [],
+      nextTrailDistance: toSkill === 'sentry' ? 1.8 : 1.35,
+      firedCount: 0,
+      carrierKeys: new Set<string>(),
+      done: false
+    };
+    this.catalystBindings.push(binding);
+    this.catalystDeferredCycle.set(toSlot, this.cycle);
+  }
+
+  private registerAsyncPhysical(activationId: number) {
+    if (activationId <= 0) return;
+    this.activationPending.set(activationId, (this.activationPending.get(activationId) ?? 0) + 1);
+  }
+
+  private finishAsyncPhysical(activationId: number | undefined, x: number, z: number) {
+    if (!activationId) return;
+    this.activationLastPoint.set(activationId, { x, z });
+    const n = Math.max(0, (this.activationPending.get(activationId) ?? 1) - 1);
+    if (n > 0) {
+      this.activationPending.set(activationId, n);
+      return;
+    }
+    this.activationPending.delete(activationId);
+    const meta = this.activationMeta.get(activationId);
+    if (meta)
+      this.queuePhysicalEvent({
+        activationId,
+        slot: meta.slot,
+        skill: meta.skill,
+        kind: 'terminal',
+        x,
+        z
+      });
+  }
+
+  private queuePhysicalEvent(e: PhysicalEvent) {
+    if (!e.activationId) return;
+    this.physicalEvents.push(e);
+    this.activationLastPoint.set(e.activationId, { x: e.x, z: e.z });
+  }
+
+  private appendBindingPath(binding: CatalystBinding, points: ChoreographyPoint[]) {
+    for (const p of points) {
+      const last = binding.path[binding.path.length - 1];
+      if (!last || !this.sameChoreographyPoint(last, p, 0.08)) binding.path.push({ ...p });
+    }
+  }
+
+  private trailAim(binding: CatalystBinding, distance: number) {
+    const a = pointAlongPolyline(binding.path, Math.max(0, distance - 0.22)),
+      b = pointAlongPolyline(binding.path, distance + 0.22);
+    if (!a || !b) return { x: this.aimX, z: this.aimZ };
+    const dx = b.x - a.x,
+      dz = b.z - a.z,
+      m = Math.hypot(dx, dz) || 1;
+    return { x: dx / m, z: dz / m };
+  }
+
+  private castCatalystPayload(
+    binding: CatalystBinding,
+    x: number,
+    z: number,
+    aimX?: number,
+    aimZ?: number
+  ) {
+    const st = this.skillsRuntime.get(binding.toSkill);
+    if (!st) return false;
+    const save = {
+      currentSlot: this.currentSlot,
+      currentActivationId: this.currentActivationId,
+      currentChoreography: this.currentChoreography,
+      currentHits: this.currentHits,
+      currentActivationDamage: this.currentActivationDamage,
+      currentActivationKills: this.currentActivationKills,
+      currentActivationOverkill: this.currentActivationOverkill,
+      currentActivationControl: this.currentActivationControl,
+      currentProducedState: this.currentProducedState,
+      activationScale: this.activationScale,
+      activationCountBonus: this.activationCountBonus,
+      activationDerived: this.activationDerived
+    };
+    this.currentSlot = binding.toSlot;
+    this.currentHits = new Set<number>();
+    this.currentActivationDamage = 0;
+    this.currentActivationKills = 0;
+    this.currentActivationOverkill = 0;
+    this.currentActivationControl = 0;
+    this.currentProducedState = '';
+    this.activationScale = 1;
+    this.activationCountBonus = 0;
+    this.activationDerived = true;
+    const activationId = this.nextActivationId++;
+    this.currentActivationId = activationId;
+    this.activationMeta.set(activationId, { skill: binding.toSkill, slot: binding.toSlot });
+    this.activationLastPoint.set(activationId, { x, z });
+    this.beginChoreographyTrace(binding.toSkill);
+    this.armOutgoingPhysicalCatalyst(binding.toSlot, binding.toSkill, activationId);
+    this.metrics.activations++;
+    const src = this.choreographySource(x, z, aimX, aimZ);
+    this.castWithTrace(binding.toSkill, st, binding.toSlot, src);
+    const trace = this.finishChoreographyTrace();
+    this.publishImmediatePhysicalTrace(binding.toSkill, binding.toSlot, activationId, trace);
+
+    this.currentSlot = save.currentSlot;
+    this.currentActivationId = save.currentActivationId;
+    this.currentChoreography = save.currentChoreography;
+    this.currentHits = save.currentHits;
+    this.currentActivationDamage = save.currentActivationDamage;
+    this.currentActivationKills = save.currentActivationKills;
+    this.currentActivationOverkill = save.currentActivationOverkill;
+    this.currentActivationControl = save.currentActivationControl;
+    this.currentProducedState = save.currentProducedState;
+    this.activationScale = save.activationScale;
+    this.activationCountBonus = save.activationCountBonus;
+    this.activationDerived = save.activationDerived;
+    return true;
+  }
+
+  private publishImmediatePhysicalTrace(
+    skill: SkillId,
+    slot: number,
+    activationId: number,
+    trace: ChoreographyTrace | null
+  ) {
+    if (!trace || !activationId) return;
+    const asyncSkill = skill === 'mortar_bloom' || skill === 'mass_driver' || skill === 'shard_fan';
+    if (!asyncSkill) {
+      const path = this.tracePath(trace);
+      for (let i = 1; i < path.length; i++)
+        this.queuePhysicalEvent({
+          activationId,
+          slot,
+          skill,
+          kind: 'path',
+          previousX: path[i - 1].x,
+          previousZ: path[i - 1].z,
+          x: path[i].x,
+          z: path[i].z
+        });
+    }
+
+    if (
+      trace.areaPoints.length &&
+      (skill === 'frost_ring' || skill === 'cleaver' || skill === 'orbit_blades' ||
+        skill === 'sentry' || skill === 'toxic_mist' || skill === 'tether_drag')
+    ) {
+      const centerPoints = trace.points.length ? trace.points : [trace.origin],
+        cx = centerPoints.reduce((n, p) => n + p.x, 0) / centerPoints.length,
+        cz = centerPoints.reduce((n, p) => n + p.z, 0) / centerPoints.length,
+        radius = Math.max(0.4, ...trace.areaPoints.map((p) => Math.hypot(p.x - cx, p.z - cz)));
+      this.queuePhysicalEvent({
+        activationId,
+        slot,
+        skill,
+        kind: 'area',
+        x: cx,
+        z: cz,
+        radius,
+        areaPoints: trace.areaPoints.map((p) => ({ ...p }))
+      });
+    }
+
+    if (!asyncSkill && trace.terminal && (skill === 'rail_spear' || skill === 'cleaver' || skill === 'chain_arc' || skill === 'tether_drag'))
+      this.queuePhysicalEvent({ activationId, slot, skill, kind: 'terminal', x: trace.terminal.x, z: trace.terminal.z });
+  }
+
+  private fireCollapse(binding: CatalystBinding, e: PhysicalEvent) {
+    if (binding.firedCount >= (binding.fromSkill === 'mortar_bloom' ? 3 : 1)) return;
+    const center = { x: e.x, z: e.z },
+      radius = Math.max(0.45, e.radius ?? 1),
+      outer = e.areaPoints?.length
+        ? e.areaPoints
+        : [0, 1, 2, 3].map((i) => {
+            const a = (i * Math.PI) / 2;
+            return { x: center.x + Math.cos(a) * radius, z: center.z + Math.sin(a) * radius };
+          });
+    binding.areaPoints.push(...outer.map((p) => ({ ...p })));
+    if (skills[binding.toSkill].directional) {
+      const spokes = outer.length <= 4
+        ? outer.slice(0, 3)
+        : [outer[0], outer[Math.floor(outer.length / 3)], outer[Math.floor((outer.length * 2) / 3)]];
+      for (const p of spokes)
+        this.castCatalystPayload(binding, p.x, p.z, center.x - p.x, center.z - p.z);
+    } else {
+      for (const target of this.ents) {
+        if (target.hp <= 0 || !circleIntersectsCircle(center.x, center.z, radius, target.x, target.z, target.radius)) continue;
+        const dx = center.x - target.x,
+          dz = center.z - target.z,
+          d = Math.hypot(dx, dz) || 1;
+        target.x += (dx / d) * Math.min(1.1, d * 0.35);
+        target.z += (dz / d) * Math.min(1.1, d * 0.35);
+        target.displacedUntil = Math.max(target.displacedUntil, this.time + 0.55);
+      }
+      this.castCatalystPayload(binding, center.x, center.z);
+    }
+    binding.firedCount++;
+    if (binding.fromSkill !== 'mortar_bloom' || binding.firedCount >= 3) binding.done = true;
+    this.emitChoreography(binding.mode, binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [...outer, center]);
+  }
+
+  private handlePhysicalBinding(binding: CatalystBinding, e: PhysicalEvent) {
+    if (binding.done || e.activationId !== binding.producerActivationId) return;
+
+    if (e.kind === 'path') {
+      if (e.previousX !== undefined && e.previousZ !== undefined)
+        this.appendBindingPath(binding, [{ x: e.previousX, z: e.previousZ }, { x: e.x, z: e.z }]);
+      else this.appendBindingPath(binding, [{ x: e.x, z: e.z }]);
+    } else if (e.kind === 'impact' || e.kind === 'contact' || e.kind === 'terminal') {
+      const last = binding.path[binding.path.length - 1] ?? this.activationLastPoint.get(e.activationId);
+      if (last) this.appendBindingPath(binding, [last, { x: e.x, z: e.z }]);
+      else this.appendBindingPath(binding, [{ x: e.x, z: e.z }]);
+    }
+
+    if (binding.mode === 'source' && e.kind === 'terminal') {
+      if (this.castCatalystPayload(binding, e.x, e.z)) {
+        binding.firedCount = 1;
+        binding.done = true;
+        const origin = binding.path[0] ?? { x: e.x, z: e.z };
+        this.emitChoreography('source', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [origin, { x: e.x, z: e.z }]);
+      }
+      return;
+    }
+
+    if (binding.mode === 'carrier' && e.kind === 'contact' && e.carrierKind && e.carrierId !== undefined) {
+      const key = e.carrierKind + ':' + e.carrierId;
+      if (binding.carrierKeys.has(key) || binding.firedCount >= 3) return;
+      binding.carrierKeys.add(key);
+      if (this.castCatalystPayload(binding, e.x, e.z)) {
+        binding.firedCount++;
+        this.emitChoreography('carrier', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [{ x: e.x, z: e.z }]);
+      }
+      if (binding.firedCount >= 3) binding.done = true;
+      return;
+    }
+
+    if (binding.mode === 'trail' && (e.kind === 'path' || e.kind === 'impact' || e.kind === 'terminal')) {
+      const spacing = binding.toSkill === 'sentry' ? 4.2 : 3.0,
+        max = binding.toSkill === 'sentry' ? 6 : 4;
+      let length = polylineLength(binding.path);
+      while (binding.firedCount < max && length + 1e-6 >= binding.nextTrailDistance) {
+        const p = pointAlongPolyline(binding.path, binding.nextTrailDistance);
+        if (!p) break;
+        const aim = this.trailAim(binding, binding.nextTrailDistance);
+        if (this.castCatalystPayload(binding, p.x, p.z, aim.x, aim.z)) binding.firedCount++;
+        binding.nextTrailDistance += spacing;
+        length = polylineLength(binding.path);
+      }
+      if (e.kind === 'terminal') {
+        if (!binding.firedCount) this.castCatalystPayload(binding, e.x, e.z);
+        binding.done = true;
+        this.emitChoreography('trail', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, binding.path.length ? binding.path : [{ x: e.x, z: e.z }]);
+      }
+      return;
+    }
+
+    if (binding.mode === 'reverse' && e.kind === 'terminal') {
+      const path = binding.path.length >= 2 ? binding.path : [{ x: e.x, z: e.z }, { x: e.x - this.aimX, z: e.z - this.aimZ }],
+        end = path[path.length - 1],
+        prev = path[Math.max(0, path.length - 2)],
+        dx = prev.x - end.x,
+        dz = prev.z - end.z;
+      if (this.castCatalystPayload(binding, end.x, end.z, dx, dz)) {
+        binding.firedCount = 1;
+        binding.done = true;
+        this.emitChoreography('reverse', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [...path].reverse());
+      }
+      return;
+    }
+
+    if (binding.mode === 'collapse' && (e.kind === 'area' || e.kind === 'impact')) this.fireCollapse(binding, e);
+  }
+
+  private flushPhysicalEvents() {
+    if (this.drainingPhysicalEvents) return;
+    this.drainingPhysicalEvents = true;
+    let guard = 0;
+    try {
+      while (this.physicalEvents.length && guard++ < 256) {
+        const e = this.physicalEvents.shift()!;
+        for (const binding of this.catalystBindings) this.handlePhysicalBinding(binding, e);
+      }
+    } finally {
+      this.drainingPhysicalEvents = false;
+    }
+    this.catalystBindings = this.catalystBindings.filter((b) => !b.done && b.expiresAt > this.time);
+  }
+
   private sameChoreographyPoint(a: ChoreographyPoint, b: ChoreographyPoint, eps = 0.12) {
     return Math.hypot(a.x - b.x, a.z - b.z) <= eps;
   }
