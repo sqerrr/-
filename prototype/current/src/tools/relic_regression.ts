@@ -34,13 +34,13 @@ for (const [cat, n] of byCategory) assert(n >= 2, `category ${cat} has only ${n}
   const before = sim.armor;
   h.takeRelic({ id: 1, x: 0, z: 0, item: 'plating', bornAt: 0 });
   assert(sim.armor > before, 'plating did not add armour');
-  assert(sim.heldItems.length === 1, 'the haul did not record the relic');
+  assert(Number(sim.heldItems.length) === 1, 'the haul did not record the relic');
   const hpBefore = sim.maxHp;
   h.takeRelic({ id: 2, x: 0, z: 0, item: 'vitality', bornAt: 0 });
   assert(sim.maxHp > hpBefore, 'vitality did not raise the ceiling');
   // D14 forbids slots, so a second copy of the same relic must still count.
   h.takeRelic({ id: 3, x: 0, z: 0, item: 'plating', bornAt: 0 });
-  assert(sim.heldItems.length === 3, 'a repeated relic was swallowed instead of stacking');
+  assert(Number(sim.heldItems.length) === 3, 'a repeated relic was swallowed instead of stacking');
 }
 
 // --- an elite that reaches one first is changed too -----------------------
