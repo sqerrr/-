@@ -212,6 +212,27 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   assert(turret&&dist(rail,turret)<.6,'Carrier Rail did not originate at the firing turret');
 }
 
+// TTL is a hard physical boundary: an actor that expires this tick cannot create a last ghost contact.
+{
+  const sim=fixture('sentry','rail_spear','carrier');
+  sim.ents=sim.ents.slice(0,1);
+  const e=sim.ents[0];e.x=3;e.z=0;
+  sim.activateSlot(0);
+  for(const c of sim.constructs){c.ttl=sim.dt*.5;c.cooldown=0;}
+  const before=casts(sim,'rail_spear').length;
+  physicalTick(sim);
+  assert(casts(sim,'rail_spear').length===before,'expired Sentry fired a ghost Carrier shot');
+}
+{
+  const sim=fixture('toxic_mist','frost_ring','collapse');
+  sim.catalysts=[null];sim.ents=sim.ents.slice(0,1);
+  const e=sim.ents[0];e.x=.8;e.z=0;e.radius=.4;
+  sim.fields=[{id:97801,x:0,z:0,radius:1,ttl:sim.dt*.5,kind:'fire',dps:999,tickAcc:.25,faction:'hero',ownerId:0,source:'toxic_mist',sourceSlot:0,mutation:null,rivalConcentration:1,insideIds:[]}];
+  const hp=e.hp;
+  physicalTick(sim);
+  assert(e.hp===hp,'expired field applied one final ghost damage/contact tick');
+}
+
 // Persistent Carrier lifetime belongs to the actual constructs, not an arbitrary six-second timeout.
 {
   const sim=fixture('sentry','rail_spear','carrier');
