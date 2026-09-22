@@ -201,7 +201,23 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
     'B->C lineage retained a point inside solid cover');
 }
 
-// The scheduled right-hand chain beat is consumed; it must not duplicate the reactive payload.
+// The right-hand node belongs to the physical edge, not to the chain clock. It stays
+// suppressed even after the cycle number advances while a slow producer is still alive.
+{
+  const sim=fixture('mass_driver','toxic_mist','source');
+  sim.activateSlot(0);
+  assert(casts(sim,'toxic_mist').length===0,'Mass Source unexpectedly fired immediately');
+  sim.cycle += 3;
+  sim.activateSlot(1);
+  assert(casts(sim,'toxic_mist').length===0,'B regained an ordinary beat in a later cycle');
+  assert(until(sim,()=>casts(sim,'toxic_mist').length>0,360),'slow Mass terminal never fired event-owned B');
+  const after=casts(sim,'toxic_mist').length;
+  sim.cycle += 1;
+  sim.activateSlot(1);
+  assert(casts(sim,'toxic_mist').length===after,'B duplicated after reactive cast on a later chain cycle');
+}
+
+// The immediate case follows the same rule.
 {
   const sim=fixture('rail_spear','toxic_mist','source');
   sim.activateSlot(0);
