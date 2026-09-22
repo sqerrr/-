@@ -35,12 +35,14 @@ Documents 34/35 and older Catalyst reports are research/defect evidence only whe
 - Every relevant activation has lineage through projectiles, delayed impacts, constructs, fields, Orbit contacts and Catalyst-created cascades.
 - New shared `src/core/geometry.ts` owns circle/ray/sector overlap, swept collision and path sampling.
 - Telegraph/render geometry is separate from physical truth; a planned point is never automatically a terminal.
-- Mortar truth is `terminal + carrier + area`; it does **not** advertise a fake path without a simulated shell actor.
+- Mortar truth is `terminal + carrier + area`; it does **not** advertise a fake path or Reverse without a simulated shell actor.
 - Orbit gameplay uses the same discrete blade positions as presentation; the old invisible annulus hit test is gone.
 - Collapse consumes exact physical areas instead of a bounding circle over disconnected zones.
 - Multi-projectile routes are kept per physical carrier; separate Shards cannot invent a segment between one another.
 - The old next-beat `executeChoreography()` engine has been removed.
-- Current exhaustive lifecycle matrix exercises **280 compatible ordered A→Catalyst→B pairs** without manually activating B.
+- Compatible B nodes are event-owned across cycle boundaries; actor-owned bindings do not expire on an arbitrary timer.
+- The lifecycle audit executes **240 mutation × physical-signal cases** in addition to the pair matrix.
+- Current exhaustive lifecycle matrix exercises **266 compatible ordered A→Catalyst→B pairs** without manually activating B.
 - Active Discovery remains **11 Phenomena** and **5 Catalysts**: Source / Carrier / Trail / Reverse / Collapse.
 - Old Catalyst 1.x proc/stat definitions remain compatibility-only for old saves/replays.
 - v0.12.1 elite shape/readability language remains intact.
