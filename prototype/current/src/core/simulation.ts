@@ -1251,24 +1251,51 @@ export class Simulation {
         keep.push(q);
         continue;
       }
+      const impactShape: CombatShape = { kind: 'circle', x: q.x, z: q.z, radius: q.radius };
       this.events.push({
         type: 'CombatShape',
         tick: this.tick,
-        source: `${q.source}_impact`,
+        source: String(q.source) + '_impact',
         intent: q.intent,
-        shape: { kind: 'circle', x: q.x, z: q.z, radius: q.radius }
+        shape: impactShape
       });
+      if(q.faction==='hero' && q.activationId){
+        const areaPoints=[0,1,2,3].map((i)=>{
+          const a=i*Math.PI/2;
+          return {x:q.x+Math.cos(a)*q.radius,z:q.z+Math.sin(a)*q.radius};
+        });
+        // This event is emitted at impact time, not at scheduling/telegraph time.
+        this.queuePhysicalEvent({
+          activationId:q.activationId,
+          slot:q.sourceSlot,
+          skill:q.source as SkillId,
+          kind:'impact',
+          x:q.x,
+          z:q.z,
+          radius:q.radius,
+          areaPoints
+        });
+      }
       const owner = q.ownerId ? this.ents.find((e) => e.id === q.ownerId) ?? null : null;
       if (q.faction === 'rival') {
-        if (Math.hypot(this.px - q.x, this.pz - q.z) <= q.radius + HERO_HIT_RADIUS)
+        if (combatShapeIntersectsCircle(impactShape,this.px,this.pz,HERO_HIT_RADIUS))
           this.damageHero(q.damage, String(q.source), owner, 1);
       } else {
         for (const e of this.ents) {
-          if (e.hp <= 0 || Math.hypot(e.x - q.x, e.z - q.z) > q.radius + e.radius) continue;
+          if (e.hp <= 0 || !combatShapeIntersectsCircle(impactShape,e.x,e.z,e.radius)) continue;
           this.damage(e, q.damage, String(q.source), false, q.x, q.z, q.sourceSlot);
         }
       }
-      if (q.fieldKind) this.fields.push({id:this.nextId++,x:q.x,z:q.z,radius:q.radius*0.92,ttl:q.fieldDuration??2.5,kind:q.fieldKind,dps:q.fieldDps??q.damage*0.18,tickAcc:0,faction:q.faction,ownerId:q.ownerId,source:String(q.source),sourceSlot:q.sourceSlot,mutation:null,rivalConcentration:1});
+      if (q.fieldKind)
+        this.fields.push({
+          id:this.nextId++,
+          activationId:q.activationId,
+          insideIds:[],
+          x:q.x,z:q.z,radius:q.radius*0.92,ttl:q.fieldDuration??2.5,kind:q.fieldKind,
+          dps:q.fieldDps??q.damage*0.18,tickAcc:0,faction:q.faction,ownerId:q.ownerId,
+          source:String(q.source),sourceSlot:q.sourceSlot,mutation:null,rivalConcentration:1
+        });
+      this.finishAsyncPhysical(q.activationId,q.x,q.z);
     }
     this.delayedStrikes = keep;
   }
