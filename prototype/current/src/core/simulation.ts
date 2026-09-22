@@ -6647,6 +6647,11 @@ export class Simulation {
     this.pickupRadius = cfg.pickupRadius ?? 9;
     this.fortune = cfg.fortune ?? 0.15;
   }
+  /** Diagnostic contract for regression/probe tooling; gameplay does not branch on it. */
+  physicalDiagnostics() {
+    return this.physical.diagnostics();
+  }
+
   telemetry() {
     return {
       damageBySource: Object.fromEntries(this.damageBySource),
