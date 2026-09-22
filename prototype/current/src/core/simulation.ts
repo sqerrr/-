@@ -6492,9 +6492,9 @@ export class Simulation {
       return {
         id: `g:f:${this.rng.nextU32()}`,
         kind: 'global',
-        title: 'Фортуна',
+        title: 'Удача',
         subtitle: `+${Math.round(8 * m)}% к удаче`,
-        description: 'Усиливает контроль над будущими случайными находками.',
+        description: 'Редкие находки выпадают чаще.',
         stat,
         amount: 0.08 * m,
         rarity
@@ -6540,12 +6540,12 @@ export class Simulation {
       id: `addcat:${id}:${this.rng.nextU32()}`,
       kind: 'catalyst_add',
       title: catalysts[id].name,
-      subtitle: `${catalysts[id].scope.toUpperCase()} · ХОРЕОГРАФИЯ`,
+      subtitle: 'КАТАЛИЗАТОР · связь феноменов',
       description:
         catalysts[id].desc +
         (examples.length
-          ? ` Сейчас совместим: ${examples.join(' · ')}.`
-          : ' Совместимость зависит от физической формы соседних феноменов.'),
+          ? ` Сейчас подходит: ${examples.join(' · ')}.`
+          : ' Поставьте его между совместимой парой феноменов.'),
       catalyst: id
     };
   }
@@ -6564,7 +6564,7 @@ export class Simulation {
       id: `doctrine:${did}:${this.rng.nextU32()}`,
       kind: 'doctrine',
       title: d.name,
-      subtitle: `ДОКТРИНА ${before} → ${after}`,
+      subtitle: `СПЕЦИАЛИЗАЦИЯ ${before} → ${after}`,
       description: d.description,
       doctrine: did,
       amount: 1,
@@ -6676,7 +6676,7 @@ export class Simulation {
         .map((id) => {
           const o = this.makeCatalystAdd(id);
           o.kind = 'elite';
-          o.subtitle = 'ТАЙНИК ЭЛИТЫ · новый закон связи';
+          o.subtitle = 'ТАЙНИК ЭЛИТЫ · новый катализатор';
           return o;
         });
     } else {
@@ -6685,8 +6685,7 @@ export class Simulation {
         .map((id) => {
           const o = this.makeResonanceOffer(id);
           o.kind = 'elite';
-          o.description =
-            'ТАЙНИК ЭЛИТЫ · усиление всей сборки, а не конкретного оружия. ' + o.description;
+          o.description = o.description + ' Усиливает всю сборку.';
           return o;
         });
       if (this.skillOrderUnowned().length) {
@@ -6695,8 +6694,8 @@ export class Simulation {
           id: `elite-discover:${id}:${this.rng.nextU32()}`,
           kind: 'elite',
           title: skills[id].name,
-          subtitle: 'ТАЙНИК ЭЛИТЫ · альтернативный феномен',
-          description: `Поздняя находка сразу использует текущий уровень ядра. ${skills[id].description}`,
+          subtitle: 'ТАЙНИК ЭЛИТЫ · новый феномен',
+          description: `${skills[id].description} Сразу использует текущий уровень ядра.`,
           skill: id
         });
       } else offers.push(this.makeGlobalOffer());
