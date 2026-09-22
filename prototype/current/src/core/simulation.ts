@@ -2519,7 +2519,7 @@ export class Simulation {
     source: string,
     shape: CombatShape,
     duration: number,
-    order: EliteActionId
+    order: Exclude<EliteActionId, 'predator_dash'>
   ) {
     e.eliteAction = order;
     e.eliteActionUntil = this.time + duration;
