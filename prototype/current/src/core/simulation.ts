@@ -4925,22 +4925,23 @@ export class Simulation {
       else if (binding.pathCarrierKey!==eventCarrierKey) return;
     }
 
-    if (e.kind === 'path') {
+    if ((binding.mode==='trail'||binding.mode==='reverse') && e.kind === 'path') {
       if (e.previousX !== undefined && e.previousZ !== undefined)
         this.appendBindingPath(binding, [{ x: e.previousX, z: e.previousZ }, { x: e.x, z: e.z }]);
       else this.appendBindingPath(binding, [{ x: e.x, z: e.z }]);
-    } else if (e.kind === 'impact' || e.kind === 'contact' || e.kind === 'terminal') {
-      const last = binding.path[binding.path.length - 1] ?? this.activationLastPoint.get(e.activationId);
+    } else if (
+      (binding.mode==='trail'||binding.mode==='reverse') &&
+      (e.kind === 'impact' || e.kind === 'contact' || e.kind === 'terminal')
+    ) {
+      const last = binding.path[binding.path.length - 1];
       if (last) this.appendBindingPath(binding, [last, { x: e.x, z: e.z }]);
-      else this.appendBindingPath(binding, [{ x: e.x, z: e.z }]);
     }
 
     if (binding.mode === 'source' && e.kind === 'terminal') {
       if (this.castCatalystPayload(binding, e.x, e.z)) {
         binding.firedCount = 1;
         binding.done = true;
-        const origin = binding.path[0] ?? binding.origin;
-        this.emitChoreography('source', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [origin, { x: e.x, z: e.z }]);
+        this.emitChoreography('source', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [binding.origin, { x: e.x, z: e.z }]);
       }
       return;
     }
