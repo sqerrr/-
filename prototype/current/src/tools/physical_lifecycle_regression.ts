@@ -163,6 +163,20 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   assert(turret&&dist(rail,turret)<.6,'Carrier Rail did not originate at the firing turret');
 }
 
+// Persistent Carrier lifetime belongs to the actual constructs, not an arbitrary six-second timeout.
+{
+  const sim=fixture('sentry','rail_spear','carrier');
+  sim.ents=[];
+  sim.skillsRuntime.get('sentry').duration=1; // ~10.5 s physical turrets.
+  sim.activateSlot(0);
+  advance(sim,390); // 6.5 s: beyond the removed legacy binding timeout.
+  assert(sim.constructs.length>0,'long-lived Sentry fixture expired before timeout audit');
+  assert(casts(sim,'rail_spear').length===0,'Sentry Carrier fired without a physical target contact');
+  const t=sim.spawnEnemyAt('footnote',4,0,0);t.maxHp=1e9;t.hp=1e9;t.speed=0;t.contactDps=0;
+  assert(until(sim,()=>casts(sim,'rail_spear').length>0,120),
+    'Sentry Carrier binding expired while its owning turrets were still physically alive');
+}
+
 // ORBIT: hitbox is each visible blade. An enemy in the gap of the old annulus is not hit.
 {
   const sim=fixture('orbit_blades','frost_ring','carrier');
@@ -286,6 +300,16 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   assert(casts(sim,'toxic_mist').length===after,'B duplicated after reactive cast on a later chain cycle');
 }
 
+// Completed causal chains retire their activation bookkeeping instead of leaking every beat forever.
+{
+  const sim=fixture('rail_spear','toxic_mist','source');
+  sim.activateSlot(0);
+  sim.flushPhysicalEvents();
+  assert(sim.activationPending.size===0,'completed immediate activation retained pending actors');
+  assert(sim.catalystBindings.every((b:any)=>!b.done),'completed bindings survived flush cleanup');
+  assert(sim.activationMeta.size===0,'completed immediate Catalyst lineage leaked activation metadata');
+}
+
 // The immediate case follows the same rule.
 {
   const sim=fixture('rail_spear','toxic_mist','source');
@@ -301,6 +325,7 @@ console.log('physical-lifecycle-regression OK',{
   mortar:'impact-timed source/carrier/reverse',
   mass:'progressive trail',
   shard:'contact carrier',
-  sentry:'fire contact',
-  orbit:'discrete blade hitboxes'
+  sentry:'actor-owned carrier lifetime',
+  orbit:'discrete blade hitboxes + lineage',
+  cleanup:'explicit activation retirement'
 });
