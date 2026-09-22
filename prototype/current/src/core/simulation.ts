@@ -4188,7 +4188,7 @@ export class Simulation {
     }
     for(let i=0;i<count;i++){
       const ang=count===1?0:(i-(count-1)/2)*spread, c=Math.cos(ang),sn=Math.sin(ang), ax=baseAimX*c-baseAimZ*sn,az=baseAimX*sn+baseAimZ*c;
-      this.combatShape('shard_fan',{kind:'ray',x:src.x,z:src.z,aimX:ax,aimZ:az,range,halfWidth:0.18});
+      this.combatShape('shard_fan',{kind:'ray',x:src.x,z:src.z,aimX:ax,aimZ:az,range,halfWidth:0.18},'damage',false);
       this.spawnProjectile({x:src.x+ax*0.55,z:src.z+az*0.55,vx:ax*speed,vz:az*speed,radius:0.22,ttl:Math.max(1.8,range/speed*2.2),damage,coverDamage:damage*0.7,faction:src.faction,ownerId:src.owner?.id??0,source:'shard_fan',sourceSlot:slot,mutation:mut,apotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.shard_fan.rivalConcentration,behavior:'returner',returnAt:Math.max(0.75,range/speed*0.78),phase:0,hitIds:[],carousel:this.mutationIs(st,'returner_carousel'),trailAcc:0});
     }
   }
@@ -5040,6 +5040,10 @@ export class Simulation {
     // physically reached them. Async projectiles/impacts publish their real terminal later.
     if (resolvedHits.length) t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
     else if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
+    if (t.skill === 'mortar_bloom' || t.skill === 'mass_driver' || t.skill === 'shard_fan') {
+      t.terminal = null;
+      t.paths = [];
+    }
     const out: ChoreographyTrace = {
       ...t,
       origin: { ...t.origin },
@@ -5530,9 +5534,12 @@ export class Simulation {
   private combatShape(
     source: string,
     shape: CombatShape,
-    intent: 'damage' | 'control' | 'field' = 'damage'
+    intent: 'damage' | 'control' | 'field' = 'damage',
+    physicalTrace = true
   ) {
-    this.traceCombatShape(shape);
+    // Render geometry and simulation truth are separate contracts. A moving projectile may
+    // draw its intended lane now, but its Catalyst path is published only as the body moves.
+    if (physicalTrace) this.traceCombatShape(shape);
     this.events.push({ type: 'CombatShape', tick: this.tick, source, intent, shape });
   }
 
@@ -5828,7 +5835,7 @@ export class Simulation {
     if(this.mutationIs(st,'mass_terminal')){speed*=1.38;damage*=1.42;radius*=0.9;}
     if(mut==='mass_recoil'||this.mutationIs(st,'mass_counterthrust')){const kick=this.mutationIs(st,'mass_comet_recoil')?1.8:1.05;this.displaceSource(src,-src.aimX*kick,-src.aimZ*kick);if(!src.owner&&this.mutationIs(st,'mass_comet_recoil'))this.dashIFramesUntil=Math.max(this.dashIFramesUntil,this.time+0.16);}
     if(this.mutationIs(st,'mass_comet_recoil')){speed*=1.35;damage*=1.28;radius*=1.18;}
-    this.combatShape('mass_driver',{kind:'ray',x:src.x,z:src.z,aimX:src.aimX,aimZ:src.aimZ,range,halfWidth:radius},'control');
+    this.combatShape('mass_driver',{kind:'ray',x:src.x,z:src.z,aimX:src.aimX,aimZ:src.aimZ,range,halfWidth:radius},'control',false);
     this.spawnProjectile({x:src.x+src.aimX*(radius+0.25),z:src.z+src.aimZ*(radius+0.25),vx:src.aimX*speed,vz:src.aimZ*speed,radius,ttl:range/speed,damage,coverDamage:cover+damage*0.8,faction:src.faction,ownerId:src.owner?.id??0,source:'mass_driver',sourceSlot:slot,mutation:mut,apotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.mass_driver.rivalConcentration,behavior:'roller',phase:0,hitIds:[],growth:this.mutationIs(st,'mass_avalanche')?0.12:mut==='mass_snowball'?0.06:0});
   }
 
