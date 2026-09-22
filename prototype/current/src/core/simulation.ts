@@ -1025,8 +1025,10 @@ export class Simulation {
   }
 
   private spawnProjectile(p: Omit<Projectile, 'id' | 'guarded'>) {
-    const id = this.nextId++;
-    this.projectiles.push({ id, guarded: false, ...p });
+    const id = this.nextId++,
+      activationId = p.faction === 'hero' ? this.currentActivationId : 0;
+    this.projectiles.push({ id, activationId, guarded: false, ...p });
+    if (activationId) this.registerAsyncPhysical(activationId);
     if (
       this.currentChoreography &&
       p.faction === 'hero' &&
@@ -1149,16 +1151,16 @@ export class Simulation {
   }
 
   private scheduleStrike(strike: Omit<DelayedStrike, 'id'>) {
-    this.delayedStrikes.push({ id: this.nextId++, ...strike });
+    const activationId = strike.faction === 'hero' ? (strike.activationId ?? this.currentActivationId) : 0;
+    this.delayedStrikes.push({ id: this.nextId++, activationId, ...strike });
+    if (activationId) this.registerAsyncPhysical(activationId);
     if (
       this.currentChoreography &&
       strike.faction === 'hero' &&
       strike.sourceSlot === this.currentSlot
     ) {
-      const p = { x: strike.x, z: strike.z };
-      this.currentChoreography.scheduled.push(p);
-      this.tracePoint(p.x, p.z, true);
-      this.traceArea(p.x, p.z, strike.radius);
+      // This is a PLAN only. It is deliberately excluded from terminal/area/path truth.
+      this.currentChoreography.scheduled.push({ x: strike.x, z: strike.z });
     }
     this.events.push({
       type: 'CombatShape',
@@ -1610,14 +1612,20 @@ export class Simulation {
     this.updateEliteEchoes();
     this.resolveEntityObstacles();
     this.updateProjectiles();
+    this.flushPhysicalEvents();
     this.updateDelayedStrikes();
+    this.flushPhysicalEvents();
     this.updateFields();
+    this.flushPhysicalEvents();
     this.updateConstructs();
+    this.flushPhysicalEvents();
     this.updateDots();
     this.updatePickups();
     this.updateRelics();
     this.updateOrbitBlades();
+    this.flushPhysicalEvents();
     this.chainTick();
+    this.flushPhysicalEvents();
     this.cleanup();
     if (!this.benchmark) this.checkProgression();
     const aliveNow = this.ents.filter((e) => e.hp > 0).length;
@@ -4979,13 +4987,17 @@ export class Simulation {
         t.carriers.push({ kind: 'projectile', id: p.id });
     for (const q of this.constructs)
       if (q.id >= firstNewId && q.sourceSlot === slot && q.faction === 'hero') {
+        q.activationId = this.currentActivationId;
         t.carriers.push({ kind: 'construct', id: q.id });
         this.tracePoint(q.x, q.z);
         this.traceArea(q.x, q.z, 0.7);
       }
     for (const f of this.fields)
-      if (f.id >= firstNewId && f.sourceSlot === slot && f.faction !== 'rival')
+      if (f.id >= firstNewId && f.sourceSlot === slot && f.faction !== 'rival') {
+        f.activationId = this.currentActivationId;
+        f.insideIds ??= [];
         this.traceArea(f.x, f.z, f.radius);
+      }
     if (id === 'orbit_blades') this.noteOrbitTrace();
   }
 
