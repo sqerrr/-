@@ -1013,7 +1013,7 @@ export class Simulation {
       const owner = q.ownerId ? this.ents.find((e) => e.id === q.ownerId) ?? null : null;
       if (q.faction === 'rival') {
         if (combatShapeIntersectsCircle(impactShape,this.px,this.pz,HERO_HIT_RADIUS))
-          this.damageHero(q.damage, String(q.source), owner, 1);
+          this.damageHero(q.damage, q.source as DamageSourceId, owner, 1);
       } else {
         for (const e of this.ents) {
           if (e.hp <= 0 || !combatShapeIntersectsCircle(impactShape,e.x,e.z,e.radius)) continue;
@@ -1869,7 +1869,7 @@ export class Simulation {
   }
 
   private resolveEliteEcho(e: Ent, q: EliteEchoState) {
-    const dmg = (n: number, source = `echo_${q.skill}`) => this.damageHero(n * this.damageScale(), source, e, 1);
+    const dmg = (n: number, source: DamageSourceId = `echo_${q.skill}`) => this.damageHero(n * this.damageScale(), source, e, 1);
     const hitRay = (range: number, width: number, amount: number) => {
       if (!this.lineOfSight(q.x, q.z, this.px, this.pz, width * 0.2)) return;
       const dx = this.px - q.x, dz = this.pz - q.z, t = dx * q.aimX + dz * q.aimZ;
@@ -5567,7 +5567,7 @@ export class Simulation {
   ) {
     // A rival-owned cast resolves against the player, not against the enemy roster.
     // None of the bookkeeping below applies: it is all scored from the hero's point of view.
-    if (e === this.hero) return this.damageHero(amount, source);
+    if (e === this.hero) return this.damageHero(amount, source as DamageSourceId);
     // Everything reaching this line is the hero striking an enemy: rival casts resolve
     // against the synthetic hero above and elite contact goes straight to hitPlayer.
     amount *= this.itemDamageMul;
@@ -5779,7 +5779,7 @@ export class Simulation {
   // so this only records the source and reports whether the blow was lethal.
   private damageHero(
     amount: number,
-    source: string,
+    source: DamageSourceId,
     attacker: Ent | null = this.castOwner,
     concentration = this.castRivalConcentration
   ) {
