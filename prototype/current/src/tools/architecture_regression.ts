@@ -11,6 +11,7 @@ const entityStore=readFileSync('src/core/entityStore.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
 const stateModel=readFileSync('src/core/state.ts','utf8');
 const testHarness=readFileSync('src/testing/simulationHarness.ts','utf8');
+const statusSystem=readFileSync('src/core/statusSystem.ts','utf8');
 const types=readFileSync('src/core/types.ts','utf8');
 const ui=readFileSync('src/platform/main.ts','utf8');
 const eliteUi=readFileSync('src/content/eliteUi.ts','utf8');
@@ -33,6 +34,10 @@ assert(encounterDirector.includes('export class EncounterDirector'), 'run pacing
 for (const token of ['private spawnCredits =','private eliteAcc =','private firstElite ='])
   assert(!simulation.includes(token), 'encounter cadence state leaked back into Simulation: '+token);
 assert(simulation.includes('private encounterDirector'), 'Simulation no longer delegates encounter pacing');
+assert(statusSystem.includes('export class StatusSystem'), 'generic combat statuses have no dedicated owner');
+assert(simulation.includes('private statusSystem = new StatusSystem()'), 'Simulation no longer delegates generic status lifecycle');
+assert(!simulation.includes('private stateActive(') && !simulation.includes('private consumeState('),
+  'dead generic status helpers leaked back into Simulation');
 for (const component of ['BodyComponent','VitalComponent','RelationComponent','EliteRuntimeComponent','StatusComponent','EliteProgressionComponent'])
   assert(stateModel.includes('export interface '+component), 'entity domain component missing: '+component);
 assert(stateModel.includes('export function makeEnt('), 'combat entity construction has no single factory');
@@ -76,6 +81,7 @@ console.log('architecture-regression OK', {
   physicalLifecycleOwner:true,
   entityStore:true,
   encounterDirector:true,
+  statusSystem:true,
   entityComponents:true,
   typedTestHarness:true
 });
