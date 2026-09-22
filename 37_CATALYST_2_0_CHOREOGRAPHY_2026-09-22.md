@@ -103,7 +103,9 @@ Examples:
 
 - Rail → Mass Driver: the heavy body appears at the far endpoint and travels back.
 - Shards → Rail: the line begins from the remote end and is aimed back through the route.
-- Mortar terminal → directional B: B starts at the final real impact and faces back toward the activation origin. Mortar does not advertise a fake ground path.
+- Mass Driver → Rail: Rail starts at the moving body's real endpoint and faces backward along the route it actually travelled.
+
+Mortar is intentionally **not** a Reverse producer in the current Core. It has real impacts but no simulated shell route; a line from cast origin to impact would be invented geometry.
 
 This is not “repeat B after A”; the B world origin and facing are reversed.
 
@@ -142,7 +144,7 @@ Current compatibility over 110 ordered distinct live Phenomenon pairs:
 | Источник | 70 | 63.6% |
 | Носитель | 46 | 41.8% |
 | След | 45 | 40.9% |
-| Обратный ход | 49 | 44.5% |
+| Обратный ход | 35 | 31.8% |
 | Схлопывание | 70 | 63.6% |
 
 These numbers are descriptive, not quotas. A pair should be removed if it is visually weak even if that lowers coverage.
@@ -250,7 +252,7 @@ The dedicated `catalyst_choreography_regression` now verifies:
 - renderer contains distinct visual grammar for all five modes;
 - compatibility is partial, not universal.
 
-An exhaustive pair smoke executes **every currently advertised compatible ordered pair**. Current count: **280 pairs**.
+An exhaustive pair smoke executes **every currently advertised compatible ordered pair**. Current count: **266 pairs**.
 
 For each pair it checks that:
 
