@@ -9,6 +9,7 @@ const state=readFileSync('src/core/state.ts','utf8');
 const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const entityStore=readFileSync('src/core/entityStore.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
+const eliteBehavior=readFileSync('src/core/eliteBehaviorSystem.ts','utf8');
 const stateModel=readFileSync('src/core/state.ts','utf8');
 const testHarness=readFileSync('src/testing/simulationHarness.ts','utf8');
 const statusSystem=readFileSync('src/core/statusSystem.ts','utf8');
@@ -34,6 +35,12 @@ assert(encounterDirector.includes('export class EncounterDirector'), 'run pacing
 for (const token of ['private spawnCredits =','private eliteAcc =','private firstElite ='])
   assert(!simulation.includes(token), 'encounter cadence state leaked back into Simulation: '+token);
 assert(simulation.includes('private encounterDirector'), 'Simulation no longer delegates encounter pacing');
+assert(eliteBehavior.includes('export class EliteBehaviorSystem'), 'elite chassis behavior has no dedicated system');
+for (const chassis of ['hunter','architect','broodmaker','bulwark','harvester','shepherd'])
+  assert(eliteBehavior.includes("chassis === '"+chassis+"'"), 'elite behavior system missing chassis: '+chassis);
+assert(simulation.includes('private eliteBehavior!: EliteBehaviorSystem'), 'Simulation no longer delegates elite chassis AI');
+assert(!simulation.includes("if (c === 'hunter')") && !simulation.includes('private beginElitePattern('),
+  'authored elite chassis state machines leaked back into Simulation');
 assert(statusSystem.includes('export class StatusSystem'), 'generic combat statuses have no dedicated owner');
 assert(simulation.includes('private statusSystem = new StatusSystem()'), 'Simulation no longer delegates generic status lifecycle');
 assert(!simulation.includes('private stateActive(') && !simulation.includes('private consumeState('),
@@ -81,6 +88,7 @@ console.log('architecture-regression OK', {
   physicalLifecycleOwner:true,
   entityStore:true,
   encounterDirector:true,
+  eliteBehaviorSystem:true,
   statusSystem:true,
   entityComponents:true,
   typedTestHarness:true
