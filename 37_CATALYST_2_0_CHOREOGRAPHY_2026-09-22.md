@@ -2,8 +2,8 @@
 
 ## Status
 
-**Current owner-directed Catalyst design and v0.12 implementation record.**  
-Executable: `prototype/current/`.
+**Current owner-directed Catalyst design law.**  
+Executable implementation is now **v0.13**. Runtime timing/hitbox mechanics are superseded by `39_PHYSICAL_LIFECYCLE_HITBOX_AUDIT_2026-09-22.md`.
 
 This document supersedes older Catalyst design where it conflicts.  
 Document 36 remains authoritative for crowd-first combat, Quantity, elite ecosystem and Warden rules.
@@ -61,7 +61,7 @@ Examples:
 - Tether → Mortar: bombardment begins from the anchor/result point.
 - Mortar → Orbit: Orbit temporarily exists around the bombardment result instead of the hero.
 
-Implementation detail: “terminal” prefers actual scheduled impact/result points and actual hit positions before abstract maximum geometry.
+Implementation detail in v0.13: a scheduled/telegraphed point is never a terminal. `terminal` is published only by a real physical endpoint/result. See document 39.
 
 ### Носитель
 
@@ -72,9 +72,10 @@ Valid carriers currently include:
 - Orbit blades;
 - Returner shards;
 - Mass Driver moving bodies;
-- Sentry constructs.
+- Sentry constructs;
+- Mortar impacts.
 
-Up to three live carriers are used in one choreography beat for readability/performance.
+Carrier reactions are edge-triggered by real contact/fire/impact. Up to three distinct physical carriers are consumed per binding for readability/performance.
 
 Examples:
 
@@ -90,7 +91,7 @@ Examples:
 
 - Rail → Sentry: a line of batteries is built along the Rail path.
 - Mass Driver → Toxic: persistent zones appear along the rolling route.
-- Shards → Mortar: impacts follow the outbound/return path grammar.
+- Shards → Mortar: impacts are staged along one coherent, actually travelled shard route.
 
 Most Phenomena use three samples. Sentry uses adaptive sampling so neighbouring batteries stay close enough to form real infrastructure.
 
@@ -102,7 +103,7 @@ Examples:
 
 - Rail → Mass Driver: the heavy body appears at the far endpoint and travels back.
 - Shards → Rail: the line begins from the remote end and is aimed back through the route.
-- Mortar path → directional B: B inherits the reversed travel direction.
+- Mortar terminal → directional B: B starts at the final real impact and faces back toward the activation origin. Mortar does not advertise a fake ground path.
 
 This is not “repeat B after A”; the B world origin and facing are reversed.
 
@@ -119,7 +120,7 @@ Radial/non-directional B:
 - B resolves from the common center;
 - A-affected enemies are physically nudged inward so the convergence is visible in world state.
 
-The operator uses the full recorded area, not only the first local circle. This matters for multi-impact Mortar and multi-turret Sentry fields.
+The operator consumes exact recorded area hitboxes, not one merged bounding circle. Multi-impact Mortar and multi-turret Sentry therefore remain several real areas rather than imaginary space between them.
 
 ## 4. Partial compatibility is intentional
 
@@ -139,8 +140,8 @@ Current compatibility over 110 ordered distinct live Phenomenon pairs:
 | Catalyst | Compatible pairs | Ratio |
 | --- | ---: | ---: |
 | Источник | 70 | 63.6% |
-| Носитель | 40 | 36.4% |
-| След | 54 | 49.1% |
+| Носитель | 46 | 41.8% |
+| След | 45 | 40.9% |
 | Обратный ход | 49 | 44.5% |
 | Схлопывание | 70 | 63.6% |
 
@@ -154,17 +155,17 @@ Every live Phenomenon now emits simulation-authored physical information. Render
 | --- | --- |
 | Ледяной фронт | area |
 | Рельсовое копьё | terminal + path |
-| Секач | terminal + short path + sector area |
+| Секач | terminal + sector area |
 | Цепная дуга | terminal + chained path |
-| Орбитальные лезвия | live carriers + area |
-| Бомбардир | terminal + impact path + area |
-| Турель | live construct carriers + multi-point area |
+| Орбитальные лезвия | live blade carriers + exact blade areas |
+| Бомбардир | terminal + impact carriers + impact areas |
+| Турель | firing construct carriers + discrete construct areas |
 | Токсичный туман | persistent area |
 | Могильный вал | moving carrier + path + terminal |
 | Возвратные осколки | moving carriers + path + terminal |
 | Гравиякорь | anchor terminal + path + area |
 
-The regression suite fails if a Phenomenon advertises one of these signals but its actual simulation cast does not produce it.
+The regression suite fails if a Phenomenon advertises one of these signals but no live physical lifecycle can actually produce and consume it. Mortar intentionally has no `path` until a real ballistic actor exists in Core.
 
 ## 6. Sentry redesign for choreography
 
@@ -239,27 +240,27 @@ UI additionally shows whether a Catalyst is physically compatible with the curre
 
 ## 9. Validation
 
-The dedicated `catalyst_choreography_regression` currently verifies:
+The dedicated `catalyst_choreography_regression` now verifies:
 
-- all 11 live Phenomena produce every signal they advertise;
-- representative physical examples for all five operators;
+- all 11 live Phenomena can physically produce/consume every signal they advertise;
+- all compatible pairs run through actual projectile/impact/field/construct/orbit lifecycle rather than a manual B beat;
 - Sentry does not revert to spawning directly on top of the hero;
 - relocated Orbit is rendered around its actual simulation center;
 - presentation bridge preserves Catalyst choreography;
 - renderer contains distinct visual grammar for all five modes;
 - compatibility is partial, not universal.
 
-An exhaustive pair smoke additionally executes **every currently advertised compatible ordered pair**. Current count: **283 pairs**.
+An exhaustive pair smoke executes **every currently advertised compatible ordered pair**. Current count: **280 pairs**.
 
 For each pair it checks that:
 
-- A produces a real physical trace;
-- the Catalyst really fires;
-- B actually activates;
+- A produces the required real physical event;
+- the Catalyst fires at that event time;
+- B actually activates without manually calling its ordinary chain beat;
 - Source relocates B;
-- Carrier uses a real A carrier;
-- Trail creates separated B placements;
-- Reverse begins at the far path head and faces backward;
+- Carrier uses a real contact/fire/impact of A;
+- Trail uses only already-travelled route segments;
+- Reverse waits for the actual terminal and faces backward;
 - Collapse converges directional B or centers radial B;
 - no world object receives invalid coordinates.
 
