@@ -102,6 +102,7 @@ export type EliteOrderId =
   | 'metamorph';
 export type BossPatternId = 'sweep' | 'rupture' | 'charge';
 export type DamageSourceId =
+  | SkillId
   | 'contact'
   | 'temporal_shift'
   | 'brood_pulse'
