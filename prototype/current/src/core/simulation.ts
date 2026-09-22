@@ -989,7 +989,7 @@ export class Simulation {
     return sweepCircleT(x0, z0, x1, z1, cx, cz, radius);
   }
 
-  private firstBlockingObstacle(
+  private firstBlockingObstacleHit(
     x0: number,
     z0: number,
     x1: number,
@@ -1008,11 +1008,21 @@ export class Simulation {
         bestT = t;
       }
     }
-    return best;
+    return best ? { obstacle: best, t: bestT } : null;
+  }
+
+  private firstBlockingObstacle(
+    x0: number,
+    z0: number,
+    x1: number,
+    z1: number,
+    padding = 0.08
+  ) {
+    return this.firstBlockingObstacleHit(x0,z0,x1,z1,padding)?.obstacle ?? null;
   }
 
   private lineOfSight(x0: number, z0: number, x1: number, z1: number, padding = 0.08) {
-    return !this.firstBlockingObstacle(x0, z0, x1, z1, padding);
+    return !this.firstBlockingObstacleHit(x0, z0, x1, z1, padding);
   }
 
   private damageObstacle(o: Obstacle, amount: number) {
@@ -5667,7 +5677,7 @@ export class Simulation {
     const requestedCount=this.projectileCount(st,slot), count=mut==='rail_gun'?1:requestedCount+(mut==='rail_fan'?2:0),rays:number[]=[];
     for(let i=0;i<count;i++)rays.push((i-(count-1)/2)*(mut==='rail_fan'?0.11:0.072));
     let latticePoint:{x:number;z:number}|null=null;
-    for(const ang of rays){const a=this.rotatedAim(src,ang);let base=skills.rail_spear.baseDamage*this.powerBucket(st)*(mut==='rail_gun'?2.35:mut==='rail_fan'?0.58:mut==='rail_rack'?0.78:1);const range=this.skillRange(st,mut==='rail_gun'?25:skills.rail_spear.baseRange),width=this.skillRadius(st,0.34,slot);this.combatShape('rail_spear',{kind:'ray',x:src.x,z:src.z,aimX:a.x,aimZ:a.z,range,halfWidth:width});const hits=this.rayHits(src,a.x,a.z,range,width,mut==='rail_gun'?14:mut==='rail_fan'?5:8);let first=true;
+    for(const ang of rays){const a=this.rotatedAim(src,ang);let base=skills.rail_spear.baseDamage*this.powerBucket(st)*(mut==='rail_gun'?2.35:mut==='rail_fan'?0.58:mut==='rail_rack'?0.78:1);const requestedRange=this.skillRange(st,mut==='rail_gun'?25:skills.rail_spear.baseRange),width=this.skillRadius(st,0.34,slot),endX=src.x+a.x*requestedRange,endZ=src.z+a.z*requestedRange,block=this.firstBlockingObstacleHit(src.x,src.z,endX,endZ,width*0.2),range=requestedRange*(block?.t??1);this.combatShape('rail_spear',{kind:'ray',x:src.x,z:src.z,aimX:a.x,aimZ:a.z,range,halfWidth:width});const hits=this.rayHits(src,a.x,a.z,range,width,mut==='rail_gun'?14:mut==='rail_fan'?5:8);let first=true;
       for(const h of hits){let dmg=base*this.slotAmp(slot,h.e);if(this.mutationIs(st,'rail_spot')&&h.e.markUntil>this.time)dmg*=1.25;const hadMark=h.e.markUntil>this.time;this.damage(h.e,dmg,'rail_spear',true,src.x,src.z,slot);h.e.embedded=Math.min(8,h.e.embedded+(mut==='rail_rack'?2:1));this.noteState('embed');if((this.mutationIs(st,'rail_spot')||hadMark)&&hadMark)h.e.exposedUntil=this.time+3;if(this.mutationIs(st,'rail_harpoon')&&first&&h.e.kind==='elite'){const dx=src.x-h.e.x,dz=src.z-h.e.z,d=Math.hypot(dx,dz)||1;h.e.x+=dx/d*1.25;h.e.z+=dz/d*1.25;}
         if(this.mutationIs(st,'rail_execution_line')&&first&&h.e.kind==='elite')this.scheduleStrike({at:this.time+0.55,x:h.e.x,z:h.e.z,radius:0.85,damage:base*1.25,faction:src.faction,ownerId:src.owner?.id??0,source:'rail_spear',sourceSlot:slot,intent:'damage',telegraph:'rail_execution_beacon'});
         if(this.mutationIs(st,'rail_sky_lance')&&hadMark)this.scheduleStrike({at:this.time+0.72,x:h.e.x,z:h.e.z,radius:1.0,damage:base*1.7,faction:src.faction,ownerId:src.owner?.id??0,source:'rail_spear',sourceSlot:slot,intent:'damage',telegraph:'rail_sky_lance_beacon'});
