@@ -370,6 +370,7 @@ type ChoreographyTrace = {
   terminal: ChoreographyPoint | null;
   points: ChoreographyPoint[];
   areaPoints: ChoreographyPoint[];
+  areas: CombatShape[];
   paths: ChoreographyPoint[][];
   carriers: ChoreographyCarrier[];
   scheduled: ChoreographyPoint[];
@@ -387,7 +388,8 @@ type PhysicalEvent = {
   previousZ?: number;
   radius?: number;
   areaPoints?: ChoreographyPoint[];
-  carrierKind?: 'projectile' | 'construct' | 'orbit';
+  shape?: CombatShape;
+  carrierKind?: 'projectile' | 'construct' | 'orbit' | 'impact';
   carrierId?: number;
   targetId?: number;
 };
@@ -4940,7 +4942,10 @@ export class Simulation {
     const t = this.currentChoreography;
     if (!t) return;
     this.tracePoint(x, z);
-    const r = Math.max(0.35, radius);
+    const r = Math.max(0.35, radius),
+      shape:CombatShape={kind:'circle',x,z,radius:r};
+    if(!t.areas.some((q)=>q.kind==='circle'&&Math.hypot(q.x-x,q.z-z)<0.08&&Math.abs(q.radius-r)<0.08))
+      t.areas.push(shape);
     for (let i = 0; i < 4; i++) {
       const a = (i * Math.PI) / 2;
       const p = { x: x + Math.cos(a) * r, z: z + Math.sin(a) * r };
@@ -4968,6 +4973,9 @@ export class Simulation {
       this.traceSegment({ x: shape.x, z: shape.z }, end);
       return;
     }
+    if(!this.currentChoreography.areas.some((q)=>
+      q.kind==='sector'&&Math.hypot(q.x-shape.x,q.z-shape.z)<0.08&&Math.abs(q.radius-shape.radius)<0.08
+    )) this.currentChoreography.areas.push({...shape});
     const tip = {
       x: shape.x + shape.aimX * shape.radius,
       z: shape.z + shape.aimZ * shape.radius
@@ -4991,6 +4999,7 @@ export class Simulation {
       terminal: null,
       points: [],
       areaPoints: [],
+      areas: [],
       paths: [],
       carriers: [],
       scheduled: []
@@ -5029,10 +5038,16 @@ export class Simulation {
       st = this.skillsRuntime.get('orbit_blades');
     if (!t || !st) return;
     const center = this.orbitCenter(),
-      p = this.orbitProfile(st, center);
-    this.traceArea(center.x, center.z, p.radius);
-    for (let i = 0; i < p.count; i++)
+      p = this.orbitProfile(st, center),
+      bladeRadius=st.mutation==='orbit_saw'?0.58:0.42,
+      speed=st.mutation==='orbit_saw'?2.55:3.4;
+    for (let i = 0; i < p.count; i++) {
+      const a=this.time*speed+(i*Math.PI*2)/p.count,
+        x=center.x+Math.cos(a)*p.radius,
+        z=center.z+Math.sin(a)*p.radius;
+      this.traceArea(x,z,bladeRadius);
       t.carriers.push({ kind: 'orbit', index: i });
+    }
   }
 
   private finishChoreographyTrace() {
@@ -5061,6 +5076,7 @@ export class Simulation {
       terminal: t.terminal ? { ...t.terminal } : null,
       points: t.points.map((p) => ({ ...p })),
       areaPoints: t.areaPoints.map((p) => ({ ...p })),
+      areas: t.areas.map((q) => ({ ...q })),
       paths: t.paths.map((path) => path.map((p) => ({ ...p }))),
       carriers: t.carriers.map((q) => ({ ...q })),
       scheduled: t.scheduled.map((p) => ({ ...p }))
