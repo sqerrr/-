@@ -29,6 +29,7 @@ import {
   HERO_HIT_RADIUS,
   makeHeroEnt,
   type CatalystBinding,
+  type CastFaction,
   type CastSource,
   type ChoreographyCarrier,
   type ChoreographyPoint,
