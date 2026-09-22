@@ -6,6 +6,7 @@ function assert(ok: unknown, message: string): asserts ok {
 
 const simulation=readFileSync('src/core/simulation.ts','utf8');
 const state=readFileSync('src/core/state.ts','utf8');
+const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const types=readFileSync('src/core/types.ts','utf8');
 const ui=readFileSync('src/platform/main.ts','utf8');
 const eliteUi=readFileSync('src/content/eliteUi.ts','utf8');
@@ -15,6 +16,11 @@ assert(state.includes('export type PhysicalEvent =') && state.includes('export t
   'physical lifecycle state leaked back into Simulation');
 assert(!simulation.includes("type EnemyState = 'normal'"), 'Simulation owns entity-state declarations again');
 assert(!simulation.includes('type CatalystBinding ='), 'Simulation owns Catalyst binding declarations again');
+assert(physical.includes('export class PhysicalLifecycle'), 'physical lifecycle has no dedicated owner');
+for (const token of ['activationPending =','catalystBindings:','physicalEvents:','activationMeta ='])
+  assert(!simulation.includes(token), 'physical lifecycle storage leaked back into Simulation: '+token);
+assert(simulation.includes('private physical = new PhysicalLifecycle()'),
+  'Simulation no longer delegates causal activation bookkeeping');
 
 assert(types.includes('export type DamageSourceId ='), 'player damage sources are stringly typed again');
 assert(types.includes('export type EliteActionId ='), 'elite actions are stringly typed again');
@@ -39,5 +45,6 @@ console.log('architecture-regression OK', {
   typedCombatIds:true,
   separatedEliteAdaptation:true,
   sharedEliteMetadata:true,
-  frameSnapshotReuse:true
+  frameSnapshotReuse:true,
+  physicalLifecycleOwner:true
 });

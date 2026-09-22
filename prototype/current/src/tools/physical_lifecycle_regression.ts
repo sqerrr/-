@@ -154,7 +154,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   sim.skillsRuntime.get('mass_driver').mutation='mass_recoil';
   sim.activateSlot(0);
   const p=sim.projectiles.find((q:any)=>q.source==='mass_driver'),
-    binding=sim.catalystBindings.find((q:any)=>q.fromSkill==='mass_driver');
+    binding=sim.physicalDiagnostics().bindings.find((q:any)=>q.fromSkill==='mass_driver');
   assert(p&&binding,'Mass recoil fixture produced no projectile/binding');
   assert(dist(binding.origin,p)<.08,'Catalyst path origin differs from actual post-recoil Mass body spawn');
   assert(Math.abs(sim.px)>0.5,'Mass recoil fixture did not displace the hero');
@@ -356,7 +356,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   sim.events.length=0;
   assert(sim.castCatalystPayload(parent,5,0),'cascade fixture could not cast remote B');
   const cast=sim.events.find((e:any)=>e.type==='SkillActivated'&&e.skill==='rail_spear'),
-    child=sim.catalystBindings.find((b:any)=>b.fromSlot===1&&b.toSlot===2);
+    child=sim.physicalDiagnostics().bindings.find((b:any)=>b.fromSlot===1&&b.toSlot===2);
   assert(cast&&child,'remote B did not arm its outgoing Catalyst edge');
   assert(Math.hypot(child.origin.x-cast.x,child.origin.z-cast.z)<0.01,
     'B->C lineage origin differs from B resolved world position');
@@ -385,9 +385,10 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   const sim=fixture('rail_spear','toxic_mist','source');
   sim.activateSlot(0);
   sim.flushPhysicalEvents();
-  assert(sim.activationPending.size===0,'completed immediate activation retained pending actors');
-  assert(sim.catalystBindings.every((b:any)=>!b.done),'completed bindings survived flush cleanup');
-  assert(sim.activationMeta.size===0,'completed immediate Catalyst lineage leaked activation metadata');
+  const lifecycle=sim.physicalDiagnostics();
+  assert(lifecycle.pendingCount===0,'completed immediate activation retained pending actors');
+  assert(lifecycle.bindings.every((b:any)=>!b.done),'completed bindings survived flush cleanup');
+  assert(lifecycle.metadataCount===0,'completed immediate Catalyst lineage leaked activation metadata');
 }
 
 // The immediate case follows the same rule.

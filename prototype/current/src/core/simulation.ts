@@ -23,6 +23,7 @@ import {
   statBase
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
+import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { Rng } from './rng.js';
 import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, pointAlongPolyline, polylineLength, sweepCircleT } from './geometry.js';
 import {
@@ -386,19 +387,8 @@ export class Simulation {
   private aegisCharge = 0;
   private backflowBonus = new Map<number, number>();
   private currentChoreography: ChoreographyTrace | null = null;
-  // Catalyst 2.1 is driven by the real physical lifecycle, not by the next chain beat.
-  private nextActivationId = 1;
-  private currentActivationId = 0;
-  private orbitActivationId = 0;
-  private catalystBindings: CatalystBinding[] = [];
-  private physicalEvents: PhysicalEvent[] = [];
-  private drainingPhysicalEvents = false;
-  private activationPending = new Map<number, number>();
-  /** Activations whose last owned physical actor has actually ended; retired after queued events drain. */
-  private completedPhysicalActivations = new Set<number>();
-  private activationTerminalSeen = new Set<number>();
-  private activationLastPoint = new Map<number, ChoreographyPoint>();
-  private activationMeta = new Map<number, { skill: SkillId; slot: number }>();
+  // Catalyst 2.1 lifecycle owns activation ids, causal queues and retirement bookkeeping.
+  private physical = new PhysicalLifecycle();
   private orbitChoreoUntil = -1;
   private orbitChoreoX = 0;
   private orbitChoreoZ = 0;
@@ -733,7 +723,7 @@ export class Simulation {
 
   private spawnProjectile(p: Omit<Projectile, 'id' | 'guarded'>) {
     const id = this.nextId++,
-      activationId = p.faction === 'hero' ? (p.activationId ?? this.currentActivationId) : 0;
+      activationId = p.faction === 'hero' ? (p.activationId ?? this.physical.currentActivationId) : 0;
     this.projectiles.push({ id, guarded: false, ...p, activationId });
     if (activationId) this.registerAsyncPhysical(activationId);
     if (
@@ -749,7 +739,7 @@ export class Simulation {
         (p.source==='mass_driver'||p.source==='shard_fan')
       ) {
         this.currentChoreography.origin={x:p.x,z:p.z};
-        if(activationId)this.activationLastPoint.set(activationId,{x:p.x,z:p.z});
+        if(activationId)this.physical.setLastPoint(activationId,{x:p.x,z:p.z});
       }
       this.currentChoreography.carriers.push({ kind: 'projectile', id });
     }
@@ -949,7 +939,7 @@ export class Simulation {
   }
 
   private scheduleStrike(strike: Omit<DelayedStrike, 'id'>) {
-    const activationId = strike.faction === 'hero' ? (strike.activationId ?? this.currentActivationId) : 0;
+    const activationId = strike.faction === 'hero' ? (strike.activationId ?? this.physical.currentActivationId) : 0;
     this.delayedStrikes.push({ id: this.nextId++, activationId, ...strike });
     if (activationId) this.registerAsyncPhysical(activationId);
     if (
@@ -3640,10 +3630,10 @@ export class Simulation {
   private updateOrbitBlades() {
     const st=this.skillsRuntime.get('orbit_blades');
     if(!st||!this.isActiveSkill('orbit_blades')){
-      if(this.orbitActivationId){
+      if(this.physical.orbitActivationId){
         const old=this.orbitCenter();
-        const id=this.orbitActivationId;
-        this.orbitActivationId=0;
+        const id=this.physical.orbitActivationId;
+        this.physical.orbitActivationId=0;
         this.finishAsyncPhysical(id,old.x,old.z);
       }
       return;
@@ -3675,9 +3665,9 @@ export class Simulation {
       if(mut==='orbit_saw'&&e.kind==='elite')m*=1.9;
       this.damage(e,m,'orbit_blades',false,blade.x,blade.z,slot);
       this.closeDamage+=m;
-      if(this.orbitActivationId){
+      if(this.physical.orbitActivationId){
         this.queuePhysicalEvent({
-          activationId:this.orbitActivationId,
+          activationId:this.physical.orbitActivationId,
           slot,
           skill:'orbit_blades',
           kind:'contact',
@@ -3712,7 +3702,7 @@ export class Simulation {
         this.spawnProjectile({
           x:center.x+dx/m*profile.radius,z:center.z+dz/m*profile.radius,vx:dx/m*8.5,vz:dz/m*8.5,
           radius:0.28,ttl:2.8,damage:skills.orbit_blades.baseDamage*this.powerBucket(st)*1.25,coverDamage:16,
-          faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:slot,mutation:st.mutation,activationId:this.orbitActivationId||undefined,
+          faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:slot,mutation:st.mutation,activationId:this.physical.orbitActivationId||undefined,
           apotheosis:'orbit_phoenix',rivalConcentration:1,behavior:'returner',returnAt:1.3,phase:0,hitIds:[]
         });
       }
@@ -4264,7 +4254,7 @@ export class Simulation {
     const trace = this.finishChoreographyTrace(),
       previous = this.lastContext,
       physicalOrigin = trace?.origin ?? {x:this.px,z:this.pz};
-    this.activationLastPoint.set(activationId,{...physicalOrigin});
+    this.physical.setLastPoint(activationId,{...physicalOrigin});
     this.armOutgoingPhysicalCatalyst(slot,id,activationId,physicalOrigin);
     this.publishImmediatePhysicalTrace(id, slot, activationId, trace);
     this.flushPhysicalEvents();
@@ -4340,7 +4330,7 @@ export class Simulation {
       };
     }
     this.currentSlot = -1;
-    this.currentActivationId = 0;
+    this.physical.currentActivationId = 0;
     this.activationScale = 1;
     this.activationCountBonus = 0;
     this.activationDerived = false;
@@ -4351,12 +4341,8 @@ export class Simulation {
     return id === 'source' || id === 'carrier' || id === 'trail' || id === 'reverse' || id === 'collapse';
   }
 
-  private beginPhysicalActivation(slot: number, skill: SkillId) {
-    const id = this.nextActivationId++;
-    this.currentActivationId = id;
-    this.activationMeta.set(id, { skill, slot });
-    this.activationLastPoint.set(id, { x: this.px, z: this.pz });
-    return id;
+  private beginPhysicalActivation(slot: number, skill: SkillId, origin: ChoreographyPoint = { x: this.px, z: this.pz }) {
+    return this.physical.begin(slot, skill, origin);
   }
 
   private armOutgoingPhysicalCatalyst(
@@ -4386,64 +4372,19 @@ export class Simulation {
       pathCarrierKey: null,
       done: false
     };
-    this.catalystBindings.push(binding);
+    this.physical.addBinding(binding);
   }
 
   private registerAsyncPhysical(activationId: number) {
-    if (activationId <= 0) return;
-    this.activationPending.set(activationId, (this.activationPending.get(activationId) ?? 0) + 1);
+    this.physical.registerAsync(activationId);
   }
 
   private finishAsyncPhysical(activationId: number | undefined, x: number, z: number) {
-    if (!activationId) return;
-    this.activationLastPoint.set(activationId, { x, z });
-    const n = Math.max(0, (this.activationPending.get(activationId) ?? 1) - 1);
-    if (n > 0) {
-      this.activationPending.set(activationId, n);
-      return;
-    }
-    this.activationPending.delete(activationId);
-    const meta = this.activationMeta.get(activationId);
-    if (
-      meta &&
-      phenomenonChoreography[meta.skill].emits.includes('terminal') &&
-      !this.activationTerminalSeen.has(activationId)
-    )
-      this.queuePhysicalEvent({
-        activationId,
-        slot: meta.slot,
-        skill: meta.skill,
-        kind: 'terminal',
-        x,
-        z
-      });
-    this.completedPhysicalActivations.add(activationId);
-  }
-
-  private retirePhysicalActivation(id: number) {
-    if (!id) return;
-    this.activationMeta.delete(id);
-    this.activationLastPoint.delete(id);
-    this.activationTerminalSeen.delete(id);
-    this.completedPhysicalActivations.delete(id);
-  }
-
-  private retirePhysicalActivationIfIdle(id: number) {
-    if (
-      !id ||
-      this.activationPending.has(id) ||
-      id === this.orbitActivationId ||
-      this.catalystBindings.some((b) => !b.done && b.producerActivationId === id) ||
-      this.constructs.some((c) => c.activationId === id)
-    ) return;
-    this.retirePhysicalActivation(id);
+    this.physical.finishAsync(activationId, x, z);
   }
 
   private queuePhysicalEvent(e: PhysicalEvent) {
-    if (!e.activationId) return;
-    this.physicalEvents.push(e);
-    if(e.kind==='terminal') this.activationTerminalSeen.add(e.activationId);
-    this.activationLastPoint.set(e.activationId, { x: e.x, z: e.z });
+    this.physical.queue(e);
   }
 
   private appendBindingPath(binding: CatalystBinding, points: ChoreographyPoint[]) {
@@ -4474,7 +4415,7 @@ export class Simulation {
     if (!st) return false;
     const save = {
       currentSlot: this.currentSlot,
-      currentActivationId: this.currentActivationId,
+      currentActivationId: this.physical.currentActivationId,
       currentChoreography: this.currentChoreography,
       currentHits: this.currentHits,
       currentActivationDamage: this.currentActivationDamage,
@@ -4497,17 +4438,15 @@ export class Simulation {
     this.activationCountBonus = 0;
     this.activationDerived = true;
     const src = this.choreographySource(x, z, aimX, aimZ),
-      activationId = this.nextActivationId++;
-    this.currentActivationId = activationId;
-    this.activationMeta.set(activationId, { skill: binding.toSkill, slot: binding.toSlot });
-    this.activationLastPoint.set(activationId, { x: src.x, z: src.z });
+      activationId = this.beginPhysicalActivation(binding.toSlot, binding.toSkill, { x: src.x, z: src.z });
+    this.physical.currentActivationId = activationId;
     if(binding.toSkill==='orbit_blades') this.setOrbitChoreography(src.x,src.z);
     this.beginChoreographyTrace(binding.toSkill);
     this.metrics.activations++;
     this.castWithTrace(binding.toSkill, st, binding.toSlot, src);
     const trace = this.finishChoreographyTrace(),
       physicalOrigin = trace?.origin ?? {x:src.x,z:src.z};
-    this.activationLastPoint.set(activationId,{...physicalOrigin});
+    this.physical.setLastPoint(activationId,{...physicalOrigin});
     this.armOutgoingPhysicalCatalyst(
       binding.toSlot,
       binding.toSkill,
@@ -4517,7 +4456,7 @@ export class Simulation {
     this.publishImmediatePhysicalTrace(binding.toSkill, binding.toSlot, activationId, trace);
 
     this.currentSlot = save.currentSlot;
-    this.currentActivationId = save.currentActivationId;
+    this.physical.currentActivationId = save.currentActivationId;
     this.currentChoreography = save.currentChoreography;
     this.currentHits = save.currentHits;
     this.currentActivationDamage = save.currentActivationDamage;
@@ -4716,29 +4655,10 @@ export class Simulation {
   }
 
   private flushPhysicalEvents() {
-    if (this.drainingPhysicalEvents) return;
-    this.drainingPhysicalEvents = true;
-    let guard = 0;
-    try {
-      while (this.physicalEvents.length && guard++ < 256) {
-        const e = this.physicalEvents.shift()!;
-        for (const binding of this.catalystBindings) this.handlePhysicalBinding(binding, e);
-      }
-    } finally {
-      this.drainingPhysicalEvents = false;
-    }
-    if (this.completedPhysicalActivations.size) {
-      this.catalystBindings = this.catalystBindings.filter(
-        (b) => !b.done && !this.completedPhysicalActivations.has(b.producerActivationId)
-      );
-      for (const id of [...this.completedPhysicalActivations]) this.retirePhysicalActivation(id);
-      this.completedPhysicalActivations.clear();
-    } else {
-      this.catalystBindings = this.catalystBindings.filter((b) => !b.done);
-    }
-    // Immediate activations have no owned async actors. Once their causal events/bindings are
-    // exhausted they can be forgotten immediately instead of leaking activation maps for a run.
-    for (const id of [...this.activationMeta.keys()]) this.retirePhysicalActivationIfIdle(id);
+    this.physical.flush(
+      (binding, event) => this.handlePhysicalBinding(binding, event),
+      (activationId) => this.constructs.some((construct) => construct.activationId === activationId)
+    );
   }
 
   private sameChoreographyPoint(a: ChoreographyPoint, b: ChoreographyPoint, eps = 0.12) {
@@ -5011,14 +4931,14 @@ export class Simulation {
         t.carriers.push({ kind: 'projectile', id: p.id });
     for (const q of this.constructs)
       if (q.id >= firstNewId && q.sourceSlot === slot && q.faction === 'hero') {
-        q.activationId = this.currentActivationId;
+        q.activationId = this.physical.currentActivationId;
         t.carriers.push({ kind: 'construct', id: q.id });
         this.tracePoint(q.x, q.z);
         this.traceArea(q.x, q.z, 0.7);
       }
     for (const f of this.fields)
       if (f.id >= firstNewId && f.sourceSlot === slot && f.faction !== 'rival') {
-        f.activationId = this.currentActivationId;
+        f.activationId = this.physical.currentActivationId;
         f.insideIds ??= [];
         this.traceArea(f.x, f.z, f.radius);
       }
@@ -5401,13 +5321,13 @@ export class Simulation {
     // The persistent hero Orbit always keeps activation lineage, including the Outbound mutation:
     // Outbound adds a pulse but does not erase the continuously simulated blade actors.
     if(src.faction==='hero'){
-      if(this.orbitActivationId && this.orbitActivationId!==this.currentActivationId){
+      if(this.physical.orbitActivationId && this.physical.orbitActivationId!==this.physical.currentActivationId){
         const oldCenter=this.orbitCenter();
-        this.finishAsyncPhysical(this.orbitActivationId,oldCenter.x,oldCenter.z);
+        this.finishAsyncPhysical(this.physical.orbitActivationId,oldCenter.x,oldCenter.z);
       }
-      if(this.currentActivationId && this.orbitActivationId!==this.currentActivationId)
-        this.registerAsyncPhysical(this.currentActivationId);
-      this.orbitActivationId=this.currentActivationId;
+      if(this.physical.currentActivationId && this.physical.orbitActivationId!==this.physical.currentActivationId)
+        this.registerAsyncPhysical(this.physical.currentActivationId);
+      this.physical.orbitActivationId=this.physical.currentActivationId;
     }
     // A rival cannot borrow the hero's global orbit loop; its echo remains an authored pulse.
     if (src.faction === 'rival' || st.mutation === 'orbit_outbound') {
@@ -5474,7 +5394,7 @@ export class Simulation {
         rawZ=src.z+src.aimZ*(forward+stagger)+perpZ*lane*spacing,
         p=this.freeOf(rawX,rawZ,0.38),
         id=this.nextId++;
-      const activationId=src.faction==='hero'?this.currentActivationId:0;
+      const activationId=src.faction==='hero'?this.physical.currentActivationId:0;
       this.constructs.push({id,activationId:activationId||undefined,x:p.x,z:p.z,ttl:this.persistentDuration(st,5.25,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.powerBucket(st)*this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
       if(activationId)this.registerAsyncPhysical(activationId);
       if(this.currentChoreography&&src.faction==='hero')this.currentChoreography.carriers.push({kind:'construct',id});
@@ -6727,6 +6647,11 @@ export class Simulation {
     this.pickupRadius = cfg.pickupRadius ?? 9;
     this.fortune = cfg.fortune ?? 0.15;
   }
+  /** Diagnostic contract for regression/probe tooling; gameplay does not branch on it. */
+  physicalDiagnostics() {
+    return this.physical.diagnostics();
+  }
+
   telemetry() {
     return {
       damageBySource: Object.fromEntries(this.damageBySource),
