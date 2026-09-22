@@ -1,5 +1,11 @@
 import { Simulation } from '../core/simulation.js';
 import {
+  activeSkillOrder,
+  catalystPairCompatible,
+  phenomenonChoreography,
+  skills
+} from '../content/definitions.js';
+import {
   circleIntersectsCircle,
   combatShapeIntersectsCircle,
   sweepCircleT
@@ -373,6 +379,55 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   assert(casts(sim,'toxic_mist').length===before,'ordinary B beat duplicated Catalyst payload');
 }
 
+// Every live mutation branch must preserve every physical capability the base Phenomenon advertises.
+// This is deliberately lifecycle-driven: the test never activates B directly.
+{
+  const modeForSignal:any={terminal:'source',carrier:'carrier',path:'trail',area:'collapse'};
+  let cases=0;
+  const applyBranch=(sim:any,skill:SkillId,mutationId:string|null)=>{
+    if(!mutationId)return;
+    const defs=skills[skill].mutations as any[],
+      chain:any[]=[];
+    let cur=defs.find((q:any)=>q.id===mutationId);
+    while(cur){
+      chain.unshift(cur);
+      if(!cur.parent)break;
+      cur=defs.find((q:any)=>q.id===cur.parent);
+    }
+    const st=sim.skillsRuntime.get(skill);
+    st.mutation=chain[0]?.id??null;
+    st.mutationUpgrade=chain[1]?.id??null;
+    st.mutationApotheosis=chain[2]?.id??null;
+  };
+  for(const left of activeSkillOrder){
+    const variants:[string|null,...string[]]=[null,...skills[left].mutations.map((q:any)=>q.id)] as any;
+    for(const mutationId of variants){
+      for(const signal of phenomenonChoreography[left].emits){
+        const cat=modeForSignal[signal] as CatalystId,
+          right=activeSkillOrder.find((q)=>q!==left&&catalystPairCompatible(cat,left,q));
+        assert(right,left+' '+String(mutationId)+': no representative right node for '+signal);
+        const sim=fixture(left,right!,cat);
+        applyBranch(sim,left,mutationId);
+        if(left==='orbit_blades'){
+          sim.tick=60;
+          sim.ents=sim.ents.slice(0,1);
+          const st=sim.skillsRuntime.get(left),p=sim.orbitProfile(st,{x:0,z:0}),
+            speed=st.mutation==='orbit_saw'?2.55:3.4,a=((sim.tick+1)/sim.hz)*speed;
+          sim.ents[0].x=Math.cos(a)*p.radius;
+          sim.ents[0].z=Math.sin(a)*p.radius;
+          sim.ents[0].orbitHitAt=-99;
+        }
+        sim.activateSlot(0);
+        const ok=until(sim,()=>!!cue(sim,cat),600);
+        assert(ok,left+' '+String(mutationId)+': '+signal+' never produced '+cat+' choreography');
+        assert(casts(sim,right!).length>0,left+' '+String(mutationId)+': '+cat+' cue had no physical B activation');
+        cases++;
+      }
+    }
+  }
+  assert(cases>250,'mutation physical audit unexpectedly small: '+cases);
+}
+
 console.log('physical-lifecycle-regression OK',{
   geometry:'shared',
   mortar:'impact-timed source/carrier; no fabricated reverse',
@@ -380,5 +435,6 @@ console.log('physical-lifecycle-regression OK',{
   shard:'contact carrier',
   sentry:'actor-owned carrier lifetime',
   orbit:'discrete blade hitboxes + lineage',
-  cleanup:'explicit activation retirement'
+  cleanup:'explicit activation retirement',
+  mutations:'all live branches preserve advertised physical signals'
 });
