@@ -169,6 +169,19 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   assert(Math.hypot(frost.x-shardHit.x,frost.z-shardHit.z)<1.0,'Shard Carrier B origin differs from collision point');
 }
 
+// Carrier also reacts to the same swept collision against world cover, not only entity hits.
+{
+  const sim=fixture('shard_fan','frost_ring','carrier');
+  sim.ents=[];
+  sim.obstacles=[{id:97901,x:3,z:0,radius:.65,hp:-1,maxHp:-1,destructible:false}];
+  sim.buildObstacleGrid();
+  sim.activateSlot(0);
+  assert(casts(sim,'frost_ring').length===0,'Shard Carrier fired before reaching cover');
+  assert(until(sim,()=>casts(sim,'frost_ring').length>0,90),'world collision did not trigger Carrier');
+  const frost=casts(sim,'frost_ring')[0];
+  assert(frost&&Math.hypot(frost.x-3,frost.z)<1.2,'Carrier origin disagrees with projectile/cover contact');
+}
+
 // SENTRY CARRIER: deployment itself is not contact. Rail starts from turret on the first real shot.
 {
   const sim=fixture('sentry','rail_spear','carrier');
