@@ -28,10 +28,13 @@ Key facts:
 - exact area shapes are preserved for Collapse; disconnected areas are never merged into imaginary bounding geometry;
 - Orbit uses discrete blade hitboxes matching presentation;
 - Mortar emits terminal + impact carriers + impact areas, not a fabricated path;
+- Reverse requires a real path + terminal; Mortar Reverse is intentionally incompatible until a real shell route exists;
+- actor-owned Catalyst lineage replaces arbitrary timeout lifetime; right-hand payloads have no independent Chain-clock cast;
+- regression covers **240 mutation × physical-signal cases** in addition to all compatible ordered pairs;
 - 11 active Phenomena / 7 compatibility-only Phenomena;
 - 5 active Catalyst 2.x operators: Source, Carrier, Trail, Reverse, Collapse;
 - old Catalyst 1.x definitions are compatibility-only, not Discovery content;
-- exhaustive runtime matrix currently validates **280** compatible ordered pairs;
+- exhaustive runtime matrix currently validates **266** compatible ordered pairs;
 - dedicated physical lifecycle regression locks contact/impact timing and negative “must not fire yet” cases;
 - chassis-specific elite visual language and red-only immediate-danger semantics from v0.12.1 remain intact;
 - crowd-first Quantity / elite ecosystem / Warden rules remain intact.
