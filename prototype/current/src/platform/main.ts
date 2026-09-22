@@ -10,7 +10,7 @@ import {
   skills
 } from '../content/definitions.js';
 import { catalystGlyph, itemCategoryColor, itemGlyph, mutationBadge, skillChoiceArt } from '../content/visuals.js';
-import { itemCategoryName, items as itemDefs } from '../content/items.js';
+import { itemCategoryName, itemRivalEffect, items as itemDefs } from '../content/items.js';
 import { Simulation } from '../core/simulation.js';
 import type {
   CatalystId,
@@ -59,6 +59,9 @@ let eliteAlertToken = 0,
   threatFocusId = 0;
 const seenCatalystTriggers = new Set<string>();
 const seenRivalCasts = new Set<string>();
+const seenEliteChassisTeach = new Set<string>();
+const seenEliteAffixTeach = new Set<string>();
+let lastPlayerHit: Extract<GameEvent, { type: 'PlayerHit' }> | null = null;
 type CombatFloat = {
   entity: number;
   x: number;
@@ -329,6 +332,10 @@ function restart() {
   last = performance.now();
   acc = 0;
   seenCatalystTriggers.clear();
+  seenRivalCasts.clear();
+  seenEliteChassisTeach.clear();
+  seenEliteAffixTeach.clear();
+  lastPlayerHit = null;
   combatFloats.length = 0;
   chainSignature = '';
   plannerSignature = '';
@@ -441,6 +448,52 @@ const eliteActionHint: Record<string,string> = {
   null:'ВЫЙДИ ИЗ СЕКТОРА',
   metamorph:'ОТОРВИСЬ ОТ СТАИ'
 };
+const damageSourceName: Record<string,string> = {
+  contact:'контакт с противником',
+  temporal_shift:'темпоральный скачок',
+  brood_pulse:'роевой импульс',
+  prism_bash:'фронтальный удар Призмы',
+  null_harvest:'Жатва Нуль-ткача',
+  shepherd_pulse:'командный импульс Метаморфа',
+  warden_sweep:'секторный взмах Хранителя',
+  warden_rupture:'разлом Хранителя'
+};
+const damageSourceHint: Record<string,string> = {
+  contact:'Не оставайся внутри стаи: держи проход для отхода и используй рывок для выхода из окружения.',
+  temporal_shift:'Метка показывает будущую точку удара. Смени траекторию до скачка.',
+  brood_pulse:'Уйди из отмеченного круга до импульса.',
+  prism_bash:'Обойди фронт щита. После удара у Призмы есть окно уязвимости.',
+  null_harvest:'Выйди из сектора Жатвы до срабатывания.',
+  shepherd_pulse:'Оторвись от стаи перед командным импульсом.',
+  warden_sweep:'Выйди из красного сектора до взмаха.',
+  warden_rupture:'Уйди с красной линии до разлома.'
+};
+const chassisDeathHint: Record<string,string> = {
+  marshal:'Не задерживайся рядом со стаей, которую Маршал усиливает.',
+  hunter:'Меняй направление после фиксации траектории и уходи с линии рывка.',
+  bulwark:'Обходи фронт щита и используй окно после его удара.',
+  architect:'Не стой в точке смещения и выходи из завесы для дальнего захвата.',
+  harvester:'Смотри на сектор Жатвы и выходи из него до срабатывания.',
+  shepherd:'Разрывай дистанцию со стаей перед командным импульсом.',
+  broodmaker:'Не оставайся в круге выброса и убивай копии, чтобы ранить оригинал.',
+  archivist:'Следи, какую роль Архивист скопировал, и меняй позицию под неё.',
+  warden:'Красная геометрия показывает следующую атаку Хранителя.'
+};
+function romanTier(n: number) {
+  return ['0','I','II','III','IV','V','VI','VII','VIII','IX','X'][n] ?? String(n);
+}
+function hitAttackerName(e: Extract<GameEvent, { type: 'PlayerHit' }>) {
+  if (e.attackerBoss) return 'Хранитель';
+  if (e.attackerChassis) {
+    const aff=e.attackerAffix && e.attackerAffix!=='none' ? ` · ${affixName[e.attackerAffix] ?? ''}` : '';
+    return `${chassisName[e.attackerChassis] ?? 'Элита'}${aff}`;
+  }
+  return 'обычный противник';
+}
+function hitCounterplay(e: Extract<GameEvent, { type: 'PlayerHit' }>) {
+  return damageSourceHint[e.source] ?? (e.attackerChassis ? chassisDeathHint[e.attackerChassis] : undefined) ??
+    'Следи за красной геометрией атаки и сохраняй путь для отхода.';
+}
 function eventText(e: GameEvent) {
   if (e.type === 'EntitySpawned' && e.kind === 'elite')
     return e.boss
@@ -506,7 +559,7 @@ function eventText(e: GameEvent) {
   if (e.type === 'RelicTaken')
     return e.byHero
       ? `Взято: ${e.name}. ${e.description}`
-      : `Находку забрала элита: ${e.name}. Она стала опаснее.`;
+      : `Находку забрала элита: ${e.name}. ${e.description}`;
   return null;
 }
 function poiLabel(kind: string) {
@@ -523,44 +576,39 @@ function eliteAlert(e: GameEvent): [string, string] | null {
     return [
       'ХРАНИТЕЛЬ · ФИНАЛЬНЫЙ БОСС',
       e.supports
-        ? `Неочищенные узлы усилили финал: вместе с боссом пришло стражей ${e.supports}. Красная геометрия = атака.`
-        : 'Архив зачищен достаточно глубоко: дополнительных стражей узлов нет. Красная геометрия = атака.'
+        ? `Неочищенные узлы привели стражей: ${e.supports}. Красный = атака сейчас.`
+        : 'Дополнительных стражей нет. Красный = атака сейчас.'
     ];
   if (e.type === 'BossPhase')
-    return [
-      'ХРАНИТЕЛЬ · ФАЗА 2',
-      'Атаки быстрее, появляются подкрепления. После атак Хранитель всё ещё уязвим.'
-    ];
-  if (e.type === 'BossPattern')
-    return [
-      e.pattern === 'sweep' ? 'СЕКТОРНЫЙ ВЗМАХ' : e.pattern === 'rupture' ? 'РАЗЛОМ' : 'ТАРАН',
-      e.pattern === 'sweep'
-        ? 'Выйди из подсвеченного сектора.'
-        : e.pattern === 'rupture'
-          ? 'Уйди с широкой линии до удара.'
-          : 'Сместись поперёк красной линии; после тарана атакуй.'
-    ];
+    return ['ХРАНИТЕЛЬ · ФАЗА 2', 'Атаки ускорились. После приёма ищи окно для ответа.'];
+  // Individual boss attacks and Echo tells belong to the threat panel and world telegraphs,
+  // not to a sentence-sized banner during live combat.
+  if (e.type === 'BossPattern' || e.type === 'EliteEchoPhase' || e.type === 'EliteOrder') return null;
   if (e.type === 'PoiAwakened')
     return [poiLabel(e.kind), 'Источник найден — выбери награду этого типа.'];
   if (e.type === 'PoiCleared') return ['УЗЕЛ ОЧИЩЕН', `${poiLabel(e.kind)} теперь безопасен.`];
+  if (e.type === 'RelicTaken' && !e.byHero)
+    return [`ЭЛИТА ПОГЛОТИЛА · ${e.name.toUpperCase()}`, e.description];
   if (e.type === 'EntitySpawned' && e.kind === 'elite' && !e.boss) {
-    const c = e.chassis ?? 'marshal';
+    const ch=e.chassis ?? 'marshal',
+      aff=e.affix ?? 'none',
+      teachChassis=!seenEliteChassisTeach.has(ch),
+      teachAffix=aff!=='none'&&!seenEliteAffixTeach.has(aff);
+    if (!teachChassis && !teachAffix) return null;
+    if (teachChassis) seenEliteChassisTeach.add(ch);
+    if (teachAffix) seenEliteAffixTeach.add(aff);
+    const rules=[
+      ...(teachChassis ? [`${chassisGlyph[ch] ?? '◆'} ${chassisShortRule[ch] ?? chassisRole[ch]}`] : []),
+      ...(teachAffix ? [`${affixGlyph[aff] ?? '◇'} ${affixShortRule[aff] ?? affixRole[aff]}`] : [])
+    ];
     return [
-      `${chassisName[c].toUpperCase()} · ${affixName[e.affix ?? 'none'].toUpperCase()}`,
-      `${chassisRole[c]}${e.affix && e.affix !== 'none' ? ` · ${affixRole[e.affix] ?? ''}` : ''}`
+      `НОВАЯ ЭЛИТА · ${chassisName[ch].toUpperCase()}${aff!=='none' ? ` · ${affixName[aff].toUpperCase()}` : ''}`,
+      rules.join(' · ')
     ];
   }
   if (e.type === 'EliteReacquired')
-    return [
-      'ЭЛИТА ПЕРЕХВАТИЛА ТЕБЯ',
-      'Дистанция не сбрасывает бой: элита возвращена рядом с игроком.'
-    ];
-  if (e.type === 'EliteEchoPhase' && e.phase === 'tell')
-    return [`ОТРАЖЕНИЕ · ${skills[e.skill].shortName.toUpperCase()}`, 'ПОДГОТОВКА — красная геометрия показывает опасную область до удара.'];
+    return ['ЭЛИТА ВЕРНУЛАСЬ', 'От неё нельзя сбросить бой одной дистанцией.'];
   if (e.type === 'RareEvent') return [e.title, e.detail];
-  // Chassis actions are frequent combat language now. Local red geometry + the threat
-  // panel carry them; a full-width banner for every action would recreate the same clutter.
-  if (e.type === 'EliteOrder') return null;
   return null;
 }
 function showEliteAlert(title: string, body: string, duration = 3400, rare = false) {
@@ -585,10 +633,11 @@ function pushEvents(events: readonly GameEvent[]) {
   for (const e of events) {
     const t = eventText(e);
     if (t) pushLog(t);
+    if (e.type === 'PlayerHit') lastPlayerHit = e;
     const a = eliteAlert(e);
     if (a) {
-      if (e.type === 'EliteEchoPhase') showEliteAlert(a[0], a[1], 1150, false);
-      else if (e.type === 'RareEvent') showEliteAlert(a[0], a[1], 2600, true);
+      if (e.type === 'RareEvent') showEliteAlert(a[0], a[1], 2600, true);
+      else if (e.type === 'RelicTaken') showEliteAlert(a[0], a[1], 2800, false);
       else showEliteAlert(...a);
     }
     if (e.type === 'DamageResolved') {
@@ -690,7 +739,7 @@ function pushEvents(events: readonly GameEvent[]) {
         seenRivalCasts.add(e.skill);
         showEliteAlert(
           'ТВОЙ ОТКАЗ ВЕРНУЛСЯ',
-          `${skills[e.skill].name} — способность, которую ты не взял. Теперь её применяет элита. Отказ не исчезает из мира, он меняет сторону.`
+          `${skills[e.skill].name} был отвергнут тобой. Теперь его применяет элита.`
         );
       }
     }
@@ -856,6 +905,43 @@ function plannerCatNode(
   attachPlannerDnD(el);
   return el;
 }
+function renderEliteInspection(s: Snapshot) {
+  const elites=s.entities
+    .filter((e)=>e.elite)
+    .sort((a,b)=>Number(b.boss)-Number(a.boss) ||
+      Math.hypot(a.x-s.player.x,a.z-s.player.z)-Math.hypot(b.x-s.player.x,b.z-s.player.z));
+  if (!elites.length) return '<div class="sheet-empty">Активных элит на карте нет.</div>';
+  return elites.map((e)=>{
+    const ch=e.chassis ?? 'marshal',
+      aff=e.affix ?? 'none',
+      distance=Math.round(Math.hypot(e.x-s.player.x,e.z-s.player.z)),
+      hp=Math.max(0,Math.round((e.hp/e.maxHp)*100)),
+      evolution=e.evolutionItems?.length ?? 0,
+      relics=e.relicItems ?? [],
+      refusals=e.refusalTitles ?? [],
+      rarity=e.boss ? 'ФИНАЛЬНЫЙ БОСС' : e.eliteRarity==='legendary' ? 'ЛЕГЕНДАРНАЯ' : e.eliteRarity==='uplifted' ? 'УСИЛЕННАЯ' : 'ОБЫЧНАЯ',
+      affixText=aff!=='none' ? ` · ${affixName[aff]}` : '',
+      role=`${chassisRole[ch] ?? ''}${aff!=='none'&&affixRole[aff] ? ` · ${affixRole[aff]}` : ''}`,
+      growth=[
+        ...(evolution ? [`<span class="elite-growth evolution">ЭВОЛЮЦИЯ ${romanTier(evolution)}</span>`] : []),
+        ...(e.adaptationStage ? [`<span class="elite-growth">АДАПТАЦИЯ ${e.adaptationStage}</span>`] : [])
+      ].join(''),
+      loot=relics.length ? relics.map((id)=>{
+        const d=itemDefs[id];
+        return `<div class="elite-loot"><i style="color:${itemCategoryColor[d.category]}">${esc(itemGlyph[id] ?? '◇')}</i><div><b>${esc(d.name)}</b><span>${esc(itemRivalEffect[id])}</span></div></div>`;
+      }).join('') : '<div class="elite-none">Ничего не поглощено.</div>',
+      learned=refusals.length ? `<div class="elite-learned"><b>Усвоенные отказы:</b> ${refusals.map(esc).join(' · ')}</div>` : '';
+    return `<article class="elite-inspect">
+      <div class="elite-inspect-head"><span class="elite-inspect-glyph" style="color:${chassisUiTint[ch] ?? '#fff'}">${esc(chassisGlyph[ch] ?? '◆')}</span><div><b class="elite-inspect-name">${esc(chassisName[ch] ?? 'Элита')}${esc(affixText)}</b><span class="elite-inspect-meta">${rarity} · здоровье ${hp}% · ${distance} м</span></div></div>
+      <div class="elite-inspect-rule">${esc(role)}</div>
+      ${growth ? `<div class="elite-growth-row">${growth}</div>` : ''}
+      <div class="elite-inspect-label">Поглощённые предметы</div>
+      <div class="elite-loot-list">${loot}</div>
+      ${learned}
+    </article>`;
+  }).join('');
+}
+
 function updatePlanner(s: Snapshot) {
   if (!planning) return;
   const sig =
@@ -864,6 +950,7 @@ function updatePlanner(s: Snapshot) {
     s.skills.map((x) => `${x.id}:${x.mutation}:${x.mutationUpgrade}:${x.mutationApotheosis}`).join('|') + '#' +
     JSON.stringify(s.resonance) + '#' + JSON.stringify(s.doctrines) + '#' +
     s.heldItems.join('|') + '#' + s.mutationCores + '#' + s.player.level + '#' +
+    s.entities.filter(e=>e.elite).map(e=>`${e.id}:${e.hp.toFixed(1)}:${e.refusalTitles.join(',')}:${e.relicItems.join(',')}:${e.evolutionItems.length}:${e.adaptationStage}`).join('|') + '#' +
     [s.player.hp,s.player.maxHp,s.player.barrier,s.player.armor,s.player.moveSpeed,s.player.pickupRadius,s.player.power,s.player.fortune,s.player.dashCharge].map(x=>Number(x).toFixed(2)).join(':');
   if (sig === plannerSignature) return;
   plannerSignature = sig;
@@ -905,6 +992,7 @@ function updatePlanner(s: Snapshot) {
     const d=itemDefs[id as keyof typeof itemDefs];
     return `<div class="sheet-item"><i style="color:${itemCategoryColor[d.category]}">${esc(itemGlyph[id as keyof typeof itemGlyph])}</i><div><b>${esc(d.name)}${n>1?` ×${n}`:''}</b><span>${esc(itemCategoryName[d.category])} · ${esc(d.description)}</span></div></div>`;
   }).join('') : '<div class="sheet-empty">Предметов пока нет.</div>';
+  $('plannerElites').innerHTML = renderEliteInspection(s);
 
   const r=s.resonance;
   let itemDamage=1, eliteDamage=1, critAdd=0;
@@ -1130,6 +1218,45 @@ function drawRefusalRow(
   }
   ctx.restore();
 }
+function drawEliteGrowthRow(
+  ctx: CanvasRenderingContext2D,
+  e: Snapshot['entities'][number],
+  cx: number,
+  cy: number,
+  tint: string
+) {
+  const relics=e.relicItems ?? [],
+    evolution=e.evolutionItems?.length ?? 0;
+  if (!relics.length && !evolution) return;
+  const shown=relics.slice(0,3),
+    evoW=evolution ? 44 : 0,
+    iconW=18,
+    gap=4,
+    extra=relics.length-shown.length,
+    extraW=extra>0 ? 25 : 0,
+    total=evoW+(evolution&&shown.length?gap:0)+shown.length*iconW+Math.max(0,shown.length-1)*gap+(extra>0?gap+extraW:0);
+  let x=cx-total/2;
+  ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';
+  if (evolution) {
+    ctx.fillStyle='rgba(5,8,12,.92)';ctx.fillRect(x,cy-8,evoW,16);
+    ctx.strokeStyle=tint;ctx.strokeRect(x+.5,cy-7.5,evoW-1,15);
+    ctx.fillStyle=tint;ctx.font='900 8px system-ui';ctx.fillText(`ЭВО ${romanTier(evolution)}`,x+evoW/2,cy+.5);
+    x+=evoW+(shown.length?gap:0);
+  }
+  for (const id of shown) {
+    const d=itemDefs[id], glyph=itemGlyph[id] ?? '◇', itemTint=itemCategoryColor[d.category] ?? '#ffd75e';
+    ctx.fillStyle='rgba(5,8,12,.92)';ctx.fillRect(x,cy-9,iconW,iconW);
+    ctx.strokeStyle=itemTint;ctx.strokeRect(x+.5,cy-8.5,iconW-1,iconW-1);
+    ctx.fillStyle=itemTint;ctx.font='900 12px system-ui';ctx.fillText(glyph,x+iconW/2,cy+.5);
+    x+=iconW+gap;
+  }
+  if (extra>0) {
+    ctx.fillStyle='rgba(5,8,12,.92)';ctx.fillRect(x,cy-8,extraW,16);
+    ctx.strokeStyle='#ffd75e';ctx.strokeRect(x+.5,cy-7.5,extraW-1,15);
+    ctx.fillStyle='#ffd75e';ctx.font='900 8px system-ui';ctx.fillText(`+${extra}`,x+extraW/2,cy+.5);
+  }
+  ctx.restore();
+}
 // D17 gives the dash one charge with a recovery, so the player has to know when it is back.
 // The gauge sits under the hero's feet rather than in a corner: this is a positioning decision
 // taken mid-fight, and the eye is on the hero, not on the panel.
@@ -1241,7 +1368,9 @@ function drawCombatHud(s: Snapshot) {
       }
       drawEliteMapMarker(ctx,e,p.x-bw/2-15,y+bh/2,e.boss?9:7);
       if(e.affix&&e.affix!=='none') drawAffixBadge2d(ctx,e.affix,p.x+bw/2+14,y+bh/2,e.boss?18:15);
-      drawRefusalRow(ctx,e.refusalIcons??[],e.refusalTitles??[],e.refusalKinds??[],p.x,y-15,tint);
+      const hasGrowth=(e.relicItems?.length??0)>0||(e.evolutionItems?.length??0)>0;
+      drawEliteGrowthRow(ctx,e,p.x,y-15,tint);
+      drawRefusalRow(ctx,e.refusalIcons??[],e.refusalTitles??[],e.refusalKinds??[],p.x,y-(hasGrowth?37:15),tint);
     }
     if (e.elite && e.affix === 'shielded') {
       const sy=y+bh+4, st=e.shieldState==='broken'?'#9fa9b6':e.shieldState==='commit'?'#ffc261':'#73d9ff';
@@ -1287,6 +1416,19 @@ function eliteIsDangerous(e: Snapshot['entities'][number]) {
   const preparing=e.echoPhase==='tell'||e.telegraph>0|| (!!e.eliteAction&&e.eliteAction!=='predator_dash'),
     active=e.echoPhase==='active'||e.eliteAction==='predator_dash'||(e.boss&&!!e.bossPattern&&e.adaptationStage===1);
   return {preparing,active,dangerous:preparing||active};
+}
+function updateDeathRecap(s: Snapshot) {
+  const cause=$('overCause'), hint=$('overHint');
+  if (s.player.hp > 0 || !lastPlayerHit) {
+    cause.textContent='';
+    hint.textContent='';
+    return;
+  }
+  const hp=Math.round(lastPlayerHit.hpDamage),
+    barrier=Math.round(lastPlayerHit.barrierDamage),
+    split=barrier>0 ? ` · барьер принял ${barrier}` : '';
+  cause.textContent=`Последний удар: ${hitAttackerName(lastPlayerHit)} — ${damageSourceName[lastPlayerHit.source] ?? 'атака противника'} · здоровью ${hp}${split}.`;
+  hint.textContent=`Что можно было сделать: ${hitCounterplay(lastPlayerHit)}`;
 }
 function updateThreatPanel(s: Snapshot) {
   const box=$('threatPanel'),
@@ -1383,7 +1525,8 @@ function updateUi(s: Snapshot) {
     $('overlay').classList.add('visible');
     $('overTitle').textContent = s.player.hp <= 0 ? 'Забег окончен' : 'Хранитель уничтожен';
     $('overText').textContent =
-      `Уровень ${s.player.level} · убийств ${s.metrics.killed} · элит ${s.metrics.eliteKilled} · очищено узлов ${cleared}/${s.world.pois.length}.`;
+      `Уровень ${s.player.level} · убийств ${s.metrics.killed} · элит ${s.metrics.eliteKilled} · очищено узлов ${cleared}/${s.world.pois.length} · получено урона ${Math.round(s.metrics.damageTaken)}.`;
+    updateDeathRecap(s);
   }
 }
 
