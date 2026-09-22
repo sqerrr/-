@@ -4768,24 +4768,33 @@ export class Simulation {
     }
 
     if (
-      trace.areaPoints.length &&
+      trace.areas.length &&
       (skill === 'frost_ring' || skill === 'cleaver' || skill === 'orbit_blades' ||
         skill === 'sentry' || skill === 'toxic_mist' || skill === 'tether_drag')
     ) {
-      const centerPoints = trace.points.length ? trace.points : [trace.origin],
-        cx = centerPoints.reduce((n, p) => n + p.x, 0) / centerPoints.length,
-        cz = centerPoints.reduce((n, p) => n + p.z, 0) / centerPoints.length,
-        radius = Math.max(0.4, ...trace.areaPoints.map((p) => Math.hypot(p.x - cx, p.z - cz)));
-      this.queuePhysicalEvent({
-        activationId,
-        slot,
-        skill,
-        kind: 'area',
-        x: cx,
-        z: cz,
-        radius,
-        areaPoints: trace.areaPoints.map((p) => ({ ...p }))
-      });
+      for(const shape of trace.areas){
+        const radius=shape.kind==='ray'?shape.halfWidth:shape.radius,
+          areaPoints:ChoreographyPoint[]=[];
+        if(shape.kind==='circle'){
+          for(let i=0;i<4;i++){const a=i*Math.PI/2;areaPoints.push({x:shape.x+Math.cos(a)*shape.radius,z:shape.z+Math.sin(a)*shape.radius});}
+        } else if(shape.kind==='sector'){
+          const base=Math.atan2(shape.aimZ,shape.aimX);
+          for(const off of [-shape.halfAngle,0,shape.halfAngle]){
+            const a=base+off;areaPoints.push({x:shape.x+Math.cos(a)*shape.radius,z:shape.z+Math.sin(a)*shape.radius});
+          }
+        }
+        this.queuePhysicalEvent({
+          activationId,
+          slot,
+          skill,
+          kind:'area',
+          x:shape.x,
+          z:shape.z,
+          radius,
+          areaPoints,
+          shape:{...shape}
+        });
+      }
     }
 
     if (
@@ -4798,25 +4807,32 @@ export class Simulation {
   }
 
   private fireCollapse(binding: CatalystBinding, e: PhysicalEvent) {
-    if (binding.firedCount >= (binding.fromSkill === 'mortar_bloom' ? 3 : 1)) return;
+    const multiArea = binding.fromSkill === 'mortar_bloom' || binding.fromSkill === 'sentry' ||
+      binding.fromSkill === 'orbit_blades' || binding.fromSkill === 'tether_drag';
+    const limit = multiArea ? 3 : 1;
+    if (binding.firedCount >= limit) return;
     const center = { x: e.x, z: e.z },
-      radius = Math.max(0.45, e.radius ?? 1),
+      radius = Math.max(0.35, e.radius ?? 1),
+      shape=e.shape ?? ({kind:'circle',x:e.x,z:e.z,radius} as CombatShape),
       outer = e.areaPoints?.length
         ? e.areaPoints
-        : [0, 1, 2, 3].map((i) => {
-            const a = (i * Math.PI) / 2;
-            return { x: center.x + Math.cos(a) * radius, z: center.z + Math.sin(a) * radius };
-          });
+        : shape.kind==='sector'
+          ? [-shape.halfAngle,0,shape.halfAngle].map((off)=>{
+              const a=Math.atan2(shape.aimZ,shape.aimX)+off;
+              return {x:shape.x+Math.cos(a)*shape.radius,z:shape.z+Math.sin(a)*shape.radius};
+            })
+          : [0, 1, 2, 3].map((i) => {
+              const a = (i * Math.PI) / 2;
+              return { x: center.x + Math.cos(a) * radius, z: center.z + Math.sin(a) * radius };
+            });
     binding.areaPoints.push(...outer.map((p) => ({ ...p })));
     if (skills[binding.toSkill].directional) {
-      const spokes = outer.length <= 4
-        ? outer.slice(0, 3)
-        : [outer[0], outer[Math.floor(outer.length / 3)], outer[Math.floor((outer.length * 2) / 3)]];
+      const spokes = outer.length <= 4 ? outer : [outer[0], outer[Math.floor(outer.length/2)]];
       for (const p of spokes)
         this.castCatalystPayload(binding, p.x, p.z, center.x - p.x, center.z - p.z);
     } else {
       for (const target of this.ents) {
-        if (target.hp <= 0 || !circleIntersectsCircle(center.x, center.z, radius, target.x, target.z, target.radius)) continue;
+        if (target.hp <= 0 || !combatShapeIntersectsCircle(shape,target.x,target.z,target.radius)) continue;
         const dx = center.x - target.x,
           dz = center.z - target.z,
           d = Math.hypot(dx, dz) || 1;
@@ -4827,7 +4843,7 @@ export class Simulation {
       this.castCatalystPayload(binding, center.x, center.z);
     }
     binding.firedCount++;
-    if (binding.fromSkill !== 'mortar_bloom' || binding.firedCount >= 3) binding.done = true;
+    if (binding.firedCount >= limit) binding.done = true;
     this.emitChoreography(binding.mode, binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [...outer, center]);
   }
 
