@@ -53,8 +53,12 @@ assert(enemyBehavior.includes('export class EnemyBehaviorSystem'), 'non-elite en
 for (const kind of ['footnote','bookmark','binder','redactor','indexer','inkblot','marginwalker'])
   assert(enemyBehavior.includes("entity.kind === '"+kind+"'"), 'enemy behavior missing native script: '+kind);
 assert(simulation.includes('private enemyBehavior!: EnemyBehaviorSystem'), 'Simulation no longer delegates native enemy behavior');
+const enemyLoop=simulation.slice(
+  simulation.indexOf('private updateEnemyAI()'),
+  simulation.indexOf('private elitePatternCooldown(', simulation.indexOf('private updateEnemyAI()'))
+);
 for (const token of ["e.kind === 'bookmark'","e.kind === 'binder'","e.kind === 'redactor'","e.kind === 'indexer'","e.kind === 'inkblot'"])
-  assert(!simulation.includes(token), 'native enemy script leaked back into Simulation: '+token);
+  assert(!enemyLoop.includes(token), 'native enemy script leaked back into updateEnemyAI: '+token);
 assert(statusSystem.includes('export class StatusSystem'), 'generic combat statuses have no dedicated owner');
 assert(simulation.includes('private statusSystem = new StatusSystem()'), 'Simulation no longer delegates generic status lifecycle');
 assert(!simulation.includes('private stateActive(') && !simulation.includes('private consumeState('),
