@@ -15,7 +15,6 @@ import {
   mutationDef,
   mutationRoots,
   mutationChildren,
-  phenomenonChoreography,
   resonance,
   resonanceOrder,
   skillOrder,
@@ -35,6 +34,7 @@ import { EntityStore } from './entityStore.js';
 import { FieldSystem } from './fieldSystem.js';
 import { LegacyCatalystSystem } from './legacyCatalystSystem.js';
 import { OrbitSystem } from './orbitSystem.js';
+import { PhysicalActivationSystem } from './physicalActivationSystem.js';
 import { PhysicalCatalystSystem } from './physicalCatalystSystem.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { ProjectileSystem } from './projectileSystem.js';
@@ -285,6 +285,7 @@ export class Simulation {
   private orbitSystem!: OrbitSystem;
   private deathResolution!: DeathResolutionSystem;
   private delayedStrikeSystem!: DelayedStrikeSystem;
+  private physicalActivations!: PhysicalActivationSystem;
   private physicalCatalysts!: PhysicalCatalystSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
@@ -952,6 +953,12 @@ export class Simulation {
       noteReaction: () => {
         this.metrics.reactions++;
       }
+    });
+    this.physicalActivations = new PhysicalActivationSystem({
+      catalystAt: (slot) => this.catalysts[slot] ?? null,
+      skillAt: (slot) => this.slots[slot] ?? null,
+      addBinding: (binding) => this.physical.addBinding(binding),
+      queueEvent: (event) => this.physical.queue(event)
     });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
@@ -2958,7 +2965,7 @@ export class Simulation {
     const incomingPhysical = this.incomingCatalyst(slot),
       producerSkill = slot > 0 ? this.slots[slot - 1] : undefined;
     if (
-      this.isPhysicalCatalyst(incomingPhysical) &&
+      this.physicalActivations.isPhysicalCatalyst(incomingPhysical) &&
       producerSkill &&
       catalystPairCompatible(incomingPhysical, producerSkill, id)
     )
@@ -3032,8 +3039,8 @@ export class Simulation {
       previous = this.lastContext,
       physicalOrigin = trace?.origin ?? {x:this.px,z:this.pz};
     this.physical.setLastPoint(activationId,{...physicalOrigin});
-    this.armOutgoingPhysicalCatalyst(slot,id,activationId,physicalOrigin);
-    this.publishImmediatePhysicalTrace(id, slot, activationId, trace);
+    this.physicalActivations.armOutgoing(slot,id,activationId,physicalOrigin);
+    this.physicalActivations.publishImmediate(id, slot, activationId, trace);
     this.flushPhysicalEvents();
     this.lastContext = {
       skill: id,
@@ -3080,43 +3087,13 @@ export class Simulation {
     this.currentChoreography = null;
   }
 
-  private isPhysicalCatalyst(id: CatalystId | null): id is 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse' {
-    return id === 'source' || id === 'carrier' || id === 'trail' || id === 'reverse' || id === 'collapse';
-  }
+
 
   private beginPhysicalActivation(slot: number, skill: SkillId, origin: ChoreographyPoint = { x: this.px, z: this.pz }) {
     return this.physical.begin(slot, skill, origin);
   }
 
-  private armOutgoingPhysicalCatalyst(
-    fromSlot: number,
-    fromSkill: SkillId,
-    activationId: number,
-    origin: ChoreographyPoint
-  ) {
-    const catalyst = this.catalysts[fromSlot] ?? null,
-      toSlot = fromSlot + 1,
-      toSkill = this.slots[toSlot];
-    if (!this.isPhysicalCatalyst(catalyst) || !toSkill) return;
-    if (!catalystPairCompatible(catalyst, fromSkill, toSkill)) return;
-    const binding: CatalystBinding = {
-      producerActivationId: activationId,
-      fromSlot,
-      toSlot,
-      fromSkill,
-      toSkill,
-      mode: catalyst,
-      origin:{...origin},
-      path: [],
-      areaPoints: [],
-      nextTrailDistance: toSkill === 'sentry' ? 1.8 : 1.35,
-      firedCount: 0,
-      carrierKeys: new Set<string>(),
-      pathCarrierKey: null,
-      done: false
-    };
-    this.physical.addBinding(binding);
-  }
+
 
   private registerAsyncPhysical(activationId: number) {
     this.physical.registerAsync(activationId);
@@ -3177,13 +3154,13 @@ export class Simulation {
     const trace = this.finishChoreographyTrace(),
       physicalOrigin = trace?.origin ?? {x:src.x,z:src.z};
     this.physical.setLastPoint(activationId,{...physicalOrigin});
-    this.armOutgoingPhysicalCatalyst(
+    this.physicalActivations.armOutgoing(
       binding.toSlot,
       binding.toSkill,
       activationId,
       physicalOrigin
     );
-    this.publishImmediatePhysicalTrace(binding.toSkill, binding.toSlot, activationId, trace);
+    this.physicalActivations.publishImmediate(binding.toSkill, binding.toSlot, activationId, trace);
 
     this.currentSlot = save.currentSlot;
     this.physical.currentActivationId = save.currentActivationId;
@@ -3200,62 +3177,7 @@ export class Simulation {
     return true;
   }
 
-  private publishImmediatePhysicalTrace(
-    skill: SkillId,
-    slot: number,
-    activationId: number,
-    trace: ChoreographyTrace | null
-  ) {
-    if (!trace || !activationId) return;
-    const asyncSkill = skill === 'mortar_bloom' || skill === 'mass_driver' || skill === 'shard_fan';
-    if (!asyncSkill && phenomenonChoreography[skill].emits.includes('path')) {
-      const path = this.tracePath(trace);
-      for (let i = 1; i < path.length; i++)
-        this.queuePhysicalEvent({
-          activationId,
-          slot,
-          skill,
-          kind: 'path',
-          previousX: path[i - 1].x,
-          previousZ: path[i - 1].z,
-          x: path[i].x,
-          z: path[i].z
-        });
-    }
 
-    if (trace.areas.length && phenomenonChoreography[skill].emits.includes('area')) {
-      for(const shape of trace.areas){
-        const radius=shape.kind==='ray'?shape.halfWidth:shape.radius,
-          areaPoints:ChoreographyPoint[]=[];
-        if(shape.kind==='circle'){
-          for(let i=0;i<4;i++){const a=i*Math.PI/2;areaPoints.push({x:shape.x+Math.cos(a)*shape.radius,z:shape.z+Math.sin(a)*shape.radius});}
-        } else if(shape.kind==='sector'){
-          const base=Math.atan2(shape.aimZ,shape.aimX);
-          for(const off of [-shape.halfAngle,0,shape.halfAngle]){
-            const a=base+off;areaPoints.push({x:shape.x+Math.cos(a)*shape.radius,z:shape.z+Math.sin(a)*shape.radius});
-          }
-        }
-        this.queuePhysicalEvent({
-          activationId,
-          slot,
-          skill,
-          kind:'area',
-          x:shape.x,
-          z:shape.z,
-          radius,
-          areaPoints,
-          shape:{...shape}
-        });
-      }
-    }
-
-    if (
-      !asyncSkill &&
-      trace.terminal &&
-      (skill === 'rail_spear' || skill === 'cleaver' || skill === 'chain_arc' || skill === 'tether_drag')
-    )
-      this.queuePhysicalEvent({ activationId, slot, skill, kind: 'terminal', x: trace.terminal.x, z: trace.terminal.z });
-  }
 
 
 
@@ -3444,22 +3366,7 @@ export class Simulation {
     return blade ? { x: blade.x, z: blade.z } : null;
   }
 
-  private tracePath(trace: ChoreographyTrace) {
-    let best: ChoreographyPoint[] = [];
-    let bestLen = 0;
-    for (const path of trace.paths) {
-      let len = 0;
-      for (let i = 1; i < path.length; i++) len += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
-      if (len > bestLen) {
-        bestLen = len;
-        best = path;
-      }
-    }
-    if (best.length >= 2) return best.map((p) => ({ ...p }));
-    if (trace.terminal && !this.sameChoreographyPoint(trace.origin, trace.terminal))
-      return [{ ...trace.origin }, { ...trace.terminal }];
-    return [];
-  }
+
 
   private choreographyAim(x: number, z: number, fallbackX = this.aimX, fallbackZ = this.aimZ) {
     const target = this.entityStore.nearest(x, z);
