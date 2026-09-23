@@ -83,9 +83,9 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
     {id:98001,x:0,z:0,...common},
     {id:98002,x:6,z:0,...common}
   ];
-  sim.sentryGridAcc=.28;
   const hpIn=inside.hp,hpOut=outside.hp;
-  sim.updateConstructs();
+  // Let the construct-owned cadence reach its real 280 ms Grid pulse; do not reach into runtime state.
+  for(let i=0;i<18;i++) sim.updateConstructs();
   assert(inside.hp<hpIn,'Gravity Grid missed an actor whose circle overlaps the visible lane');
   assert(outside.hp===hpOut,'Gravity Grid damaged an actor outside the visible/shared capsule');
 }
