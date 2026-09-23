@@ -9,6 +9,7 @@ const state=readFileSync('src/core/state.ts','utf8');
 const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const projectileSystem=readFileSync('src/core/projectileSystem.ts','utf8');
 const fieldSystem=readFileSync('src/core/fieldSystem.ts','utf8');
+const constructSystem=readFileSync('src/core/constructSystem.ts','utf8');
 const entityStore=readFileSync('src/core/entityStore.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
 const squadDirector=readFileSync('src/core/squadDirector.ts','utf8');
@@ -53,6 +54,18 @@ assert(fieldUpdate.includes('this.fieldSystem.update(this.fields)'),
   'Simulation updateFields is no longer a thin orchestration wrapper');
 for (const token of ["behavior === 'host'","behavior==='pull'","toxic_corrosive","insideIds"])
   assert(!fieldUpdate.includes(token), 'field runtime behavior leaked back into Simulation: '+token);
+assert(constructSystem.includes('export class ConstructSystem'), 'persistent constructs have no dedicated runtime system');
+assert(simulation.includes('private constructSystem!: ConstructSystem'), 'Simulation no longer delegates construct runtime');
+const constructUpdate=simulation.slice(
+  simulation.indexOf('private updateConstructs()'),
+  simulation.indexOf('private updateOrbitBlades(', simulation.indexOf('private updateConstructs()'))
+);
+assert(constructUpdate.includes('this.constructSystem.update(this.constructs)'),
+  'Simulation updateConstructs is no longer a thin orchestration wrapper');
+for (const token of ['sentry_hunter_battery','sentry_gravity_grid','sentry_crawler','sentry_walker'])
+  assert(!constructUpdate.includes(token), 'construct runtime behavior leaked back into Simulation: '+token);
+assert(!simulation.includes('private sentryGridAcc =') && !simulation.includes('private sentryBatteryAt ='),
+  'construct-specific cadence state leaked back into Simulation');
 assert(entityStore.includes('export class EntityStore'), 'entity roster has no dedicated owner/query boundary');
 assert(simulation.includes('private entityStore = new EntityStore()'), 'Simulation no longer delegates entity identity/query ownership');
 assert(!simulation.includes('this.ents.find('), 'hot-path id lookup bypasses EntityStore index');
@@ -144,6 +157,7 @@ console.log('architecture-regression OK', {
   physicalLifecycleOwner:true,
   projectileSystem:true,
   fieldSystem:true,
+  constructSystem:true,
   entityStore:true,
   encounterDirector:true,
   squadDirector:true,

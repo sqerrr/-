@@ -24,6 +24,7 @@ import {
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
+import { ConstructSystem } from './constructSystem.js';
 import { EncounterDirector } from './encounterDirector.js';
 import { EliteAffixSystem } from './eliteAffixSystem.js';
 import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
@@ -287,6 +288,7 @@ export class Simulation {
   private squadDirector!: SquadDirector;
   private projectileSystem!: ProjectileSystem;
   private fieldSystem!: FieldSystem;
+  private constructSystem!: ConstructSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -347,9 +349,7 @@ export class Simulation {
   private beatAcc = 0;
   private orbitAcc = 0;
   private orbitPhoenixAt = 0;
-  private sentryGridAcc = 0;
   /** Shared cadence for Hunter Battery: the apotheosis is a coordinated volley, not five independent damage multipliers. */
-  private sentryBatteryAt = 0;
   private moveAmount = 0;
   /**
    * D17. The window is deliberately shorter than the dash itself, so the tail of every
@@ -741,6 +741,63 @@ export class Simulation {
         this.fieldDamage += amount;
       },
       queuePhysicalEvent: (event) => this.queuePhysicalEvent(event)
+    });
+    this.constructSystem = new ConstructSystem({
+      dt: () => this.dt,
+      time: () => this.time,
+      heroX: () => this.px,
+      heroZ: () => this.pz,
+      ownerById: (id) => this.entityStore.get(id) ?? null,
+      entities: () => this.ents,
+      targetsFor: (construct) => {
+        const owner = construct.ownerId ? this.entityStore.get(construct.ownerId) ?? null : null;
+        const source: CastSource = {
+          faction: construct.faction,
+          owner,
+          x: construct.x,
+          z: construct.z,
+          aimX: 1,
+          aimZ: 0,
+          vx: 0,
+          vz: 0
+        };
+        return this.targetsFor(source);
+      },
+      targetVisible: (construct, target) => {
+        const owner = construct.ownerId ? this.entityStore.get(construct.ownerId) ?? null : null;
+        const source: CastSource = {
+          faction: construct.faction,
+          owner,
+          x: construct.x,
+          z: construct.z,
+          aimX: 1,
+          aimZ: 0,
+          vx: 0,
+          vz: 0
+        };
+        return this.targetVisible(source, target);
+      },
+      damageTarget: (construct, target, amount, x, z) => {
+        const previousOwner = this.castOwner;
+        const previousConcentration = this.castRivalConcentration;
+        if (construct.faction === 'rival') {
+          this.castOwner = construct.ownerId ? this.entityStore.get(construct.ownerId) ?? null : null;
+          this.castRivalConcentration = construct.rivalConcentration;
+        }
+        try {
+          this.damage(target, amount, 'sentry', true, x, z, construct.sourceSlot);
+        } finally {
+          this.castOwner = previousOwner;
+          this.castRivalConcentration = previousConcentration;
+        }
+      },
+      combatShape: (source, shape, intent = 'damage') => this.combatShape(source, shape, intent),
+      queuePhysicalEvent: (event) => this.queuePhysicalEvent(event),
+      finishAsyncPhysical: (activationId, x, z) => this.finishAsyncPhysical(activationId, x, z),
+      scheduleStrike: (strike) => this.scheduleStrike(strike),
+      memoryFactor: () => this.memoryFactor(),
+      corePower: () => this.corePower(),
+      grantBarrier: (amount) => this.grantBarrier(amount)
     });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
@@ -2455,232 +2512,7 @@ export class Simulation {
   }
 
   private updateConstructs() {
-    const alive: Construct[] = [];
-    for (const c of this.constructs) {
-      c.ttl -= this.dt;
-      if(c.ttl<=0){
-        if(c.activationId)this.finishAsyncPhysical(c.activationId,c.x,c.z);
-        continue;
-      }
-      c.cooldown -= this.dt;
-      const owner = c.ownerId ? this.entityStore.get(c.ownerId) ?? null : null;
-      const followX = c.faction === 'rival' && owner ? owner.x : this.px;
-      const followZ = c.faction === 'rival' && owner ? owner.z : this.pz;
-
-      if (
-        c.mutation === 'sentry_crawler' ||
-        c.mutationUpgrade === 'sentry_crawler' ||
-        c.mutationApotheosis === 'sentry_walker'
-      ) {
-        const angle = ((c.id % 7) / 7) * Math.PI * 2 + this.time * 0.45;
-        const desiredX = followX + Math.cos(angle) * (c.mutationApotheosis === 'sentry_walker' ? 2.1 : 2.6);
-        const desiredZ = followZ + Math.sin(angle) * (c.mutationApotheosis === 'sentry_walker' ? 2.1 : 2.6);
-        const dx = desiredX - c.x,
-          dz = desiredZ - c.z,
-          d = Math.hypot(dx, dz) || 1;
-        if (d > 0.25) {
-          const sp = c.mutationApotheosis === 'sentry_walker' ? 2.6 : 1.65;
-          c.x += (dx / d) * sp * this.dt;
-          c.z += (dz / d) * sp * this.dt;
-        }
-      }
-
-      if (c.cooldown <= 0) {
-        let interval = c.mutation === 'sentry_gatling' ? 0.3 : c.mutation === 'sentry_rail' ? 1.1 : 0.62;
-        if (c.mutationApotheosis === 'sentry_hunter_battery') interval = 1.15;
-        c.cooldown = interval;
-        const cs: CastSource = {
-          faction: c.faction,
-          owner,
-          x: c.x,
-          z: c.z,
-          aimX: 1,
-          aimZ: 0,
-          vx: 0,
-          vz: 0
-        };
-        const targets = this.targetsFor(cs).filter(
-          (e) => e.hp > 0 && this.targetVisible(cs, e) && Math.hypot(e.x - c.x, e.z - c.z) <= c.range + e.radius
-        );
-        if (c.mutation === 'sentry_rail' || c.mutationApotheosis === 'sentry_hunter_battery') {
-          targets.sort(
-            (a, b) =>
-              Number(b.markUntil > this.time || b.kind === 'elite') -
-                Number(a.markUntil > this.time || a.kind === 'elite') ||
-              Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z)
-          );
-        } else targets.sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z));
-
-        const t = targets[0];
-        if (t) {
-          let dmg = skills.sentry.baseDamage * c.power;
-          if (c.mutation === 'sentry_gatling') dmg *= 0.52;
-          if (c.mutation === 'sentry_rail') dmg *= 1.9;
-          // Hunter Battery trades constant personal DPS for target painting + a shared, telegraphed salvo.
-          // Previously this stacked *2.15 on top of Rail *1.9 and then consumed its own Mark for another
-          // 35%, which made five autonomous turrets outperform entire close/control builds with no risk.
-          if (c.mutationApotheosis === 'sentry_hunter_battery') dmg *= 1.02;
-          if (
-            c.mutation === 'sentry_relay' &&
-            (t.markUntil > this.time || t.embedded > 0 || this.time - t.lastArcAt < 2.2)
-          )
-            dmg *= 1.28;
-          const dx = t.x - c.x,
-            dz = t.z - c.z,
-            m = Math.hypot(dx, dz) || 1;
-          this.combatShape(
-            c.mutationApotheosis === 'sentry_hunter_battery' ? 'sentry_hunter_tracking' : 'sentry',
-            { kind: 'ray', x: c.x, z: c.z, aimX: dx / m, aimZ: dz / m, range: m, halfWidth: c.mutationApotheosis === 'sentry_hunter_battery' ? 0.13 : 0.08 }
-          );
-          const prevOwner = this.castOwner,
-            prevC = this.castRivalConcentration;
-          if (c.faction === 'rival') {
-            this.castOwner = owner;
-            this.castRivalConcentration = c.rivalConcentration;
-          }
-          try {
-            this.damage(t, dmg, 'sentry', true, c.x, c.z, c.sourceSlot);
-            if(c.faction==='hero'&&c.activationId){
-              this.queuePhysicalEvent({
-                activationId:c.activationId,
-                slot:c.sourceSlot,
-                skill:'sentry',
-                kind:'contact',
-                x:c.x,
-                z:c.z,
-                carrierKind:'construct',
-                carrierId:c.id,
-                targetId:t.id
-              });
-            }
-          } finally {
-            this.castOwner = prevOwner;
-            this.castRivalConcentration = prevC;
-          }
-          t.sentryTouchedUntil = this.time + 4;
-          // Paint AFTER the projectile resolves. The turret no longer manufactures and consumes its own
-          // Mark in the same call; the visible mark is a hand-off to Rail/Returner/another chain node.
-          if (c.mutationApotheosis === 'sentry_hunter_battery' && c.faction === 'hero')
-            t.markUntil = Math.max(t.markUntil, this.time + 2.0);
-          if (c.mutation === 'sentry_relay' && c.faction === 'hero') {
-            t.markUntil = Math.max(t.markUntil, this.time + 2.8 * this.memoryFactor());
-            t.lastArcAt = this.time;
-          }
-          if (
-            c.mutationApotheosis === 'sentry_walker' &&
-            c.faction === 'hero' &&
-            Math.hypot(this.px - c.x, this.pz - c.z) < 2.5
-          )
-            this.grantBarrier(1.4);
-        }
-      }
-      alive.push(c);
-    }
-    this.constructs = alive;
-
-    // Hunter Battery is one coordinated event with a readable lock phase. More turrets make the
-    // salvo stronger, but they do not each multiply the same target every second.
-    const battery = alive.filter(
-      (c) => c.faction === 'hero' && c.mutationApotheosis === 'sentry_hunter_battery'
-    );
-    if (battery.length && this.time >= this.sentryBatteryAt) {
-      const target = this.ents
-        .filter((e) => e.hp > 0 && battery.some((c) => Math.hypot(e.x - c.x, e.z - c.z) <= c.range + e.radius))
-        .sort(
-          (a, b) =>
-            Number(b.kind === 'elite') - Number(a.kind === 'elite') ||
-            Number(b.markUntil > this.time) - Number(a.markUntil > this.time) ||
-            Math.hypot(a.x - this.px, a.z - this.pz) - Math.hypot(b.x - this.px, b.z - this.pz)
-        )[0];
-      if (target) {
-        this.sentryBatteryAt = this.time + 3.35;
-        target.markUntil = Math.max(target.markUntil, this.time + 2.3);
-        let power = 0;
-        for (const c of battery) {
-          power += c.power;
-          const dx = target.x - c.x,
-            dz = target.z - c.z,
-            m = Math.hypot(dx, dz) || 1;
-          this.combatShape('sentry_battery_tell', {
-            kind: 'ray',
-            x: c.x,
-            z: c.z,
-            aimX: dx / m,
-            aimZ: dz / m,
-            range: m,
-            halfWidth: 0.11
-          });
-        }
-        const averagePower = power / battery.length;
-        this.scheduleStrike({
-          at: this.time + 0.48,
-          x: target.x,
-          z: target.z,
-          radius: 0.82,
-          damage: skills.sentry.baseDamage * averagePower * (0.95 + battery.length * 0.38),
-          faction: 'hero',
-          ownerId: 0,
-          source: 'sentry',
-          sourceSlot: battery[0].sourceSlot,
-          intent: 'damage',
-          telegraph: 'sentry_battery_beacon',
-          activationId: battery[0].activationId
-        });
-      }
-    }
-
-    this.sentryGridAcc += this.dt;
-    const grid = alive.filter(
-      (c) => c.faction === 'hero' && c.mutationApotheosis === 'sentry_gravity_grid'
-    );
-    if (grid.length >= 2 && this.sentryGridAcc >= 0.28) {
-      this.sentryGridAcc = 0;
-      const links: [Construct, Construct][] = [];
-      const seen = new Set<string>();
-      for (const a of grid) {
-        const near = grid
-          .filter((b) => b.id !== a.id)
-          .map((b) => ({ b, d: Math.hypot(b.x - a.x, b.z - a.z) }))
-          .filter((q) => q.d <= 6.4)
-          .sort((x, y) => x.d - y.d)
-          .slice(0, 2);
-        for (const q of near) {
-          const lo = Math.min(a.id, q.b.id), hi = Math.max(a.id, q.b.id), key = lo + ':' + hi;
-          if (!seen.has(key)) {
-            seen.add(key);
-            links.push([a, q.b]);
-          }
-        }
-      }
-      for (const [a,b] of links) {
-        const dx = b.x - a.x,
-          dz = b.z - a.z,
-          len = Math.hypot(dx, dz) || 1,
-          shape: CombatShape = {
-            kind: 'ray',
-            x: a.x,
-            z: a.z,
-            aimX: dx / len,
-            aimZ: dz / len,
-            range: len,
-            halfWidth: 0.42
-          };
-        this.combatShape('sentry_gravity_grid', shape, 'control');
-        for (const e of this.ents) {
-          if (e.hp <= 0 || !combatShapeIntersectsCircle(shape, e.x, e.z, e.radius)) continue;
-          const closest = closestPointOnSegment(e.x, e.z, a.x, a.z, b.x, b.z),
-            ddx = closest.x - e.x,
-            ddz = closest.z - e.z,
-            d = Math.hypot(ddx, ddz);
-          this.damage(e, skills.sentry.baseDamage * 0.24 * this.corePower(), 'sentry', false, closest.x, closest.z, a.sourceSlot);
-          if (d > 0.05) {
-            e.x += (ddx / d) * 0.18;
-            e.z += (ddz / d) * 0.18;
-            e.displacedUntil = this.time + 0.45;
-          }
-        }
-      }
-    }
+    this.constructs = this.constructSystem.update(this.constructs);
   }
 
   private orbitProfile(st: SkillRuntime, center = this.orbitCenter()) {
