@@ -11,6 +11,7 @@ const entityStore=readFileSync('src/core/entityStore.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
 const eliteBehavior=readFileSync('src/core/eliteBehaviorSystem.ts','utf8');
 const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
+const enemyBehavior=readFileSync('src/core/enemyBehaviorSystem.ts','utf8');
 const stateModel=readFileSync('src/core/state.ts','utf8');
 const testHarness=readFileSync('src/testing/simulationHarness.ts','utf8');
 const statusSystem=readFileSync('src/core/statusSystem.ts','utf8');
@@ -48,6 +49,16 @@ for (const pattern of ['sweep','rupture','charge'])
 assert(simulation.includes('private bossBehavior!: BossBehaviorSystem'), 'Simulation no longer delegates Warden behavior');
 assert(!simulation.includes("e.bossPattern === 'sweep'") && !simulation.includes('telegraph_boss_'),
   'Warden phase/pattern state machine leaked back into Simulation');
+assert(enemyBehavior.includes('export class EnemyBehaviorSystem'), 'non-elite enemies have no dedicated behavior system');
+for (const kind of ['footnote','bookmark','binder','redactor','indexer','inkblot','marginwalker'])
+  assert(enemyBehavior.includes("entity.kind === '"+kind+"'"), 'enemy behavior missing native script: '+kind);
+assert(simulation.includes('private enemyBehavior!: EnemyBehaviorSystem'), 'Simulation no longer delegates native enemy behavior');
+const enemyLoop=simulation.slice(
+  simulation.indexOf('private updateEnemyAI()'),
+  simulation.indexOf('private elitePatternCooldown(', simulation.indexOf('private updateEnemyAI()'))
+);
+for (const token of ["e.kind === 'bookmark'","e.kind === 'binder'","e.kind === 'redactor'","e.kind === 'indexer'","e.kind === 'inkblot'"])
+  assert(!enemyLoop.includes(token), 'native enemy script leaked back into updateEnemyAI: '+token);
 assert(statusSystem.includes('export class StatusSystem'), 'generic combat statuses have no dedicated owner');
 assert(simulation.includes('private statusSystem = new StatusSystem()'), 'Simulation no longer delegates generic status lifecycle');
 assert(!simulation.includes('private stateActive(') && !simulation.includes('private consumeState('),
@@ -97,6 +108,7 @@ console.log('architecture-regression OK', {
   encounterDirector:true,
   eliteBehaviorSystem:true,
   bossBehaviorSystem:true,
+  enemyBehaviorSystem:true,
   statusSystem:true,
   entityComponents:true,
   typedTestHarness:true
