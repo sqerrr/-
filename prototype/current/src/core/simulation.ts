@@ -40,6 +40,7 @@ import { PhysicalActivationSystem } from './physicalActivationSystem.js';
 import { PhysicalCatalystSystem } from './physicalCatalystSystem.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { ProjectileSystem } from './projectileSystem.js';
+import { RelicRaceSystem } from './relicRaceSystem.js';
 import { Rng } from './rng.js';
 import { SquadDirector } from './squadDirector.js';
 import { StatusSystem } from './statusSystem.js';
@@ -285,6 +286,7 @@ export class Simulation {
   private delayedStrikeSystem!: DelayedStrikeSystem;
   private physicalActivations!: PhysicalActivationSystem;
   private physicalCatalysts!: PhysicalCatalystSystem;
+  private relicRace!: RelicRaceSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -294,8 +296,11 @@ export class Simulation {
   // Deliberately kept OUT of `ents` so every existing loop keeps its exact behaviour.
   private hero: Ent = makeHeroEnt();
   private pickups: Pickup[] = [];
-  private relics: Relic[] = [];
-  private relicAcc = 0;
+  /** Compatibility view; ground relic ownership lives in RelicRaceSystem. */
+  private get relics(): Relic[] { return this.relicRace.all; }
+  private set relics(value: Relic[]) { this.relicRace.replace(value); }
+  private get relicAcc(): number { return this.relicRace.accumulatorValue; }
+  private set relicAcc(value: number) { this.relicRace.accumulatorValue = value; }
   private relicRng!: Rng;
   /**
    * Items physically captured by elites become knowledge of the enemy ecosystem.
@@ -319,9 +324,9 @@ export class Simulation {
   private dashCooldownMul = 1;
   private dashIFrameMul = 1;
   // D34 asked for twenty or more relics across a run of roughly eight minutes.
-  static readonly RELIC_INTERVAL = 20;
-  static readonly RELIC_REACH = 1.2;
-  static readonly RELIC_ELITE_REACH = 2.2;
+  static readonly RELIC_INTERVAL = RelicRaceSystem.INTERVAL;
+  static readonly RELIC_REACH = RelicRaceSystem.HERO_REACH;
+  static readonly RELIC_ELITE_REACH = RelicRaceSystem.ELITE_REACH;
   private fields: Field[] = [];
   private constructs: Construct[] = [];
   private projectiles: Projectile[] = [];
@@ -535,6 +540,34 @@ export class Simulation {
           record.castSkills[skill] = (record.castSkills[skill] ?? 0) + 1;
         }
       }
+    });
+    this.relicRace = new RelicRaceSystem({
+      world: this.world,
+      dt: () => this.dt,
+      time: () => this.time,
+      tick: () => this.tick,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      relicRateMultiplier: () => this.itemRelicRateMul,
+      entities: () => this.ents,
+      hasEcho: (entityId) => this.eliteEchoSystem.has(entityId),
+      blocked: (x, z, radius) => this.blocked(x, z, radius),
+      steerTo: (entity, x, z, speed, multiplier = 1) =>
+        this.steerTo(entity, x, z, speed, multiplier),
+      randomFloat: () => this.relicRng.float(),
+      randomInt: (maxExclusive) => this.relicRng.int(maxExclusive),
+      nextId: () => this.nextId++,
+      onHeroClaim: (relic) => this.takeRelic(relic),
+      onEliteClaim: (entity, relic) => this.giveEliteRelic(entity, relic),
+      emitAppeared: (relic, name) =>
+        this.events.push({
+          type: 'RelicAppeared',
+          tick: this.tick,
+          item: relic.item,
+          name,
+          x: relic.x,
+          z: relic.z
+        })
     });
     this.eliteBehavior = new EliteBehaviorSystem({
       runDuration: this.runDuration,
@@ -1980,18 +2013,7 @@ export class Simulation {
   }
 
   private steerEliteToRelic(e: Ent, speed: number, playerDistance: number) {
-    if (e.state !== 'normal' || e.eliteAction || this.eliteEchoSystem.has(e.id)) return false;
-    const seek = Math.min(46, 24 * (e.relicSeekMul ?? 1));
-    let best: Relic | null = null, bestD = seek;
-    for (const relic of this.relics) {
-      const d = Math.hypot(relic.x - e.x, relic.z - e.z);
-      if (d < bestD) { best = relic; bestD = d; }
-    }
-    if (!best || bestD <= Simulation.RELIC_ELITE_REACH) return false;
-    // Do not abandon immediate melee just to loot; otherwise a visible nearby relic is a real objective.
-    if (playerDistance < 3.2 && bestD > playerDistance * 0.8) return false;
-    this.steerTo(e, best.x, best.z, speed, 1.24);
-    return true;
+    return this.relicRace.steerElite(e, speed, playerDistance);
   }
 
   private updateEnemyAI() {
@@ -2189,55 +2211,10 @@ export class Simulation {
    * that an elite and the hero can both want at the same time.
    */
   private updateRelics() {
-    this.relicAcc += this.dt;
-    const interval = Simulation.RELIC_INTERVAL * this.itemRelicRateMul;
-    if (this.relics.length >= 8) this.relicAcc = Math.min(this.relicAcc, interval);
-    else if (this.relicAcc >= interval) {
-      this.relicAcc -= interval;
-      this.spawnRelic();
-    }
-    const keep: Relic[] = [];
-    for (const r of this.relics) {
-      if (Math.hypot(this.px - r.x, this.pz - r.z) < Simulation.RELIC_REACH) {
-        this.takeRelic(r);
-        continue;
-      }
-      let claimed = false;
-      for (const e of this.ents) {
-        if (e.kind !== 'elite') continue;
-        const reach = Simulation.RELIC_ELITE_REACH * Math.min(1.8, e.relicSeekMul ?? 1);
-        if (Math.hypot(e.x - r.x, e.z - r.z) < reach) {
-          this.giveEliteRelic(e, r);
-          claimed = true;
-          break;
-        }
-      }
-      if (!claimed) keep.push(r);
-    }
-    this.relics = keep;
+    this.relicRace.update();
   }
   private spawnRelic() {
-    for (let i = 0; i < 24; i++) {
-      const a = this.relicRng.float() * Math.PI * 2;
-      const d = 14 + this.relicRng.float() * 16;
-      const x = this.px + Math.cos(a) * d;
-      const z = this.pz + Math.sin(a) * d;
-      if (x < this.world.minX + 2 || x > this.world.maxX - 2) continue;
-      if (z < this.world.minZ + 2 || z > this.world.maxZ - 2) continue;
-      if (this.blocked(x, z, 1.1)) continue;
-      const item = itemOrder[this.relicRng.int(itemOrder.length)];
-      const relic: Relic = { id: this.nextId++, x, z, item, bornAt: this.time };
-      this.relics.push(relic);
-      this.events.push({
-        type: 'RelicAppeared',
-        tick: this.tick,
-        item,
-        name: items[item].name,
-        x,
-        z
-      });
-      return;
-    }
+    this.relicRace.spawn();
   }
   /**
    * Applies an item to the hero, whether it was lifted off the floor or handed over as a

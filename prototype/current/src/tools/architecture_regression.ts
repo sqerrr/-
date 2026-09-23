@@ -10,6 +10,7 @@ const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const physicalActivation=readFileSync('src/core/physicalActivationSystem.ts','utf8');
 const physicalCatalyst=readFileSync('src/core/physicalCatalystSystem.ts','utf8');
 const projectileSystem=readFileSync('src/core/projectileSystem.ts','utf8');
+const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
 const orbitSystem=readFileSync('src/core/orbitSystem.ts','utf8');
 const fieldSystem=readFileSync('src/core/fieldSystem.ts','utf8');
@@ -68,6 +69,15 @@ assert(delayedUpdate.includes('this.delayedStrikeSystem.update(this.delayedStrik
 for (const token of ['areaPoints=[0,1,2,3]','fieldKind','_impact'])
   assert(!delayedUpdate.includes(token), 'delayed strike runtime leaked back into Simulation: '+token);
 
+assert(relicRace.includes('export class RelicRaceSystem'), 'contested relics have no dedicated runtime owner');
+assert(simulation.includes('private relicRace!: RelicRaceSystem'), 'Simulation no longer delegates relic race runtime');
+const relicUpdate=simulation.slice(
+  simulation.indexOf('private updateRelics()'),
+  simulation.indexOf('private spawnRelic(', simulation.indexOf('private updateRelics()'))
+);
+assert(relicUpdate.includes('this.relicRace.update()'), 'Simulation updateRelics is no longer a thin wrapper');
+assert(!simulation.includes('private relics: Relic[] =') && !simulation.includes('private relicAcc = 0'),
+  'ground relic state/cadence leaked back into Simulation');
 assert(projectileSystem.includes('export class ProjectileSystem'), 'moving projectiles have no dedicated runtime system');
 assert(simulation.includes('private projectileSystem!: ProjectileSystem'), 'Simulation no longer delegates projectile runtime');
 const projectileUpdate=simulation.slice(
@@ -242,6 +252,7 @@ console.log('architecture-regression OK', {
   physicalCatalystSystem:true,
   physicalActivationSystem:true,
   projectileSystem:true,
+  relicRaceSystem:true,
   delayedStrikeSystem:true,
   orbitSystem:true,
   fieldSystem:true,
