@@ -94,7 +94,7 @@ function setup(build: Build, seed: number, affix: EliteAffix): {sim:any; elite:a
   elite.shieldStability = 100;
   // Clear random spawn bookkeeping/events from constructing the isolated subject.
   sim.refusalStore = [];
-  sim.eliteEchoes.clear();
+  sim.eliteEchoSystem.clear();
   sim.events.length = 0;
   return {sim,elite};
 }

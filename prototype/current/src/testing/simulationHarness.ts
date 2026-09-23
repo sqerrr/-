@@ -34,7 +34,7 @@ interface SimulationInternals {
   obstacles: Obstacle[];
   relics: Relic[];
   skillsRuntime: Map<SkillId, SkillRuntime>;
-  eliteEchoes: Map<number, EliteEchoState>;
+  eliteEchoSystem: { get(entityId: number): EliteEchoState | undefined };
   playerVX: number;
   playerVZ: number;
   spawnElite(opening?: boolean): void;
@@ -167,7 +167,7 @@ export class SimulationHarness {
   }
 
   eliteEcho(entityId: number) {
-    return this.internals.eliteEchoes.get(entityId);
+    return this.internals.eliteEchoSystem.get(entityId);
   }
 
   updateEliteEchoes() {

@@ -25,7 +25,7 @@ for (const skill of activeSkillOrder) {
   assert(sim.events.some((e:any)=>e.type==='EliteEchoPhase'&&e.phase==='tell'&&e.skill===skill), `${skill}: no Echo tell`);
   const shapes=sim.events.filter((e:any)=>e.type==='CombatShape'&&String(e.source).startsWith(`echo_${skill}_tell`));
   assert(shapes.length>0, `${skill}: no authored Echo telegraph geometry`); echoShapes+=shapes.length;
-  const q=sim.eliteEchoes.get(owner.id); assert(q, `${skill}: missing Echo state`);
+  const q=sim.eliteEchoSystem.get(owner.id); assert(q, `${skill}: missing Echo state`);
   sim.events=[]; sim.tick=Math.ceil(q.until*sim.hz); sim.updateEliteEchoes();
   assert(sim.events.some((e:any)=>e.type==='EliteEchoPhase'&&e.phase==='active'), `${skill}: no active Echo phase`);
   assert(!sim.events.some((e:any)=>e.type==='SkillActivated'), `${skill}: Echo reused player cast dispatcher`);

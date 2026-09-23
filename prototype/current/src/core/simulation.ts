@@ -29,6 +29,7 @@ import { DelayedStrikeSystem } from './delayedStrikeSystem.js';
 import { EncounterDirector } from './encounterDirector.js';
 import { EliteAffixSystem } from './eliteAffixSystem.js';
 import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
+import { EliteEchoSystem } from './eliteEchoSystem.js';
 import { EliteProgressionSystem } from './eliteProgressionSystem.js';
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
 import { EntityStore } from './entityStore.js';
@@ -56,7 +57,6 @@ import {
   type ChoreographyTrace,
   type Construct,
   type DelayedStrike,
-  type EliteEchoState,
   type Ent,
   type Field,
   type Obstacle,
@@ -270,6 +270,7 @@ export class Simulation {
   private rng: Rng;
   private encounterDirector!: EncounterDirector;
   private eliteBehavior!: EliteBehaviorSystem;
+  private eliteEchoSystem!: EliteEchoSystem;
   private eliteProgression!: EliteProgressionSystem;
   private eliteAffix!: EliteAffixSystem;
   private bossBehavior!: BossBehaviorSystem;
@@ -325,7 +326,6 @@ export class Simulation {
   private constructs: Construct[] = [];
   private projectiles: Projectile[] = [];
   private delayedStrikes: DelayedStrike[] = [];
-  private eliteEchoes = new Map<number, EliteEchoState>();
   private readonly world = { minX: -48, maxX: 48, minZ: -36, maxZ: 36 };
   // D20 asks for a semi-open arena: islands of blockers, never corridors and never
   // an empty field. Circles cluster into organic islands and give free sliding, which
@@ -440,7 +440,7 @@ export class Simulation {
   /**
    * D41/v0.11: a declined Phenomenon never calls the hero dispatcher from an elite.
    * The refusal preserves fantasy/identity but is translated to an authored duel pattern
-   * with tell -> active -> recovery in start/resolveEliteEcho below. effectGrammar remains
+   * with tell -> active -> recovery in EliteEchoSystem. effectGrammar remains
    * useful for ownership/LOS/reach data; it is not an excuse to mirror player geometry.
    */
   /** D28: a phenomenon forks three ways. */
@@ -474,7 +474,6 @@ export class Simulation {
    * be hitting it. Diagnostic only - nothing in the simulation branches on this.
    */
   /** Next moment each elite may field a refusal, keyed by entity id. */
-  private rivalCastAt = new Map<number, number>();
   private eliteLog: EliteEncounter[] = [];
   private eliteLogById = new Map<number, EliteEncounter>();
   /** Held only for the length of a rival cast, so its damage can be charged to its owner. */
@@ -499,6 +498,44 @@ export class Simulation {
       mainRandomInt: (maxExclusive) => this.rng.int(maxExclusive),
       relicRandomInt: (maxExclusive) => this.relicRng.int(maxExclusive)
     });
+    this.eliteEchoSystem = new EliteEchoSystem({
+      time: () => this.time,
+      tick: () => this.tick,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      playerVX: () => this.playerVX,
+      playerVZ: () => this.playerVZ,
+      entityById: (id) => this.entityStore.getAlive(id),
+      refusalStore: () => this.refusalStore,
+      randomRange: (min, max) => this.rng.range(min, max),
+      randomInt: (maxExclusive) => this.rng.int(maxExclusive),
+      axisCount: (entity, axis) => this.eliteProgression.rivalAxisCount(entity, axis),
+      patternCooldown: (base, entity) => this.elitePatternCooldown(base, entity),
+      lineOfSight: (x0, z0, x1, z1, radius) =>
+        this.lineOfSight(x0, z0, x1, z1, radius),
+      damageScale: () => this.damageScale(),
+      damageHero: (amount, source, owner, concentration) =>
+        this.damageHero(amount, source, owner, concentration),
+      combatShape: (source, shape, intent = 'damage') =>
+        this.combatShape(source, shape, intent),
+      scheduleStrike: (strike) => this.scheduleStrike(strike),
+      addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
+      spawnProjectile: (projectile) => { this.spawnProjectile(projectile); },
+      movePlayer: (dx, dz) => {
+        this.px += dx;
+        this.pz += dz;
+        this.clampWorld();
+      },
+      emit: (event) => this.events.push(event),
+      noteRivalCast: (entity, skill) => {
+        this.metrics.rivalCasts++;
+        const record = this.eliteLogById.get(entity.id);
+        if (record) {
+          record.casts++;
+          record.castSkills[skill] = (record.castSkills[skill] ?? 0) + 1;
+        }
+      }
+    });
     this.eliteBehavior = new EliteBehaviorSystem({
       runDuration: this.runDuration,
       world: this.world,
@@ -509,7 +546,7 @@ export class Simulation {
       playerZ: () => this.pz,
       playerVX: () => this.playerVX,
       playerVZ: () => this.playerVZ,
-      hasEcho: (entityId) => this.eliteEchoes.has(entityId),
+      hasEcho: (entityId) => this.eliteEchoSystem.has(entityId),
       noteContact: (entity, distance) => this.noteEliteContact(entity, distance),
       fieldRefusals: (entity, distance) => this.fieldRefusals(entity, distance),
       steerTo: (entity, x, z, speed, multiplier = 1) =>
@@ -549,7 +586,7 @@ export class Simulation {
       playerZ: () => this.pz,
       playerVX: () => this.playerVX,
       playerVZ: () => this.playerVZ,
-      hasEcho: (entityId) => this.eliteEchoes.has(entityId),
+      hasEcho: (entityId) => this.eliteEchoSystem.has(entityId),
       fieldRefusals: (entity, distance) => this.fieldRefusals(entity, distance),
       steerTo: (entity, x, z, speed, multiplier = 1) =>
         this.steerTo(entity, x, z, speed, multiplier),
@@ -613,7 +650,7 @@ export class Simulation {
       playerZ: () => this.pz,
       playerVX: () => this.playerVX,
       playerVZ: () => this.playerVZ,
-      hasEcho: (entityId) => this.eliteEchoes.has(entityId),
+      hasEcho: (entityId) => this.eliteEchoSystem.has(entityId),
       entities: () => this.ents,
       randomRange: (min, max) => this.rng.range(min, max),
       spawnEnemyAt: (kind, x, z, buffedFor = 0) => {
@@ -1780,8 +1817,7 @@ export class Simulation {
 
   /** heldBy is first-carrier bookkeeping; death clears that marker, not ecosystem knowledge. */
   private releaseRepertoire(e: Ent) {
-    this.rivalCastAt.delete(e.id);
-    this.eliteEchoes.delete(e.id);
+    this.eliteEchoSystem.release(e.id);
     this.eliteProgression.releaseRepertoire(e);
   }
 
@@ -1790,155 +1826,18 @@ export class Simulation {
    * Cadence and reach are deliberately slack - the point here is that the link reads, and
    * D49 calibration only becomes possible once the telemetry of step 11 exists.
    */
-  private echoTellDuration(id: SkillId) {
-    if (id === 'rail_spear') return 0.92;
-    if (id === 'mortar_bloom') return 0.78;
-    if (id === 'mass_driver') return 0.74;
-    if (id === 'tether_drag') return 0.86;
-    if (id === 'cleaver') return 0.58;
-    return 0.68;
-  }
 
-  private echoTelegraph(q: EliteEchoState) {
-    const push = (shape: CombatShape, intent: 'damage' | 'control' | 'field' = 'damage', suffix = '') =>
-      this.events.push({ type: 'CombatShape', tick: this.tick, source: `echo_${q.skill}_tell${suffix}`, intent, shape });
-    if (q.skill === 'rail_spear' || q.skill === 'mass_driver' || q.skill === 'breach_line') {
-      push({ kind: 'ray', x: q.x, z: q.z, aimX: q.aimX, aimZ: q.aimZ, range: q.skill === 'rail_spear' ? 26 : 19, halfWidth: q.skill === 'rail_spear' ? 0.42 : 0.95 });
-      return;
-    }
-    if (q.skill === 'cleaver' || q.skill === 'contact_saw' || q.skill === 'backhand') {
-      push({ kind: 'sector', x: q.x, z: q.z, radius: 3.4, aimX: q.aimX, aimZ: q.aimZ, halfAngle: 0.9 });
-      return;
-    }
-    if (q.skill === 'frost_ring' || q.skill === 'spreading_front') {
-      push({ kind: 'circle', x: q.targetX, z: q.targetZ, radius: 2.4 }, 'control');
-      return;
-    }
-    if (q.skill === 'chain_arc') {
-      for (let i=0;i<3;i++) { const a=i*Math.PI*2/3; push({kind:'circle',x:q.targetX+Math.cos(a)*2.2,z:q.targetZ+Math.sin(a)*2.2,radius:1.05},'damage',`_${i}`); }
-      return;
-    }
-    if (q.skill === 'orbit_blades') {
-      push({ kind:'circle', x:q.x, z:q.z, radius:3.0 }, 'damage');
-      return;
-    }
-    if (q.skill === 'mortar_bloom' || q.skill === 'pin_burst') {
-      for(let i=0;i<3;i++) push({kind:'circle',x:q.targetX+q.aimX*i*1.1,z:q.targetZ+q.aimZ*i*1.1,radius:1.35},'damage',`_${i}`);
-      return;
-    }
-    if (q.skill === 'sentry') {
-      const px=-q.aimZ,pz=q.aimX;
-      for(const side of [-1,1]) push({kind:'ray',x:q.x+px*side*1.5,z:q.z+pz*side*1.5,aimX:q.aimX,aimZ:q.aimZ,range:10,halfWidth:0.24},'damage',side<0?'_l':'_r');
-      return;
-    }
-    if (q.skill === 'toxic_mist') {
-      for(let i=0;i<3;i++) push({kind:'circle',x:q.targetX-q.aimX*i*1.2,z:q.targetZ-q.aimZ*i*1.2,radius:1.35},'field',`_${i}`);
-      return;
-    }
-    if (q.skill === 'shard_fan') {
-      push({kind:'ray',x:q.x,z:q.z,aimX:q.aimX,aimZ:q.aimZ,range:16,halfWidth:1.15});
-      return;
-    }
-    if (q.skill === 'tether_drag') {
-      push({ kind: 'circle', x: q.targetX, z: q.targetZ, radius: 1.05 }, 'control');
-      return;
-    }
-    push({ kind: 'circle', x: q.targetX, z: q.targetZ, radius: 1.4 });
-  }
+
+
 
   private startEliteEcho(e: Ent, card: RefusedCard) {
-    const id = card.skill as SkillId;
-    const dx = this.px - e.x, dz = this.pz - e.z, m = Math.hypot(dx, dz) || 1;
-    const q: EliteEchoState = {
-      entityId: e.id, skill: id, serial: card.serial, phase: 'tell',
-      until: this.time + this.echoTellDuration(id), x: e.x, z: e.z,
-      aimX: dx / m, aimZ: dz / m,
-      targetX: this.px + this.playerVX * 0.28, targetZ: this.pz + this.playerVZ * 0.28
-    };
-    this.eliteEchoes.set(e.id, q);
-    this.events.push({ type: 'EliteEchoPhase', tick: this.tick, entity: e.id, skill: id, phase: 'tell', x: e.x, z: e.z, aimX: q.aimX, aimZ: q.aimZ });
-    this.echoTelegraph(q);
+    this.eliteEchoSystem.start(e, card);
   }
 
-  private resolveEliteEcho(e: Ent, q: EliteEchoState) {
-    const dmg = (n: number, source: DamageSourceId = `echo_${q.skill}`) => this.damageHero(n * this.damageScale(), source, e, 1);
-    const hitRay = (range: number, width: number, amount: number) => {
-      if (!this.lineOfSight(q.x, q.z, this.px, this.pz, width * 0.2)) return;
-      const dx = this.px - q.x, dz = this.pz - q.z, t = dx * q.aimX + dz * q.aimZ;
-      const lat = Math.abs(dx * q.aimZ - dz * q.aimX);
-      if (t >= 0 && t <= range && lat <= width + HERO_HIT_RADIUS) dmg(amount);
-    };
-    if (q.skill === 'rail_spear') {
-      this.combatShape('echo_rail_spear_active', { kind: 'ray', x: q.x, z: q.z, aimX: q.aimX, aimZ: q.aimZ, range: 26, halfWidth: 0.42 });
-      hitRay(26, 0.42, 34);
-    } else if (q.skill === 'frost_ring' || q.skill === 'spreading_front') {
-      const px = -q.aimZ, pz = q.aimX;
-      for (const side of [-1, 1]) this.scheduleStrike({ at: this.time + 0.22, x: q.targetX + px * side * 2.2, z: q.targetZ + pz * side * 2.2, radius: 1.55, damage: 18 * this.damageScale(), faction: 'rival', ownerId: e.id, source: q.skill, sourceSlot: -1, intent: 'control', telegraph: `echo_${q.skill}_front` });
-      this.fields.push({ id: this.nextId++, x: q.targetX, z: q.targetZ, radius: 1.45, ttl: 2.3, kind: 'frost', dps: 10 * this.damageScale(), tickAcc: 0, faction: 'rival', ownerId: e.id, source: q.skill, sourceSlot: -1, mutation: null, rivalConcentration: 1 });
-    } else if (q.skill === 'cleaver' || q.skill === 'contact_saw' || q.skill === 'backhand') {
-      this.combatShape(`echo_${q.skill}_active`, { kind: 'sector', x: q.x, z: q.z, radius: 3.4, aimX: q.aimX, aimZ: q.aimZ, halfAngle: 0.9 });
-      const dx = this.px-q.x, dz=this.pz-q.z, d=Math.hypot(dx,dz)||1, dot=(dx/d)*q.aimX+(dz/d)*q.aimZ;
-      if (d <= 3.4 + HERO_HIT_RADIUS && dot > Math.cos(0.9)) dmg(28);
-    } else if (q.skill === 'chain_arc') {
-      for (let i=0;i<3;i++) {
-        const a = i*Math.PI*2/3 + Math.atan2(q.aimZ,q.aimX);
-        this.scheduleStrike({ at:this.time+0.18+i*0.1, x:q.targetX+Math.cos(a)*2.2, z:q.targetZ+Math.sin(a)*2.2, radius:1.05, damage:14*this.damageScale(), faction:'rival', ownerId:e.id, source:q.skill, sourceSlot:-1, intent:'damage', telegraph:'echo_chain_node' });
-      }
-    } else if (q.skill === 'orbit_blades') {
-      const gap = this.rng.int(7);
-      for (let i=0;i<7;i++) if (i!==gap) {
-        const a=i*Math.PI*2/7, speed=5.1;
-        this.spawnProjectile({ x:e.x+Math.cos(a)*1.3, z:e.z+Math.sin(a)*1.3, vx:Math.cos(a)*speed, vz:Math.sin(a)*speed, radius:0.26, ttl:2.1, damage:14*this.damageScale(), coverDamage:8, faction:'rival', ownerId:e.id, source:'orbit_blades', sourceSlot:-1, mutation:null, rivalConcentration:1, behavior:'echo', phase:0, hitIds:[] });
-      }
-    } else if (q.skill === 'mortar_bloom' || q.skill === 'pin_burst') {
-      for (let i=0;i<3;i++) this.scheduleStrike({ at:this.time+0.28+i*0.24, x:q.targetX+this.playerVX*i*0.18, z:q.targetZ+this.playerVZ*i*0.18, radius:1.35, damage:19*this.damageScale(), faction:'rival', ownerId:e.id, source:q.skill, sourceSlot:-1, intent:'damage', telegraph:'echo_bombardment' });
-    } else if (q.skill === 'sentry') {
-      const perpX=-q.aimZ, perpZ=q.aimX;
-      for (const side of [-1,1]) {
-        const sx=e.x+perpX*side*1.5, sz=e.z+perpZ*side*1.5, dx=q.targetX-sx, dz=q.targetZ-sz, m=Math.hypot(dx,dz)||1;
-        this.spawnProjectile({ x:sx,z:sz,vx:dx/m*7.2,vz:dz/m*7.2,radius:0.22,ttl:2.2,damage:18*this.damageScale(),coverDamage:12,faction:'rival',ownerId:e.id,source:'sentry',sourceSlot:-1,mutation:null,rivalConcentration:1,behavior:'echo',phase:0,hitIds:[] });
-      }
-    } else if (q.skill === 'toxic_mist') {
-      for (let i=0;i<3;i++) this.fields.push({ id:this.nextId++, x:q.targetX-this.playerVX*0.25*i, z:q.targetZ-this.playerVZ*0.25*i, radius:1.35, ttl:2.8, kind:'toxic', dps:8*this.damageScale(), tickAcc:0, faction:'rival', ownerId:e.id, source:q.skill, sourceSlot:-1, mutation:null, rivalConcentration:1 });
-    } else if (q.skill === 'mass_driver') {
-      this.spawnProjectile({ x:e.x,z:e.z,vx:q.aimX*3.8,vz:q.aimZ*3.8,radius:0.72,ttl:5.0,damage:28*this.damageScale(),coverDamage:75,faction:'rival',ownerId:e.id,source:'mass_driver',sourceSlot:-1,mutation:null,rivalConcentration:1,behavior:'roller',phase:0,hitIds:[],growth:0 });
-    } else if (q.skill === 'shard_fan') {
-      const perpX=-q.aimZ, perpZ=q.aimX;
-      for (const side of [-0.45,0,0.45]) {
-        const ax=q.aimX+perpX*side, az=q.aimZ+perpZ*side, m=Math.hypot(ax,az)||1;
-        this.spawnProjectile({ x:e.x,z:e.z,vx:ax/m*6.4,vz:az/m*6.4,radius:0.24,ttl:2.6,damage:15*this.damageScale(),coverDamage:10,faction:'rival',ownerId:e.id,source:'shard_fan',sourceSlot:-1,mutation:null,rivalConcentration:1,behavior:'returner',returnAt:1.25,phase:0,hitIds:[] });
-      }
-    } else if (q.skill === 'tether_drag') {
-      this.combatShape('echo_tether_active', {kind:'circle',x:q.targetX,z:q.targetZ,radius:1.05}, 'control');
-      const dx=q.targetX-this.px,dz=q.targetZ-this.pz,d=Math.hypot(dx,dz)||1;
-      if (d < 7.5) { this.px += dx/d*Math.min(1.8,d*0.32); this.pz += dz/d*Math.min(1.8,d*0.32); dmg(10,'echo_tether_drag'); }
-    } else {
-      this.spawnProjectile({ x:e.x,z:e.z,vx:q.aimX*5.4,vz:q.aimZ*5.4,radius:0.28,ttl:3,damage:17*this.damageScale(),coverDamage:8,faction:'rival',ownerId:e.id,source:q.skill,sourceSlot:-1,mutation:null,rivalConcentration:1,behavior:'echo',phase:0,hitIds:[] });
-    }
-  }
+
 
   private updateEliteEchoes() {
-    for (const [id,q] of [...this.eliteEchoes]) {
-      const e=this.entityStore.getAlive(id);
-      if (!e) { this.eliteEchoes.delete(id); continue; }
-      if (this.time + 1e-9 < q.until) continue;
-      if (q.phase === 'tell') {
-        q.phase='active'; q.until=this.time+0.14;
-        this.events.push({type:'EliteEchoPhase',tick:this.tick,entity:e.id,skill:q.skill,phase:'active',x:e.x,z:e.z,aimX:q.aimX,aimZ:q.aimZ});
-        this.resolveEliteEcho(e,q);
-        this.metrics.rivalCasts++;
-        const record=this.eliteLogById.get(e.id); if(record){record.casts++; record.castSkills[q.skill]=(record.castSkills[q.skill]??0)+1;}
-        this.events.push({type:'RivalCast',tick:this.tick,entity:e.id,skill:q.skill,serial:q.serial,x:e.x,z:e.z});
-      } else if (q.phase === 'active') {
-        q.phase='recovery'; q.until=this.time+(q.skill==='rail_spear'?0.9:0.68);
-        this.events.push({type:'EliteEchoPhase',tick:this.tick,entity:e.id,skill:q.skill,phase:'recovery',x:e.x,z:e.z,aimX:q.aimX,aimZ:q.aimZ});
-      } else {
-        this.eliteEchoes.delete(id);
-        const rawGap=Math.max(2.25,this.rng.range(3.4,5.0)-e.repertoire.length*0.22);
-        const gap=this.elitePatternCooldown(rawGap,e)*Math.pow(0.86,this.rivalAxisCount(e,'tempo'));
-        this.rivalCastAt.set(e.id,this.time+gap);
-      }
-    }
+    this.eliteEchoSystem.update();
   }
 
   /**
@@ -1947,13 +1846,7 @@ export class Simulation {
    * exposes tell -> active -> recovery.
    */
   private fieldRefusals(e: Ent, d: number) {
-    if (e.hp <= 0 || !e.repertoire.length || this.eliteEchoes.has(e.id)) return;
-    const ready=this.rivalCastAt.get(e.id);
-    if (ready===undefined){this.rivalCastAt.set(e.id,this.time+this.rng.range(2.6,4.6));return;}
-    if(this.time<ready)return;
-    const usable=e.repertoire.map(serial=>this.refusalStore.find(c=>c.serial===serial)).filter((c):c is RefusedCard=>!!c&&!!c.skill&&d<=Simulation.rivalReach(c.skill as SkillId)*(e.relicReachMul??1)&&(!effectGrammar[c.skill as SkillId].blockedByCover||this.lineOfSight(e.x,e.z,this.px,this.pz,0.12)));
-    if(!usable.length){const holds=e.repertoire.some(serial=>{const c=this.refusalStore.find(x=>x.serial===serial);return !!c&&!!c.skill;});this.rivalCastAt.set(e.id,this.time+(holds?0.35:4));return;}
-    this.startEliteEcho(e,usable[this.rng.int(usable.length)]);
+    this.eliteEchoSystem.fieldRefusals(e, d);
   }
   /**
    * Accumulates the seconds an elite spends inside the hero's reach. Wall-clock from the first
@@ -2087,7 +1980,7 @@ export class Simulation {
   }
 
   private steerEliteToRelic(e: Ent, speed: number, playerDistance: number) {
-    if (e.state !== 'normal' || e.eliteAction || this.eliteEchoes.has(e.id)) return false;
+    if (e.state !== 'normal' || e.eliteAction || this.eliteEchoSystem.has(e.id)) return false;
     const seek = Math.min(46, 24 * (e.relicSeekMul ?? 1));
     let best: Relic | null = null, bestD = seek;
     for (const relic of this.relics) {
@@ -4849,8 +4742,8 @@ export class Simulation {
         shieldAngle: e.shieldAngle,
         shieldState: e.shieldState ?? 'guard',
         shieldStability: e.shieldStability ?? 100,
-        echoPhase: this.eliteEchoes.get(e.id)?.phase ?? 'none',
-        echoSkill: this.eliteEchoes.get(e.id)?.skill,
+        echoPhase: this.eliteEchoSystem.get(e.id)?.phase ?? 'none',
+        echoSkill: this.eliteEchoSystem.get(e.id)?.skill,
         regenerating: e.affix === 'regenerating' && this.time - e.lastDamageAt > 3,
         orderX: e.orderX,
         orderZ: e.orderZ,
