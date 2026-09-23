@@ -1,4 +1,4 @@
-import { itemOrder } from '../content/definitions.js';
+import { itemOrder } from '../content/items.js';
 import type { Ent } from './state.js';
 import type { ItemId, RefusedCard, ResonanceId } from './types.js';
 
