@@ -41,7 +41,7 @@ import { ProjectileSystem } from './projectileSystem.js';
 import { Rng } from './rng.js';
 import { SquadDirector } from './squadDirector.js';
 import { StatusSystem } from './statusSystem.js';
-import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, pointAlongPolyline, polylineLength, sweepCircleT } from './geometry.js';
+import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, sweepCircleT } from './geometry.js';
 import {
   HERO_HIT_RADIUS,
   makeEnt,
