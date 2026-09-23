@@ -1,6 +1,7 @@
 import type {
   BossPatternId,
   CombatShape,
+  DamageSourceId,
   EliteActionId,
   EliteAffix,
   EliteChassis,
@@ -300,7 +301,7 @@ export type DelayedStrike = {
   damage: number;
   faction: CastFaction;
   ownerId: number;
-  source: SkillId | string;
+  source: DamageSourceId;
   sourceSlot: number;
   intent: 'damage' | 'control' | 'field';
   telegraph: string;
