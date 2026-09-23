@@ -31,6 +31,7 @@ import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
 import { EntityStore } from './entityStore.js';
 import { FieldSystem } from './fieldSystem.js';
+import { LegacyCatalystSystem } from './legacyCatalystSystem.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { ProjectileSystem } from './projectileSystem.js';
 import { Rng } from './rng.js';
@@ -41,6 +42,7 @@ import {
   HERO_HIT_RADIUS,
   makeEnt,
   makeHeroEnt,
+  type ActivationContext,
   type CatalystBinding,
   type CastFaction,
   type CastSource,
@@ -289,6 +291,7 @@ export class Simulation {
   private projectileSystem!: ProjectileSystem;
   private fieldSystem!: FieldSystem;
   private constructSystem!: ConstructSystem;
+  private legacyCatalysts!: LegacyCatalystSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -402,18 +405,7 @@ export class Simulation {
   private orbitChoreoX = 0;
   private orbitChoreoZ = 0;
   private orbitChoreoCarrier: ChoreographyCarrier | null = null;
-  private lastContext: {
-    skill: SkillId | null;
-    damage: number;
-    kills: number;
-    overkill: number;
-    control: number;
-    state: string;
-    hitIds: number[];
-    x: number;
-    z: number;
-    trace: ChoreographyTrace | null;
-  } = {
+  private lastContext: ActivationContext = {
     skill: null,
     damage: 0,
     kills: 0,
@@ -436,8 +428,6 @@ export class Simulation {
   private pendingMutationTarget = false;
   private activationCountBonus = 0;
   private activationDerived = false;
-  private topologyGuard = false;
-  private feedbackCountBonus = new Map<number, number>();
   private damageSamples: { t: number; source: string; amount: number; derived: boolean }[] = [];
   /**
    * Cards the hero declined, in concession order. Elites draw their repertoire from here,
@@ -798,6 +788,72 @@ export class Simulation {
       memoryFactor: () => this.memoryFactor(),
       corePower: () => this.corePower(),
       grantBarrier: (amount) => this.grantBarrier(amount)
+    });
+    this.legacyCatalysts = new LegacyCatalystSystem({
+      time: () => this.time,
+      tick: () => this.tick,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      movePlayer: (dx, dz) => {
+        this.px += dx;
+        this.pz += dz;
+        this.clampWorld();
+      },
+      getAliveEntity: (id) => this.entityStore.getAlive(id),
+      entities: () => this.ents,
+      skillAt: (slot) => this.slots[slot] ?? null,
+      skillRuntime: (id) => this.skillsRuntime.get(id),
+      applyState: (entity, state, potency) => this.applyState(entity, state, potency),
+      healPlayer: (amount) => this.healPlayer(amount),
+      grantBarrier: (amount) => this.grantBarrier(amount),
+      damageEcho: (entity, amount, x, z) => {
+        const previousDerived = this.activationDerived;
+        this.activationDerived = true;
+        try {
+          this.damage(entity, amount, 'echo', false, x, z);
+        } finally {
+          this.activationDerived = previousDerived;
+        }
+      },
+      castDerived: (skill, runtime, slot, scale) => {
+        const previousSlot = this.currentSlot;
+        const previousScale = this.activationScale;
+        const previousDerived = this.activationDerived;
+        this.currentSlot = slot;
+        this.activationScale = scale;
+        this.activationDerived = true;
+        try {
+          this.castWithTrace(skill, runtime, slot, this.heroSource());
+        } finally {
+          this.activationDerived = previousDerived;
+          this.activationScale = previousScale;
+          this.currentSlot = previousSlot;
+        }
+      },
+      noteReaction: () => {
+        this.metrics.reactions++;
+      },
+      emitReaction: (reaction, x, z, amount) =>
+        this.events.push({
+          type: 'Reaction',
+          tick: this.tick,
+          reaction,
+          x,
+          z,
+          ...(amount === undefined ? {} : { amount })
+        }),
+      emitCatalystTriggered: (catalyst, fromSlot, toSlot, sourceX, sourceZ, targetX, targetZ) =>
+        this.events.push({
+          type: 'CatalystTriggered',
+          tick: this.tick,
+          catalyst,
+          fromSlot,
+          toSlot,
+          sourceX,
+          sourceZ,
+          targetX,
+          targetZ
+        })
     });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
@@ -2982,93 +3038,25 @@ export class Simulation {
     const activationId = this.beginPhysicalActivation(slot, id);
     this.beginChoreographyTrace(id);
 
-    const incoming = this.incomingCatalyst(slot),
-      conduct = 1 + this.resonance.conductivity * 0.16,
-      previousContext = this.lastContext,
-      choreographyId = this.isPhysicalCatalyst(incoming);
+    const incoming = this.incomingCatalyst(slot);
 
-    // Compatibility-only Catalyst 1.x operators remain executable for old saves/replays.
-    // Current Discovery never offers them; the active five are handled below as physical choreography.
+    // Catalyst 1.x is compatibility-only and isolated from the live physical pipeline.
     const oldAimX = this.aimX,
-      oldAimZ = this.aimZ;
-    if (!choreographyId) {
-      if (incoming === 'anchor' && this.lastContext.hitIds.length) {
-        const dx = this.lastContext.x - this.px,
-          dz = this.lastContext.z - this.pz,
-          m = Math.hypot(dx, dz) || 1;
-        this.aimX = dx / m;
-        this.aimZ = dz / m;
-      }
-      if (incoming === 'capacitor') {
-        const divisor = Math.max(3, 6 - this.resonance.conductivity);
-        this.activationCountBonus += Math.min(
-          3,
-          Math.floor(this.lastContext.hitIds.length / divisor)
-        );
-      }
-      if (incoming === 'reservoir') {
-        const crowdMass = this.lastContext.hitIds.length + this.lastContext.kills * 2;
-        const threshold = Math.max(5, 9 - this.resonance.conductivity);
-        if (crowdMass >= threshold) {
-          this.activationCountBonus += 2 + Math.min(2, this.resonance.conductivity);
-          this.metrics.reactions++;
-        }
-      }
-      if (incoming === 'recoil') {
-        this.activationScale *= 1.55;
-        this.px -= this.aimX * 1.2;
-        this.pz -= this.aimZ * 1.2;
-        this.clampWorld();
-      }
-      if (incoming === 'focus') {
-        this.activationScale *= 1.5;
-        this.activationCountBonus -= 1;
-      }
-      if (incoming === 'surge' && !this.lastContext.hitIds.length) this.activationScale *= 1.9;
-      if (incoming === 'glut' && this.lastContext.hitIds.length)
-        this.activationScale *= Math.min(1.6, 1 + this.lastContext.hitIds.length * 0.06);
-      if (incoming === 'stagger' && this.lastContext.hitIds.length) {
-        let far: Ent | null = null,
-          best = -1;
-        for (const eid of this.lastContext.hitIds) {
-          const e = this.entityStore.getAlive(eid);
-          if (!e) continue;
-          const d = Math.hypot(e.x - this.px, e.z - this.pz);
-          if (d > best) {
-            best = d;
-            far = e;
-          }
-        }
-        if (far) {
-          const m = Math.hypot(far.x - this.px, far.z - this.pz) || 1;
-          this.aimX = (far.x - this.px) / m;
-          this.aimZ = (far.z - this.pz) / m;
-        }
-      }
-      if (incoming === 'splinter') this.activationCountBonus += 2;
-    }
-
-    const feedback = this.feedbackCountBonus.get(slot) ?? 0;
-    if (feedback) {
-      this.activationCountBonus += feedback;
-      this.feedbackCountBonus.delete(slot);
-    }
-    if (!choreographyId && incoming === 'aegis_relay' && this.lastContext.control > 0) {
-      const gain = Math.min(
-        36,
-        (this.lastContext.control * 2.6 + this.lastContext.hitIds.length * 0.35) * conduct
-      );
-      this.grantBarrier(gain);
-      this.events.push({
-        type: 'Reaction',
-        tick: this.tick,
-        reaction: 'aegis',
-        x: this.px,
-        z: this.pz,
-        amount: gain
+      oldAimZ = this.aimZ,
+      legacyBefore = this.legacyCatalysts.beforeCast({
+        catalyst: incoming,
+        slot,
+        conductivity: this.resonance.conductivity,
+        previous: this.lastContext,
+        aimX: this.aimX,
+        aimZ: this.aimZ,
+        activationScale: this.activationScale,
+        activationCountBonus: this.activationCountBonus
       });
-      this.metrics.reactions++;
-    }
+    this.aimX = legacyBefore.aimX;
+    this.aimZ = legacyBefore.aimZ;
+    this.activationScale = legacyBefore.activationScale;
+    this.activationCountBonus = legacyBefore.activationCountBonus;
 
     this.metrics.activations++;
     // Catalyst 2.x no longer teleports B on this beat. A's live lifecycle owns when/where B fires.
@@ -3077,95 +3065,16 @@ export class Simulation {
     this.aimX = oldAimX;
     this.aimZ = oldAimZ;
 
-    if (!choreographyId && incoming === 'relay' && this.lastContext.kills > 0) {
-      const need = Math.max(1, 3 - Math.min(2, this.resonance.conductivity));
-      if (this.lastContext.kills >= need) {
-        const prev = this.activationScale;
-        this.activationScale = 0.82;
-        this.activationDerived = true;
-        this.castWithTrace(id, st, slot, this.heroSource());
-        this.activationDerived = false;
-        this.activationScale = prev;
-        this.metrics.reactions++;
-      }
-    }
-    if (!choreographyId && incoming === 'conduit' && this.lastContext.state && this.currentHits.size) {
-      for (const eid of this.currentHits) {
-        const e = this.entityStore.getAlive(eid);
-        if (e) this.applyState(e, this.lastContext.state, 0.65 * conduct);
-      }
-      this.metrics.reactions++;
-      this.events.push({
-        type: 'Reaction',
-        tick: this.tick,
-        reaction: 'conduit',
-        x: this.px,
-        z: this.pz
-      });
-    }
-    if (!choreographyId && incoming === 'echo_shard' && this.lastContext.damage > 0 && this.currentHits.size) {
-      const targets = [...this.currentHits]
-        .map((eid) => this.entityStore.getAlive(eid))
-        .filter(Boolean) as Ent[];
-      if (targets.length) {
-        const cx = targets.reduce((a, e) => a + e.x, 0) / targets.length,
-          cz = targets.reduce((a, e) => a + e.z, 0) / targets.length,
-          r = 1.45,
-          per = Math.min(
-            160,
-            (this.lastContext.damage * 0.48 * conduct) /
-              Math.max(1, Math.min(4, this.lastContext.hitIds.length || 1))
-          );
-        this.activationDerived = true;
-        for (const e of this.ents) {
-          if (e.hp > 0 && Math.hypot(e.x - cx, e.z - cz) <= r + e.radius)
-            this.damage(e, per, 'echo', false, cx, cz);
-        }
-        this.activationDerived = false;
-        this.metrics.reactions++;
-        this.events.push({
-          type: 'Reaction',
-          tick: this.tick,
-          reaction: 'echo',
-          x: cx,
-          z: cz,
-          amount: per
-        });
-      }
-    }
-    if (!choreographyId && incoming === 'backflow' && slot > 0 && this.currentHits.size >= 3) {
-      this.feedbackCountBonus.set(slot - 1, 1);
-      this.metrics.reactions++;
-    }
-    if (!choreographyId && (incoming === 'brand' || incoming === 'rime') && this.currentHits.size) {
-      const state = incoming === 'brand' ? 'mark' : 'chill';
-      for (const eid of this.currentHits) {
-        const e = this.entityStore.getAlive(eid);
-        if (e) this.applyState(e, state, 0.9 * conduct);
-      }
-      this.metrics.reactions++;
-    }
-    if (!choreographyId && incoming === 'harvest' && this.currentActivationKills > 0) {
-      this.healPlayer(Math.min(20, this.currentActivationKills * 4 * conduct));
-      this.metrics.reactions++;
-    }
-    if (!choreographyId && incoming === 'vault' && this.currentHits.size >= 3) {
-      const gain = Math.min(
-        36,
-        (this.currentHits.size * 3.2 + this.currentActivationKills * 2.4) * conduct
-      );
-      this.grantBarrier(gain);
-      this.metrics.reactions++;
-    }
-    if (
-      !choreographyId &&
-      incoming === 'handoff' &&
-      slot + 1 < this.slots.length &&
-      this.slots[slot + 1]
-    ) {
-      this.feedbackCountBonus.set(slot + 1, 2);
-      this.metrics.reactions++;
-    }
+    this.legacyCatalysts.afterCast({
+      catalyst: incoming,
+      slot,
+      skill: id,
+      runtime: st,
+      conductivity: this.resonance.conductivity,
+      previous: this.lastContext,
+      currentHits: this.currentHits,
+      currentKills: this.currentActivationKills
+    });
 
     this.previousHits = new Set(this.currentHits);
     let cx = this.px,
@@ -3200,48 +3109,14 @@ export class Simulation {
       trace
     };
 
-    // Legacy events remain for old Catalyst ids. Catalyst 2.0 has its own richer event carrying
-    // the actual points/path used by the combined animation.
-    if (incoming && !choreographyId && slot > 0 && this.slots[slot - 1])
-      this.events.push({
-        type: 'CatalystTriggered',
-        tick: this.tick,
-        catalyst: incoming,
-        fromSlot: slot - 1,
-        toSlot: slot,
-        sourceX: previous.x,
-        sourceZ: previous.z,
-        targetX: cx,
-        targetZ: cz
-      });
-
-    if (
-      !choreographyId &&
-      incoming === 'overflow' &&
-      slot > 0 &&
-      !this.topologyGuard &&
-      previous.hitIds.length >= Math.max(5, 8 - this.resonance.conductivity)
-    ) {
-      const prevId = this.slots[slot - 1];
-      if (prevId) {
-        const prevSt = this.skillsRuntime.get(prevId);
-        if (prevSt) {
-          this.topologyGuard = true;
-          const saveSlot = this.currentSlot,
-            saveScale = this.activationScale,
-            saveDerived = this.activationDerived;
-          this.currentSlot = slot - 1;
-          this.activationScale = 0.78;
-          this.activationDerived = true;
-          this.castWithTrace(prevId, prevSt, slot - 1, this.heroSource());
-          this.activationDerived = saveDerived;
-          this.activationScale = saveScale;
-          this.currentSlot = saveSlot;
-          this.topologyGuard = false;
-          this.metrics.reactions++;
-        }
-      }
-    }
+    this.legacyCatalysts.afterContextPublished({
+      catalyst: incoming,
+      slot,
+      conductivity: this.resonance.conductivity,
+      previous,
+      targetX: cx,
+      targetZ: cz
+    });
 
     if (slot === lastSlot) {
       this.previousHits.clear();

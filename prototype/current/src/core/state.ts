@@ -375,6 +375,19 @@ export type ChoreographyTrace = {
   scheduled: ChoreographyPoint[];
 };
 
+export type ActivationContext = {
+  skill: SkillId | null;
+  damage: number;
+  kills: number;
+  overkill: number;
+  control: number;
+  state: string;
+  hitIds: number[];
+  x: number;
+  z: number;
+  trace: ChoreographyTrace | null;
+};
+
 export type PhysicalEventKind = 'path' | 'area' | 'contact' | 'impact' | 'terminal';
 
 export type PhysicalEvent = {
