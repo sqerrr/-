@@ -7,6 +7,7 @@ function assert(ok: unknown, message: string): asserts ok {
 const simulation=readFileSync('src/core/simulation.ts','utf8');
 const state=readFileSync('src/core/state.ts','utf8');
 const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
+const projectileSystem=readFileSync('src/core/projectileSystem.ts','utf8');
 const entityStore=readFileSync('src/core/entityStore.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
 const squadDirector=readFileSync('src/core/squadDirector.ts','utf8');
@@ -31,6 +32,16 @@ for (const token of ['activationPending =','catalystBindings:','physicalEvents:'
   assert(!simulation.includes(token), 'physical lifecycle storage leaked back into Simulation: '+token);
 assert(simulation.includes('private physical = new PhysicalLifecycle()'),
   'Simulation no longer delegates causal activation bookkeeping');
+assert(projectileSystem.includes('export class ProjectileSystem'), 'moving projectiles have no dedicated runtime system');
+assert(simulation.includes('private projectileSystem!: ProjectileSystem'), 'Simulation no longer delegates projectile runtime');
+const projectileUpdate=simulation.slice(
+  simulation.indexOf('private updateProjectiles()'),
+  simulation.indexOf('private scheduleStrike(', simulation.indexOf('private updateProjectiles()'))
+);
+assert(projectileUpdate.includes('this.projectileSystem.update(this.projectiles)'),
+  'Simulation updateProjectiles is no longer a thin orchestration wrapper');
+for (const token of ["behavior === 'returner'","behavior === 'roller'","returner_phoenix","orbit_guard"])
+  assert(!projectileUpdate.includes(token), 'projectile runtime behavior leaked back into Simulation: '+token);
 assert(entityStore.includes('export class EntityStore'), 'entity roster has no dedicated owner/query boundary');
 assert(simulation.includes('private entityStore = new EntityStore()'), 'Simulation no longer delegates entity identity/query ownership');
 assert(!simulation.includes('this.ents.find('), 'hot-path id lookup bypasses EntityStore index');
@@ -120,6 +131,7 @@ console.log('architecture-regression OK', {
   sharedEliteMetadata:true,
   frameSnapshotReuse:true,
   physicalLifecycleOwner:true,
+  projectileSystem:true,
   entityStore:true,
   encounterDirector:true,
   squadDirector:true,
