@@ -3038,9 +3038,7 @@ export class Simulation {
     const activationId = this.beginPhysicalActivation(slot, id);
     this.beginChoreographyTrace(id);
 
-    const incoming = this.incomingCatalyst(slot),
-      previousContext = this.lastContext,
-      choreographyId = this.isPhysicalCatalyst(incoming);
+    const incoming = this.incomingCatalyst(slot);
 
     // Catalyst 1.x is compatibility-only and isolated from the live physical pipeline.
     const oldAimX = this.aimX,
