@@ -7,6 +7,7 @@ function assert(ok: unknown, message: string): asserts ok {
 const simulation=readFileSync('src/core/simulation.ts','utf8');
 const state=readFileSync('src/core/state.ts','utf8');
 const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
+const physicalCatalyst=readFileSync('src/core/physicalCatalystSystem.ts','utf8');
 const projectileSystem=readFileSync('src/core/projectileSystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
 const orbitSystem=readFileSync('src/core/orbitSystem.ts','utf8');
@@ -34,6 +35,13 @@ assert(state.includes('export type PhysicalEvent =') && state.includes('export t
 assert(!simulation.includes("type EnemyState = 'normal'"), 'Simulation owns entity-state declarations again');
 assert(!simulation.includes('type CatalystBinding ='), 'Simulation owns Catalyst binding declarations again');
 assert(physical.includes('export class PhysicalLifecycle'), 'physical lifecycle has no dedicated owner');
+assert(physicalCatalyst.includes('export class PhysicalCatalystSystem'), 'Catalyst 2.x binding policy has no dedicated owner');
+assert(simulation.includes('private physicalCatalysts!: PhysicalCatalystSystem'),
+  'Simulation no longer delegates Catalyst 2.x binding policy');
+assert(simulation.includes('this.physicalCatalysts.handle(binding, event)'),
+  'physical event flush no longer routes through Catalyst 2.x policy');
+for (const method of ['handlePhysicalBinding','fireCollapse','appendBindingPath','trailAim','emitChoreography'])
+  assert(!simulation.includes('private '+method+'('), 'Catalyst 2.x policy leaked back into Simulation: '+method);
 for (const token of ['activationPending =','catalystBindings:','physicalEvents:','activationMeta ='])
   assert(!simulation.includes(token), 'physical lifecycle storage leaked back into Simulation: '+token);
 assert(simulation.includes('private physical = new PhysicalLifecycle()'),
@@ -207,6 +215,7 @@ console.log('architecture-regression OK', {
   sharedEliteMetadata:true,
   frameSnapshotReuse:true,
   physicalLifecycleOwner:true,
+  physicalCatalystSystem:true,
   projectileSystem:true,
   delayedStrikeSystem:true,
   orbitSystem:true,
