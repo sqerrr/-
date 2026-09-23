@@ -112,7 +112,8 @@ export type DamageSourceId =
   | 'null_harvest'
   | 'shepherd_pulse'
   | 'warden_sweep'
-  | 'warden_rupture';
+  | 'warden_rupture'
+  | 'elite_volatile';
 export type MutationId = string;
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 export type RunMode = 'clean' | 'showcase';
