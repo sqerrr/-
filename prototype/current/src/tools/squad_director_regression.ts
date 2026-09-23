@@ -36,7 +36,7 @@ entities.length=0;
 const kinds:Ent['kind'][]=['footnote','marginwalker','bookmark','binder','indexer','palimpsest','redactor','inkblot'];
 for(let i=0;i<kinds.length;i++){
   const a=i/kinds.length*Math.PI*2;
-  enemy(kinds[i],10+i,Math.cos(a)*8,Math.sin(a)*8);
+  enemy(kinds[i],21+i,Math.cos(a)*8,Math.sin(a)*8);
 }
 director.update();
 const assigned=entities.filter(e=>(e.squadUntil ?? 0)>time);
