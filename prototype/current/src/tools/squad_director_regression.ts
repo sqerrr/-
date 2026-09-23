@@ -39,7 +39,7 @@ for(let i=0;i<kinds.length;i++){
   enemy(kinds[i],10+i,Math.cos(a)*8,Math.sin(a)*8);
 }
 director.update();
-const assigned=entities.filter(e=>e.squadUntil>time);
+const assigned=entities.filter(e=>(e.squadUntil ?? 0)>time);
 const tasks=new Set(assigned.map(e=>e.squadTask));
 for(const task of ['press','flank','intercept','hold'])
   assert(tasks.has(task as any),'mixed pack lost squad task '+task);
