@@ -15,7 +15,6 @@ import {
   mutationDef,
   mutationRoots,
   mutationChildren,
-  phenomenonChoreography,
   resonance,
   resonanceOrder,
   skillOrder,
