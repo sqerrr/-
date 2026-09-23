@@ -30,6 +30,7 @@ import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
 import { EntityStore } from './entityStore.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
+import { ProjectileSystem } from './projectileSystem.js';
 import { Rng } from './rng.js';
 import { SquadDirector } from './squadDirector.js';
 import { StatusSystem } from './statusSystem.js';
@@ -283,6 +284,7 @@ export class Simulation {
   private bossBehavior!: BossBehaviorSystem;
   private enemyBehavior!: EnemyBehaviorSystem;
   private squadDirector!: SquadDirector;
+  private projectileSystem!: ProjectileSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -668,6 +670,55 @@ export class Simulation {
       obstacles: () => this.obstacles,
       freeOf: (x, z, radius) => this.freeOf(x, z, radius)
     });
+    this.projectileSystem = new ProjectileSystem({
+      world: this.world,
+      dt: () => this.dt,
+      time: () => this.time,
+      tick: () => this.tick,
+      heroX: () => this.px,
+      heroZ: () => this.pz,
+      finishAsyncPhysical: (activationId, x, z) => this.finishAsyncPhysical(activationId, x, z),
+      queuePhysicalEvent: (event) => this.queuePhysicalEvent(event),
+      scheduleStrike: (strike) => this.scheduleStrike(strike),
+      addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
+      projectileOwner: (projectile) => this.projectileOwner(projectile),
+      hasMutation: (skill, mutation) => {
+        const runtime = this.skillsRuntime.get(skill);
+        return !!runtime && this.mutationIs(runtime, mutation);
+      },
+      gainAegisCharge: () => {
+        this.aegisCharge = Math.min(12, this.aegisCharge + 1);
+      },
+      emitReaction: (reaction, x, z, amount) =>
+        this.events.push({ type: 'Reaction', tick: this.tick, reaction, x, z, amount }),
+      obstaclesNear: (x, z, radius) => this.obstaclesNear(x, z, radius, this.obstacleScratch),
+      targetsFor: (projectile, x, z) => {
+        const owner = projectile.faction === 'rival' ? this.projectileOwner(projectile) : null;
+        const source: CastSource = {
+          faction: projectile.faction,
+          owner,
+          x,
+          z,
+          aimX: projectile.vx,
+          aimZ: projectile.vz,
+          vx: projectile.vx,
+          vz: projectile.vz
+        };
+        return this.targetsFor(source);
+      },
+      damageObstacle: (obstacle, amount) => this.damageObstacle(obstacle, amount),
+      damageTarget: (target, amount, source, x, z, sourceSlot) => {
+        this.damage(target, amount, source, true, x, z, sourceSlot);
+      },
+      applyFanBurn: (target) => {
+        target.igniteUntil = Math.max(target.igniteUntil, this.time + 2.6 * this.memoryFactor());
+        this.noteState('ignite');
+      },
+      forceDoctrine: () => this.doctrines.force,
+      damageHero: (amount, source, owner, concentration) => {
+        this.damageHero(amount, source, owner, concentration);
+      }
+    });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
     if (this.mode === 'clean') {
@@ -924,185 +975,7 @@ export class Simulation {
    * at 30 Hz and make this primitive safe for faster later phenomena as well.
    */
   private updateProjectiles() {
-    if (!this.projectiles.length) return;
-    const alive: Projectile[] = [];
-    const pathEvent = (p: Projectile, x0:number,z0:number,x1:number,z1:number) => {
-      if (p.faction !== 'hero' || !p.activationId) return;
-      if (Math.hypot(x1-x0,z1-z0) < 1e-5) return;
-      this.queuePhysicalEvent({
-        activationId:p.activationId,
-        slot:p.sourceSlot,
-        skill:p.source,
-        kind:'path',
-        previousX:x0,
-        previousZ:z0,
-        x:x1,
-        z:z1,
-        carrierKind:'projectile',
-        carrierId:p.id
-      });
-    };
-    const contactEvent = (p: Projectile, target?: Ent) => {
-      if (p.faction !== 'hero' || !p.activationId) return;
-      this.queuePhysicalEvent({
-        activationId:p.activationId,
-        slot:p.sourceSlot,
-        skill:p.source,
-        kind:'contact',
-        x:p.x,
-        z:p.z,
-        radius:p.radius,
-        carrierKind:'projectile',
-        carrierId:p.id,
-        targetId:target?.id
-      });
-    };
-    for (const p of this.projectiles) {
-      p.ttl -= this.dt;
-      if (p.ttl <= 0) {
-        if (p.behavior === 'roller' && p.apotheosis === 'mass_singularity')
-          this.scheduleStrike({
-            at:this.time+0.18,x:p.x,z:p.z,radius:p.radius*1.8,damage:p.damage*1.45,
-            faction:p.faction,ownerId:p.ownerId,source:'mass_driver',sourceSlot:p.sourceSlot,
-            intent:'control',telegraph:'mass_singularity_collapse',activationId:p.activationId
-          });
-        this.finishAsyncPhysical(p.activationId,p.x,p.z);
-        continue;
-      }
-
-      // A Returner is one physical actor. Its outward, carousel and return legs all contribute
-      // to the same activation path, and only its actual home arrival/expiry closes the route.
-      if (p.behavior === 'returner' && (p.phase ?? 0) === 0 && p.returnAt !== undefined && p.ttl <= p.returnAt) {
-        p.hitIds = [];
-        if(p.faction==='hero'&&p.activationId){
-          this.queuePhysicalEvent({
-            activationId:p.activationId,
-            slot:p.sourceSlot,
-            skill:p.source,
-            kind:'terminal',
-            x:p.x,
-            z:p.z,
-            radius:p.radius,
-            carrierKind:'projectile',
-            carrierId:p.id
-          });
-        }
-        if (p.carousel) {
-          const vm=Math.hypot(p.vx,p.vz)||1;
-          p.phase=1;p.phaseAt=this.time+0.72;p.orbitX=p.x-(p.vx/vm)*1.25;p.orbitZ=p.z-(p.vz/vm)*1.25;
-        } else p.phase=2;
-      }
-      if (p.behavior === 'returner' && (p.phase ?? 0) === 1) {
-        if (p.phaseAt !== undefined && this.time >= p.phaseAt) { p.phase=2;p.hitIds=[]; }
-        else {
-          const ox=p.orbitX??p.x,oz=p.orbitZ??p.z,rx=p.x-ox,rz=p.z-oz,rm=Math.hypot(rx,rz)||1,speed=Math.max(5.2,Math.hypot(p.vx,p.vz));
-          p.vx=(-rz/rm)*speed+(ox+rx/rm*1.25-p.x)*2.2;p.vz=(rx/rm)*speed+(oz+rz/rm*1.25-p.z)*2.2;
-        }
-      }
-      if (p.behavior === 'returner' && (p.phase ?? 0) === 2) {
-        const owner = this.projectileOwner(p);
-        const hx = p.faction === 'hero' ? this.px : (owner?.x ?? p.x);
-        const hz = p.faction === 'hero' ? this.pz : (owner?.z ?? p.z);
-        const dx=hx-p.x,dz=hz-p.z,m=Math.hypot(dx,dz)||1,speed=Math.max(5.2,Math.hypot(p.vx,p.vz));
-        p.vx=dx/m*speed;p.vz=dz/m*speed;
-        if(m<0.5){
-          this.finishAsyncPhysical(p.activationId,p.x,p.z);
-          continue;
-        }
-      }
-      if (p.apotheosis === 'returner_phoenix') {
-        p.trailAcc=(p.trailAcc??0)+this.dt;
-        if(p.trailAcc>=0.14){
-          p.trailAcc-=0.14;
-          this.fields.push({
-            id:this.nextId++,activationId:p.activationId,insideIds:[],x:p.x,z:p.z,radius:0.46,ttl:1.35,
-            kind:'fire',dps:p.damage*0.24,tickAcc:0,faction:p.faction,ownerId:p.ownerId,
-            source:'shard_fan',sourceSlot:p.sourceSlot,mutation:p.mutation,rivalConcentration:p.rivalConcentration
-          });
-        }
-      }
-      if (p.behavior === 'roller' && p.growth) p.radius = Math.min(2.2,p.radius+p.growth*this.dt);
-
-      const x0 = p.x, z0 = p.z, x1 = x0 + p.vx * this.dt, z1 = z0 + p.vz * this.dt;
-
-      if (p.faction === 'rival' && !p.guarded) {
-        const st=this.skillsRuntime.get('orbit_blades');
-        if (st && this.mutationIs(st,'orbit_guard')) {
-          const guardT=this.segmentCircleT(x0,z0,x1,z1,this.px,this.pz,2.55);
-          if(guardT!==null){
-            if(this.mutationIs(st,'orbit_aegis_crown')){
-              p.faction='hero';p.ownerId=0;p.vx*=-1.1;p.vz*=-1.1;p.damage*=0.82;p.source='orbit_blades';p.phase=1;p.hitIds=[];
-              this.aegisCharge=Math.min(12,this.aegisCharge+1);
-              this.events.push({type:'Reaction',tick:this.tick,reaction:'aegis',x:p.x,z:p.z,amount:p.damage});
-            } else p.damage*=0.35;
-            p.guarded=true;
-          }
-        }
-      }
-
-      let cover: Obstacle | null = null, coverT = Infinity;
-      const mx=(x0+x1)*0.5,mz=(z0+z1)*0.5,reach=Math.hypot(x1-x0,z1-z0)*0.5+p.radius+3.2;
-      for(const o of this.obstaclesNear(mx,mz,reach,this.obstacleScratch)){
-        const t=this.segmentCircleT(x0,z0,x1,z1,o.x,o.z,o.radius+p.radius);
-        if(t!==null&&t<coverT){cover=o;coverT=t;}
-      }
-
-      const src:CastSource=p.faction==='hero'
-        ? {faction:'hero',owner:null,x:x0,z:z0,aimX:p.vx,aimZ:p.vz,vx:p.vx,vz:p.vz}
-        : {faction:'rival',owner:this.projectileOwner(p),x:x0,z:z0,aimX:p.vx,aimZ:p.vz,vx:p.vx,vz:p.vz};
-      let target:Ent|null=null,targetT=Infinity;
-      for(const e of this.targetsFor(src)){
-        if(e.hp<=0 || (p.hitIds??[]).includes(e.id)) continue;
-        const t=this.segmentCircleT(x0,z0,x1,z1,e.x,e.z,e.radius+p.radius);
-        if(t!==null&&t<targetT){target=e;targetT=t;}
-      }
-
-      if(cover&&coverT<=targetT){
-        p.x=x0+(x1-x0)*coverT;p.z=z0+(z1-z0)*coverT;
-        pathEvent(p,x0,z0,p.x,p.z);
-        contactEvent(p); // cover/world contact is physical Carrier data too.
-        const destroyed=this.damageObstacle(cover,p.coverDamage);
-        if(p.behavior==='roller'&&destroyed){
-          p.damage*=1.06;p.radius=Math.min(2.2,p.radius+0.09);
-          pathEvent(p,p.x,p.z,x1,z1);
-          p.x=x1;p.z=z1;alive.push(p);
-        } else this.finishAsyncPhysical(p.activationId,p.x,p.z);
-        continue;
-      }
-
-      if(target){
-        p.x=x0+(x1-x0)*targetT;p.z=z0+(z1-z0)*targetT;
-        pathEvent(p,x0,z0,p.x,p.z);
-        if(p.faction==='hero'){
-          this.damage(target,p.damage,p.source,true,p.x,p.z,p.sourceSlot);
-          contactEvent(p,target);
-          if(p.source==='shard_fan'&&p.mutation==='fan_burn'){
-            target.igniteUntil=Math.max(target.igniteUntil,this.time+2.6*this.memoryFactor());this.noteState('ignite');
-          }
-          if(p.behavior==='roller'){
-            const m=Math.hypot(p.vx,p.vz)||1,push=0.45+this.doctrines.force*0.08;
-            target.x+=p.vx/m*push;target.z+=p.vz/m*push;target.displacedUntil=this.time+0.8;
-          }
-        } else this.damageHero(p.damage,p.source,this.projectileOwner(p),p.rivalConcentration);
-        if(p.behavior==='roller'||p.behavior==='returner'){
-          (p.hitIds??=[]).push(target.id);
-          pathEvent(p,p.x,p.z,x1,z1);
-          p.x=x1;p.z=z1;
-          if(p.behavior==='roller')p.damage*=1.035;
-          alive.push(p);
-        } else this.finishAsyncPhysical(p.activationId,p.x,p.z);
-        continue;
-      }
-
-      pathEvent(p,x0,z0,x1,z1);
-      p.x=x1;p.z=z1;
-      if(p.x<this.world.minX-1||p.x>this.world.maxX+1||p.z<this.world.minZ-1||p.z>this.world.maxZ+1){
-        this.finishAsyncPhysical(p.activationId,p.x,p.z);
-        continue;
-      }
-      alive.push(p);
-    }
-    this.projectiles=alive;
+    this.projectiles = this.projectileSystem.update(this.projectiles);
   }
 
   private scheduleStrike(strike: Omit<DelayedStrike, 'id'>) {
