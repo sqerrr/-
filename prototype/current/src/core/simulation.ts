@@ -25,6 +25,7 @@ import {
 import { fnv1a } from './hash.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
 import { EncounterDirector } from './encounterDirector.js';
+import { EliteAffixSystem } from './eliteAffixSystem.js';
 import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
 import { EntityStore } from './entityStore.js';
@@ -278,6 +279,7 @@ export class Simulation {
   private rng: Rng;
   private encounterDirector!: EncounterDirector;
   private eliteBehavior!: EliteBehaviorSystem;
+  private eliteAffix!: EliteAffixSystem;
   private bossBehavior!: BossBehaviorSystem;
   private enemyBehavior!: EnemyBehaviorSystem;
   private nextId = 1;
@@ -607,6 +609,50 @@ export class Simulation {
       fields: () => this.fields,
       addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
       randomRange: (min, max) => this.rng.range(min, max),
+      damageScale: () => this.damageScale()
+    });
+    this.eliteAffix = new EliteAffixSystem({
+      world: this.world,
+      time: () => this.time,
+      dt: () => this.dt,
+      tick: () => this.tick,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      playerVX: () => this.playerVX,
+      playerVZ: () => this.playerVZ,
+      hasEcho: (entityId) => this.eliteEchoes.has(entityId),
+      entities: () => this.ents,
+      randomRange: (min, max) => this.rng.range(min, max),
+      spawnEnemyAt: (kind, x, z, buffedFor = 0) => {
+        this.spawnEnemyAt(kind, x, z, buffedFor);
+      },
+      emitOrder: (entity, order, count) =>
+        this.events.push({
+          type: 'EliteOrder',
+          tick: this.tick,
+          entity: entity.id,
+          order,
+          x: entity.x,
+          z: entity.z,
+          ...(count === undefined ? {} : { count })
+        }),
+      emitTemporalTell: (entity) =>
+        this.events.push({
+          type: 'CombatShape',
+          tick: this.tick,
+          source: 'telegraph_temporal_shift',
+          intent: 'control',
+          shape: { kind: 'circle', x: entity.lockedX, z: entity.lockedZ, radius: 1.8 }
+        }),
+      emitShieldTell: (entity, aimX, aimZ) =>
+        this.events.push({
+          type: 'CombatShape',
+          tick: this.tick,
+          source: 'shield_commit',
+          intent: 'control',
+          shape: { kind: 'sector', x: entity.x, z: entity.z, radius: 3.4, aimX, aimZ, halfAngle: 0.72 }
+        }),
+      hitPlayer: (amount, attacker, source) => this.hitPlayer(amount, attacker, source),
       damageScale: () => this.damageScale()
     });
     this.benchmark = !!cfg.benchmark;
@@ -2118,29 +2164,7 @@ export class Simulation {
       e.affixTimer += dt;
       e.affixPulse -= dt;
       e.adaptCooldown -= dt;
-      if (e.kind === 'elite' && e.affix === 'crowned') e.cooldown -= dt * 0.24;
-      if (e.kind === 'elite' && e.affix === 'brood' && e.affixPulse <= 0) {
-        e.affixPulse = 7.2;
-        for (let i = 0; i < 3; i++) {
-          const a = this.rng.range(0, Math.PI * 2),
-            r = this.rng.range(1.0, 2.1);
-          this.spawnEnemyAt(
-            i === 0 ? 'bookmark' : 'palimpsest',
-            e.x + Math.cos(a) * r,
-            e.z + Math.sin(a) * r,
-            1.7
-          );
-        }
-        this.events.push({
-          type: 'EliteOrder',
-          tick: this.tick,
-          entity: e.id,
-          order: 'brood',
-          x: e.x,
-          z: e.z,
-          count: 3
-        });
-      }
+      this.eliteAffix.earlyTick(e);
       let dx = this.px - e.x,
         dz = this.pz - e.z,
         d = Math.hypot(dx, dz) || 1,
@@ -2148,95 +2172,13 @@ export class Simulation {
         nz = dz / d;
       e.facingX = nx;
       e.facingZ = nz;
-      // Affixes are behavioral questions, not hidden +speed/+defense packages.
-      if (e.kind === 'elite' && e.affix === 'vanguard' && e.affixPulse <= 0) {
-        e.affixPulse = 5.8;
-        const lead = 0.65,
-          tx = this.px + this.playerVX * lead,
-          tz = this.pz + this.playerVZ * lead;
-        let count = 0;
-        for (const o of this.ents) {
-          if (o.kind === 'elite' || o.hp <= 0 || Math.hypot(o.x - e.x, o.z - e.z) > 8.2) continue;
-          o.orderX = tx;
-          o.orderZ = tz;
-          o.orderUntil = this.time + 2.35;
-          o.buffUntil = this.time + 2.35;
-          count++;
-          if (count >= 7) break;
-        }
-        if (count)
-          this.events.push({
-            type: 'EliteOrder',
-            tick: this.tick,
-            entity: e.id,
-            order: 'surge',
-            x: e.x,
-            z: e.z,
-            count
-          });
-      }
-      if (e.kind === 'elite' && e.affix === 'temporal') {
-        if (e.state === 'telegraph') {
-          if (e.stateTimer <= 0) {
-            e.x = Math.max(this.world.minX + 1, Math.min(this.world.maxX - 1, e.lockedX));
-            e.z = Math.max(this.world.minZ + 1, Math.min(this.world.maxZ - 1, e.lockedZ));
-            if (Math.hypot(this.px - e.x, this.pz - e.z) < 1.8)
-              this.hitPlayer(14 * this.damageScale(), e, 'temporal_shift');
-            e.exposedUntil = this.time + 1.15;
-            e.state = 'normal';
-            e.affixPulse = 4.9;
-          } else continue;
-        } else if (e.affixPulse <= 0 && !e.eliteAction && !this.eliteEchoes.has(e.id)) {
-          e.lockedX = Math.max(
-            this.world.minX + 1,
-            Math.min(this.world.maxX - 1, this.px + this.playerVX * 0.46)
-          );
-          e.lockedZ = Math.max(
-            this.world.minZ + 1,
-            Math.min(this.world.maxZ - 1, this.pz + this.playerVZ * 0.46)
-          );
-          e.state = 'telegraph';
-          e.stateTimer = 0.76;
-          e.affixPulse = 99;
-          this.events.push({
-            type: 'CombatShape',
-            tick: this.tick,
-            source: 'telegraph_temporal_shift',
-            intent: 'control',
-            shape: { kind: 'circle', x: e.lockedX, z: e.lockedZ, radius: 1.8 }
-          });
-          continue;
-        }
-      }
       let speed =
         e.speed *
         ((e.frozenUntil ?? 0) > this.time ? (e.kind === 'elite' ? 0.45 : 0.08) : e.chillUntil > this.time ? (e.kind === 'elite' ? 0.88 : 0.72) : 1) *
         (e.buffUntil > this.time ? 1.32 : 1);
-      if (e.affix === 'regenerating' && this.time - e.lastDamageAt > 3) {
-        e.regenTick += dt;
-        if (e.regenTick >= 0.5) {
-          e.regenTick -= 0.5;
-          e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.016);
-        }
-      } else e.regenTick = 0;
-      if (e.kind === 'elite' && e.affix === 'shielded') {
-        e.shieldState ??= 'guard'; e.shieldStability ??= 100;
-        if (e.shieldState === 'broken') {
-          if (this.time >= (e.shieldCommitUntil ?? 0)) { e.shieldState='guard'; e.shieldStability=100; e.affixPulse=Math.max(e.affixPulse,2.8); }
-        } else if (e.shieldState === 'commit') {
-          speed *= 1.18;
-          if (this.time >= (e.shieldCommitUntil ?? 0)) e.shieldState='guard';
-        } else {
-          const target = Math.atan2(this.pz - e.z, this.px - e.x);
-          const diff = this.angleDiff(target, e.shieldAngle);
-          e.shieldAngle += Math.max(-0.82 * dt, Math.min(0.82 * dt, diff));
-          if (e.affixPulse <= 0 && d < 8.5 && !e.eliteAction && !this.eliteEchoes.has(e.id)) {
-            e.shieldState='commit'; e.shieldCommitUntil=this.time+0.82; e.affixPulse=4.6; e.shieldAngle=target;
-            const ax=Math.cos(e.shieldAngle),az=Math.sin(e.shieldAngle);
-            this.events.push({type:'CombatShape',tick:this.tick,source:'shield_commit',intent:'control',shape:{kind:'sector',x:e.x,z:e.z,radius:3.4,aimX:ax,aimZ:az,halfAngle:0.72}});
-          }
-        }
-      }
+      const affixBehavior = this.eliteAffix.beforeBehavior(e, d);
+      if (affixBehavior.skipBehavior) continue;
+      speed *= affixBehavior.speedMultiplier;
       if (e.kind !== 'elite') {
         this.enemyBehavior.update(e, speed, d, nx, nz);
       } else if (e.kind === 'elite' && !e.boss && this.steerEliteToRelic(e, speed, d)) {
