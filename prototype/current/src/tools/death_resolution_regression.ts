@@ -87,7 +87,7 @@ function enemy(kind:Ent['kind'],id:number,patch:Partial<Ent>={}){
   reset(); random=.99;
   const elite=enemy('elite',6,{affix:'volatile',rarity:'common'});
   system.resolve(entities);
-  assert(kills===1&&eliteKills===1&&eliteResolved[0]===elite.id,'elite accounting callback changed');
+  assert(Number(kills)===1&&Number(eliteKills)===1&&eliteResolved[0]===elite.id,'elite accounting callback changed');
   assert(strikes.length===1&&strikes[0].source==='elite_volatile'&&strikes[0].at===now+.62,
     'volatile death lost delayed telegraph strike');
   const xp=pickups.find(p=>p.kind==='xp'),core=pickups.find(p=>p.kind==='core');
