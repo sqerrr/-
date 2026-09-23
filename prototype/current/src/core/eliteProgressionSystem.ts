@@ -74,9 +74,8 @@ export class EliteProgressionSystem {
 
   releaseRepertoire(entity: Ent) {
     if (!entity.repertoire.length) return;
-    const owned = new Set(entity.repertoire);
     for (const card of this.port.refusalStore())
-      if (owned.has(card.serial) && card.heldBy === entity.id) card.heldBy = 0;
+      if (card.heldBy === entity.id) card.heldBy = 0;
     entity.repertoire.length = 0;
   }
 
