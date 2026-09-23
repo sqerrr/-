@@ -9,6 +9,7 @@ const state=readFileSync('src/core/state.ts','utf8');
 const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const projectileSystem=readFileSync('src/core/projectileSystem.ts','utf8');
 const fieldSystem=readFileSync('src/core/fieldSystem.ts','utf8');
+const legacyCatalyst=readFileSync('src/core/legacyCatalystSystem.ts','utf8');
 const constructSystem=readFileSync('src/core/constructSystem.ts','utf8');
 const entityStore=readFileSync('src/core/entityStore.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
@@ -66,6 +67,18 @@ for (const token of ['sentry_hunter_battery','sentry_gravity_grid','sentry_crawl
   assert(!constructUpdate.includes(token), 'construct runtime behavior leaked back into Simulation: '+token);
 assert(!simulation.includes('private sentryGridAcc =') && !simulation.includes('private sentryBatteryAt ='),
   'construct-specific cadence state leaked back into Simulation');
+assert(legacyCatalyst.includes('export class LegacyCatalystSystem'), 'Catalyst 1.x compatibility has no dedicated owner');
+assert(simulation.includes('private legacyCatalysts!: LegacyCatalystSystem'),
+  'Simulation no longer delegates Catalyst 1.x compatibility');
+const activationMethod=simulation.slice(
+  simulation.indexOf('private activateSlot('),
+  simulation.indexOf('private isPhysicalCatalyst(', simulation.indexOf('private activateSlot('))
+);
+for (const token of ["incoming === 'anchor'","incoming === 'capacitor'","incoming === 'relay'","incoming === 'overflow'"])
+  assert(!activationMethod.includes(token), 'legacy Catalyst behavior leaked back into activateSlot: '+token);
+assert(!simulation.includes('private topologyGuard = false') && !simulation.includes('private feedbackCountBonus ='),
+  'legacy Catalyst runtime state leaked back into Simulation');
+assert(state.includes('export type ActivationContext ='), 'chain activation context is anonymous again');
 assert(entityStore.includes('export class EntityStore'), 'entity roster has no dedicated owner/query boundary');
 assert(simulation.includes('private entityStore = new EntityStore()'), 'Simulation no longer delegates entity identity/query ownership');
 assert(!simulation.includes('this.ents.find('), 'hot-path id lookup bypasses EntityStore index');
@@ -158,6 +171,7 @@ console.log('architecture-regression OK', {
   projectileSystem:true,
   fieldSystem:true,
   constructSystem:true,
+  legacyCatalystSystem:true,
   entityStore:true,
   encounterDirector:true,
   squadDirector:true,
