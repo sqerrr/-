@@ -29,6 +29,7 @@ import { EliteAffixSystem } from './eliteAffixSystem.js';
 import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
 import { EntityStore } from './entityStore.js';
+import { FieldSystem } from './fieldSystem.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { ProjectileSystem } from './projectileSystem.js';
 import { Rng } from './rng.js';
@@ -285,6 +286,7 @@ export class Simulation {
   private enemyBehavior!: EnemyBehaviorSystem;
   private squadDirector!: SquadDirector;
   private projectileSystem!: ProjectileSystem;
+  private fieldSystem!: FieldSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -718,6 +720,27 @@ export class Simulation {
       damageHero: (amount, source, owner, concentration) => {
         this.damageHero(amount, source, owner, concentration);
       }
+    });
+    this.fieldSystem = new FieldSystem({
+      dt: () => this.dt,
+      time: () => this.time,
+      heroX: () => this.px,
+      heroZ: () => this.pz,
+      ownerById: (id) => this.entityStore.get(id) ?? null,
+      bestAlive: (compare) => this.entityStore.bestAlive(compare),
+      entities: () => this.ents,
+      hitPlayer: (amount, owner) => this.hitPlayer(amount, owner),
+      damageHero: (amount, source, owner, concentration) => {
+        this.damageHero(amount, source, owner, concentration);
+      },
+      damageTarget: (target, amount, source, x, z, sourceSlot) => {
+        this.damage(target, amount, source, false, x, z, sourceSlot);
+      },
+      memoryFactor: () => this.memoryFactor(),
+      addFieldDamage: (amount) => {
+        this.fieldDamage += amount;
+      },
+      queuePhysicalEvent: (event) => this.queuePhysicalEvent(event)
     });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
@@ -2105,120 +2128,7 @@ export class Simulation {
   }
 
   private updateFields() {
-    const alive: Field[] = [];
-    for (const f of this.fields) {
-      f.ttl -= this.dt;
-      if(f.ttl<=0)continue;
-      f.tickAcc += this.dt;
-      const compatibilityRival = f.kind === 'ink' || f.kind === 'architect';
-      const faction: CastFaction = f.faction ?? (compatibilityRival ? 'rival' : 'hero');
-      const owner = f.ownerId ? this.entityStore.get(f.ownerId) ?? null : null;
-      if (f.behavior === 'host' && f.faction === 'hero') {
-        const target=this.entityStore.bestAlive((a,b)=>{
-          const eliteOrder=Number(b.kind==='elite')-Number(a.kind==='elite');
-          if(eliteOrder) return eliteOrder;
-          const adx=a.x-f.x,adz=a.z-f.z,bdx=b.x-f.x,bdz=b.z-f.z;
-          return adx*adx+adz*adz-(bdx*bdx+bdz*bdz);
-        });
-        if(target){
-          const dx=target.x-f.x,dz=target.z-f.z,d=Math.hypot(dx,dz)||1;
-          f.x+=dx/d*1.75*this.dt;f.z+=dz/d*1.75*this.dt;
-        }
-      }
-
-      const shape:CombatShape={kind:'circle',x:f.x,z:f.z,radius:f.radius};
-      if(f.behavior==='pull' && faction==='hero'){
-        for(const e of this.ents){
-          if(e.hp<=0 || !combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;
-          const dx=f.x-e.x,dz=f.z-e.z,d=Math.hypot(dx,dz)||1,
-            step=Math.min(d*0.3,1.15*this.dt);
-          if(d>0.03){
-            e.x+=dx/d*step;
-            e.z+=dz/d*step;
-            e.displacedUntil=Math.max(e.displacedUntil,this.time+0.18);
-          }
-        }
-      }
-      if (f.kind === 'ink' || f.kind === 'architect') {
-        if (combatShapeIntersectsCircle(shape,this.px,this.pz,HERO_HIT_RADIUS))
-          this.hitPlayer(f.dps * this.dt, owner);
-      } else if (f.kind !== 'index' && f.kind !== 'veil' && f.tickAcc >= 0.25) {
-        f.tickAcc -= 0.25;
-        if (faction === 'rival') {
-          if (combatShapeIntersectsCircle(shape,this.px,this.pz,HERO_HIT_RADIUS)) {
-            this.damageHero(
-              f.dps * 0.25,
-              (f.source ?? (f.kind + '_field')) as DamageSourceId,
-              owner,
-              f.rivalConcentration ?? 1
-            );
-          }
-        } else {
-          for (const e of this.ents) {
-            if (e.hp <= 0 || !combatShapeIntersectsCircle(shape,e.x,e.z,e.radius)) continue;
-            if (f.kind === 'frost')
-              e.chillUntil = Math.max(e.chillUntil, this.time + 1.2 * this.memoryFactor());
-            if (f.kind === 'fire')
-              e.igniteUntil = Math.max(e.igniteUntil, this.time + 1.8 * this.memoryFactor());
-            if (f.kind === 'toxic') {
-              e.toxinUntil = Math.max(e.toxinUntil, this.time + 2.5 * this.memoryFactor());
-              e.toxinDps = Math.max(e.toxinDps, f.dps * 0.55);
-            }
-            let fieldHit = f.dps * 0.25;
-            if (f.kind === 'toxic' && f.mutation === 'toxic_corrosive') {
-              const protectedTarget =
-                !!e.linkedTo ||
-                e.affix === 'shielded' ||
-                this.ents.some(
-                  (o) =>
-                    o.kind === 'elite' &&
-                    o.chassis === 'bulwark' &&
-                    o.hp > 0 &&
-                    Math.hypot(o.x - e.x, o.z - e.z) < 6.5
-                );
-              if (protectedTarget) fieldHit *= 1.65;
-            }
-            this.damage(
-              e,
-              fieldHit,
-              f.kind === 'arc' ? 'arc_field' : f.kind === 'toxic' ? 'toxic_mist' : 'fire_field',
-              false,
-              f.x,
-              f.z,
-              f.sourceSlot ?? -1
-            );
-            this.fieldDamage += f.dps * 0.25;
-          }
-        }
-      }
-
-      // Contact is edge-triggered independently from damage cadence. A target crossing a field
-      // hitbox is a physical event now; it is not inferred later from a 250 ms damage tick.
-      if (faction === 'hero' && f.activationId && f.source && f.sourceSlot !== undefined) {
-        const previous = new Set(f.insideIds ?? []),
-          inside:number[]=[];
-        for(const e of this.ents){
-          if(e.hp<=0 || !combatShapeIntersectsCircle(shape,e.x,e.z,e.radius)) continue;
-          inside.push(e.id);
-          if(!previous.has(e.id)){
-            this.queuePhysicalEvent({
-              activationId:f.activationId,
-              slot:f.sourceSlot,
-              skill:f.source as SkillId,
-              kind:'contact',
-              x:e.x,
-              z:e.z,
-              radius:f.radius,
-              targetId:e.id
-            });
-          }
-        }
-        f.insideIds=inside;
-      }
-
-      alive.push(f);
-    }
-    this.fields = alive;
+    this.fields = this.fieldSystem.update(this.fields);
   }
 
   private updateDots() {
