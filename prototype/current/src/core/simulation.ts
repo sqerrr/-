@@ -35,12 +35,13 @@ import { EntityStore } from './entityStore.js';
 import { FieldSystem } from './fieldSystem.js';
 import { LegacyCatalystSystem } from './legacyCatalystSystem.js';
 import { OrbitSystem } from './orbitSystem.js';
+import { PhysicalCatalystSystem } from './physicalCatalystSystem.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { ProjectileSystem } from './projectileSystem.js';
 import { Rng } from './rng.js';
 import { SquadDirector } from './squadDirector.js';
 import { StatusSystem } from './statusSystem.js';
-import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, pointAlongPolyline, polylineLength, sweepCircleT } from './geometry.js';
+import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, sweepCircleT } from './geometry.js';
 import {
   HERO_HIT_RADIUS,
   makeEnt,
@@ -284,6 +285,7 @@ export class Simulation {
   private orbitSystem!: OrbitSystem;
   private deathResolution!: DeathResolutionSystem;
   private delayedStrikeSystem!: DelayedStrikeSystem;
+  private physicalCatalysts!: PhysicalCatalystSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -937,6 +939,19 @@ export class Simulation {
         this.damage(target, amount, source, false, x, z, sourceSlot),
       addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
       finishAsyncPhysical: (activationId, x, z) => this.finishAsyncPhysical(activationId, x, z)
+    });
+    this.physicalCatalysts = new PhysicalCatalystSystem({
+      time: () => this.time,
+      tick: () => this.tick,
+      aimX: () => this.aimX,
+      aimZ: () => this.aimZ,
+      entities: () => this.ents,
+      castPayload: (binding, x, z, aimX, aimZ) =>
+        this.castCatalystPayload(binding, x, z, aimX, aimZ),
+      emit: (event) => this.events.push(event),
+      noteReaction: () => {
+        this.metrics.reactions++;
+      }
     });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
@@ -3115,22 +3130,9 @@ export class Simulation {
     this.physical.queue(e);
   }
 
-  private appendBindingPath(binding: CatalystBinding, points: ChoreographyPoint[]) {
-    for (const p of points) {
-      const last = binding.path[binding.path.length - 1];
-      if (!last || !this.sameChoreographyPoint(last, p, 0.08)) binding.path.push({ ...p });
-    }
-  }
 
-  private trailAim(binding: CatalystBinding, distance: number) {
-    const a = pointAlongPolyline(binding.path, Math.max(0, distance - 0.22)),
-      b = pointAlongPolyline(binding.path, distance + 0.22);
-    if (!a || !b) return { x: this.aimX, z: this.aimZ };
-    const dx = b.x - a.x,
-      dz = b.z - a.z,
-      m = Math.hypot(dx, dz) || 1;
-    return { x: dx / m, z: dz / m };
-  }
+
+
 
   private castCatalystPayload(
     binding: CatalystBinding,
@@ -3255,136 +3257,13 @@ export class Simulation {
       this.queuePhysicalEvent({ activationId, slot, skill, kind: 'terminal', x: trace.terminal.x, z: trace.terminal.z });
   }
 
-  private fireCollapse(binding: CatalystBinding, e: PhysicalEvent) {
-    const multiArea = binding.fromSkill === 'mortar_bloom' || binding.fromSkill === 'sentry' ||
-      binding.fromSkill === 'orbit_blades' || binding.fromSkill === 'tether_drag';
-    // Orbit is one continuous actor in the current core, so a Collapse may relocate it once,
-    // never pretend that independent Orbit copies exist on several areas.
-    const limit = binding.toSkill === 'orbit_blades' ? 1 : multiArea ? 3 : 1;
-    if (binding.firedCount >= limit) return;
-    const center = { x: e.x, z: e.z },
-      radius = Math.max(0.35, e.radius ?? 1),
-      shape=e.shape ?? ({kind:'circle',x:e.x,z:e.z,radius} as CombatShape),
-      outer = e.areaPoints?.length
-        ? e.areaPoints
-        : shape.kind==='sector'
-          ? [-shape.halfAngle,0,shape.halfAngle].map((off)=>{
-              const a=Math.atan2(shape.aimZ,shape.aimX)+off;
-              return {x:shape.x+Math.cos(a)*shape.radius,z:shape.z+Math.sin(a)*shape.radius};
-            })
-          : [0, 1, 2, 3].map((i) => {
-              const a = (i * Math.PI) / 2;
-              return { x: center.x + Math.cos(a) * radius, z: center.z + Math.sin(a) * radius };
-            });
-    binding.areaPoints.push(...outer.map((p) => ({ ...p })));
-    if (skills[binding.toSkill].directional) {
-      const spokes = outer.length <= 4 ? outer : [outer[0], outer[Math.floor(outer.length/2)]];
-      for (const p of spokes)
-        this.castCatalystPayload(binding, p.x, p.z, center.x - p.x, center.z - p.z);
-    } else {
-      for (const target of this.ents) {
-        if (target.hp <= 0 || !combatShapeIntersectsCircle(shape,target.x,target.z,target.radius)) continue;
-        const dx = center.x - target.x,
-          dz = center.z - target.z,
-          d = Math.hypot(dx, dz) || 1;
-        target.x += (dx / d) * Math.min(1.1, d * 0.35);
-        target.z += (dz / d) * Math.min(1.1, d * 0.35);
-        target.displacedUntil = Math.max(target.displacedUntil, this.time + 0.55);
-      }
-      this.castCatalystPayload(binding, center.x, center.z);
-    }
-    binding.firedCount++;
-    if (binding.firedCount >= limit) binding.done = true;
-    this.emitChoreography(binding.mode, binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [...outer, center]);
-  }
 
-  private handlePhysicalBinding(binding: CatalystBinding, e: PhysicalEvent) {
-    if (binding.done || e.activationId !== binding.producerActivationId) return;
 
-    const eventCarrierKey=e.carrierKind&&e.carrierId!==undefined
-      ? e.carrierKind+':'+e.carrierId
-      : null;
-    if ((binding.mode==='trail'||binding.mode==='reverse') && eventCarrierKey) {
-      if (!binding.pathCarrierKey) binding.pathCarrierKey=eventCarrierKey;
-      else if (binding.pathCarrierKey!==eventCarrierKey) return;
-    }
 
-    if ((binding.mode==='trail'||binding.mode==='reverse') && e.kind === 'path') {
-      if (e.previousX !== undefined && e.previousZ !== undefined)
-        this.appendBindingPath(binding, [{ x: e.previousX, z: e.previousZ }, { x: e.x, z: e.z }]);
-      else this.appendBindingPath(binding, [{ x: e.x, z: e.z }]);
-    } else if (
-      (binding.mode==='trail'||binding.mode==='reverse') &&
-      (e.kind === 'impact' || e.kind === 'contact' || e.kind === 'terminal')
-    ) {
-      const last = binding.path[binding.path.length - 1];
-      if (last) this.appendBindingPath(binding, [last, { x: e.x, z: e.z }]);
-    }
-
-    if (binding.mode === 'source' && e.kind === 'terminal') {
-      if (this.castCatalystPayload(binding, e.x, e.z)) {
-        binding.firedCount = 1;
-        binding.done = true;
-        this.emitChoreography('source', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [binding.origin, { x: e.x, z: e.z }]);
-      }
-      return;
-    }
-
-    if (binding.mode === 'carrier' && (e.kind === 'contact' || e.kind === 'impact') && e.carrierKind && e.carrierId !== undefined) {
-      const key = e.carrierKind + ':' + e.carrierId;
-      if (binding.carrierKeys.has(key) || binding.firedCount >= 3) return;
-      binding.carrierKeys.add(key);
-      if (this.castCatalystPayload(binding, e.x, e.z)) {
-        binding.firedCount++;
-        this.emitChoreography('carrier', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [{ x: e.x, z: e.z }]);
-      }
-      if (binding.firedCount >= 3) binding.done = true;
-      return;
-    }
-
-    if (binding.mode === 'trail' && (e.kind === 'path' || e.kind === 'impact' || e.kind === 'terminal')) {
-      const spacing = binding.toSkill === 'sentry' ? 4.2 : 3.0,
-        max = binding.toSkill === 'sentry' ? 6 : 4;
-      let length = polylineLength(binding.path);
-      while (binding.firedCount < max && length + 1e-6 >= binding.nextTrailDistance) {
-        const p = pointAlongPolyline(binding.path, binding.nextTrailDistance);
-        if (!p) break;
-        const aim = this.trailAim(binding, binding.nextTrailDistance);
-        if (this.castCatalystPayload(binding, p.x, p.z, aim.x, aim.z)) binding.firedCount++;
-        binding.nextTrailDistance += spacing;
-        length = polylineLength(binding.path);
-      }
-      if (e.kind === 'terminal') {
-        if (!binding.firedCount) this.castCatalystPayload(binding, e.x, e.z);
-        binding.done = true;
-        this.emitChoreography('trail', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, binding.path.length ? binding.path : [{ x: e.x, z: e.z }]);
-      }
-      return;
-    }
-
-    if (binding.mode === 'reverse' && e.kind === 'terminal') {
-      // Reverse consumes a traversed route. A terminal without path data is teleport-like
-      // information and must never be converted into an imaginary line.
-      if(binding.path.length<2){binding.done=true;return;}
-      const path=binding.path,
-        end=path[path.length-1],
-        prev=path[path.length-2],
-        dx=prev.x-end.x,
-        dz=prev.z-end.z;
-      if (this.castCatalystPayload(binding, end.x, end.z, dx, dz)) {
-        binding.firedCount = 1;
-        binding.done = true;
-        this.emitChoreography('reverse', binding.fromSlot, binding.toSlot, binding.fromSkill, binding.toSkill, [...path].reverse());
-      }
-      return;
-    }
-
-    if (binding.mode === 'collapse' && (e.kind === 'area' || e.kind === 'impact')) this.fireCollapse(binding, e);
-  }
 
   private flushPhysicalEvents() {
     this.physical.flush(
-      (binding, event) => this.handlePhysicalBinding(binding, event),
+      (binding, event) => this.physicalCatalysts.handle(binding, event),
       (activationId) => this.constructs.some((construct) => construct.activationId === activationId)
     );
   }
@@ -3666,32 +3545,7 @@ export class Simulation {
     if (id === 'orbit_blades') this.noteOrbitTrace();
   }
 
-  private emitChoreography(
-    mode: 'source' | 'carrier' | 'trail' | 'reverse' | 'collapse',
-    fromSlot: number,
-    toSlot: number,
-    fromSkill: SkillId,
-    toSkill: SkillId,
-    points: ChoreographyPoint[]
-  ) {
-    if (!points.length) return;
-    const centerX = points.reduce((a, p) => a + p.x, 0) / points.length,
-      centerZ = points.reduce((a, p) => a + p.z, 0) / points.length;
-    this.events.push({
-      type: 'CatalystChoreography',
-      tick: this.tick,
-      catalyst: mode,
-      fromSlot,
-      toSlot,
-      fromSkill,
-      toSkill,
-      mode,
-      points: points.slice(0, 8).map((p) => ({ ...p })),
-      centerX,
-      centerZ
-    });
-    this.metrics.reactions++;
-  }
+
 
   private applyState(e: Ent, state: string, potency = 1) {
     this.statusSystem.apply(e, state, {
