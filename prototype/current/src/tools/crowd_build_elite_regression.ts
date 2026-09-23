@@ -36,8 +36,8 @@ assert(mortarWide>=mortarBase*2.9,`mortar count still carries hidden damage tax:
 const orbit:any=new Simulation({seed:91003,hz:60,benchmark:true,mode:'clean'});
 orbit.configureBenchmarkLoadout({slots:['orbit_blades'],catalysts:[],level:1,globalPower:0,skillPower:0,skillCoverage:0});
 const ost=orbit.skillsRuntime.get('orbit_blades'); ost.count=1; orbit.resonance.multiplicity=0;
-orbit.doctrines.quantity=0; const ob=orbit.orbitProfile(ost);
-orbit.doctrines.quantity=6; const og=orbit.orbitProfile(ost);
+orbit.doctrines.quantity=0; const ob=orbit.orbitSystem.profile(ost,orbit.orbitCenter());
+orbit.doctrines.quantity=6; const og=orbit.orbitSystem.profile(ost,orbit.orbitCenter());
 assert(ob.count===3&&og.count===6,`orbit blade count ${ob.count}->${og.count}`);
 assert(near(og.hitInterval,ob.hitInterval/2,0.12),`orbit contact cadence is not near-linear: ${ob.hitInterval}->${og.hitInterval}`);
 

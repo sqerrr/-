@@ -28,7 +28,7 @@ function fixture(left:SkillId,right:SkillId,catalyst:CatalystId){
   for(const e of sim.ents){e.maxHp=1e9;e.hp=1e9;e.speed=0;e.contactDps=0;e.orbitHitAt=-99;}
   if(left==='orbit_blades'){
     const st=sim.skillsRuntime.get('orbit_blades'),
-      p=sim.orbitProfile(st,{x:0,z:0}),
+      p=sim.orbitSystem.profile(st,{x:0,z:0}),
       speed=st.mutation==='orbit_saw'?2.55:3.4,
       a=((sim.tick+1)/sim.hz)*speed;
     sim.ents[0].x=Math.cos(a)*p.radius;
