@@ -25,6 +25,7 @@ import {
 import { fnv1a } from './hash.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
 import { ConstructSystem } from './constructSystem.js';
+import { DeathResolutionSystem } from './deathResolutionSystem.js';
 import { EncounterDirector } from './encounterDirector.js';
 import { EliteAffixSystem } from './eliteAffixSystem.js';
 import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
@@ -111,7 +112,6 @@ const ELITE_RARITY_CAPACITY: Record<EliteRarity, number> = {
  * bodily. Kept apart from eliteHp so per-chassis identity stays readable next to the tier step.
  */
 const ELITE_RARITY_HP: Record<EliteRarity, number> = { common: 2.5, uplifted: 5, legendary: 9.4 };
-const ELITE_RARITY_CORE: Record<EliteRarity, number> = { common: 1, uplifted: 2, legendary: 3 };
 const ELITE_RARITY_SIZE: Record<EliteRarity, number> = {
   common: 1,
   uplifted: 1.1,
@@ -193,19 +193,6 @@ const eliteDps: Record<EliteChassis, number> = {
   archivist: 27,
   warden: 42
 };
-const eliteAffixThreat: Record<EliteAffix, number> = {
-  none: 0,
-  swift: 1,
-  dense: 1,
-  volatile: 1,
-  regenerating: 2,
-  shielded: 2,
-  vanguard: 4,
-  temporal: 4,
-  brood: 4,
-  crowned: 8
-};
-
 export class Simulation {
   readonly hz: number;
   readonly dt: number;
@@ -294,6 +281,7 @@ export class Simulation {
   private constructSystem!: ConstructSystem;
   private legacyCatalysts!: LegacyCatalystSystem;
   private orbitSystem!: OrbitSystem;
+  private deathResolution!: DeathResolutionSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -892,6 +880,45 @@ export class Simulation {
       spawnProjectile: (projectile) => {
         this.spawnProjectile(projectile);
       }
+    });
+    this.deathResolution = new DeathResolutionSystem({
+      time: () => this.time,
+      tick: () => this.tick,
+      mode: () => this.mode,
+      entities: () => this.ents,
+      clearForRevive: (entity) => this.statusSystem.clearForRevive(entity),
+      hasMutation: (skill, mutation) => {
+        const runtime = this.skillsRuntime.get(skill);
+        return !!runtime && this.mutationIs(runtime, mutation);
+      },
+      memoryFactor: () => this.memoryFactor(),
+      noteKill: (elite) => {
+        this.metrics.killed++;
+        if (elite) this.metrics.eliteKilled++;
+      },
+      resolveEliteDeath: (entity) => {
+        this.releaseRepertoire(entity);
+        this.grantBarrier(this.itemBarrierOnEliteKill);
+        this.eliteCore += this.itemCoreBonus;
+        const record = this.eliteLogById.get(entity.id);
+        if (record) {
+          record.endedAt = this.time;
+          record.killed = true;
+        }
+      },
+      emit: (event) => this.events.push(event),
+      markBossDefeated: () => {
+        this.bossDefeated = true;
+      },
+      getAliveEntity: (id) => this.entityStore.getAlive(id),
+      addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
+      scheduleStrike: (strike) => this.scheduleStrike(strike),
+      addPickup: (pickup) => this.pickups.push({ id: this.nextId++, ...pickup }),
+      damageScale: () => this.damageScale(),
+      xpMultiplier: () => this.itemXpMul,
+      ownedCatalystCount: () => this.allOwnedCatalysts().length,
+      completePoi: (id) => this.completePoi(id),
+      randomFloat: () => this.rng.float()
     });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
@@ -4460,175 +4487,12 @@ export class Simulation {
   }
 
   private cleanup() {
-    const alive: Ent[] = [];
-    for (const e of this.ents) {
-      if (e.hp > 0) {
-        alive.push(e);
-        continue;
-      }
-      if (e.kind === 'palimpsest' && e.revivesLeft > 0) {
-        e.revivesLeft--;
-        e.revived = true;
-        e.hp = e.maxHp * 0.42;
-        e.speed *= 1.32;
-        this.statusSystem.clearForRevive(e);
-        alive.push(e);
-        this.events.push({ type: 'EnemyRevived', tick: this.tick, entity: e.id, x: e.x, z: e.z });
-        continue;
-      }
-      if (
-        e.toxinUntil > this.time &&
-        (() => { const st = this.skillsRuntime.get('toxic_mist'); return !!st && this.mutationIs(st, 'toxic_contagion'); })()
-      ) {
-        for (const o of this.ents) {
-          if (o !== e && o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < 2.8) {
-            o.toxinUntil = Math.max(o.toxinUntil, this.time + 2.8 * this.memoryFactor());
-            o.toxinDps = Math.max(o.toxinDps, Math.max(5, e.toxinDps * 0.72));
-          }
-        }
-      }
-      this.metrics.killed++;
-      const elite = e.kind === 'elite';
-      if (elite) {
-        this.metrics.eliteKilled++;
-        this.releaseRepertoire(e);
-        this.grantBarrier(this.itemBarrierOnEliteKill);
-        this.eliteCore += this.itemCoreBonus;
-        const record = this.eliteLogById.get(e.id);
-        if (record) {
-          record.endedAt = this.time;
-          record.killed = true;
-        }
-      }
-      this.events.push({
-        type: 'EntityDied',
-        tick: this.tick,
-        entity: e.id,
-        kind: e.kind,
-        x: e.x,
-        z: e.z,
-        elite,
-        boss: e.boss
-      });
-      if (e.boss) {
-        this.bossDefeated = true;
-        continue;
-      }
-      if (e.cloneParent) {
-        const parent = this.entityStore.getAlive(e.cloneParent);
-        if (parent) {
-          const feedback = parent.maxHp * 0.055;
-          parent.hp -= feedback;
-          this.events.push({
-            type: 'DamageResolved',
-            tick: this.tick,
-            entity: parent.id,
-            amount: feedback,
-            source: 'replicant_feedback',
-            x: parent.x,
-            z: parent.z,
-            sourceX: e.x,
-            sourceZ: e.z,
-            elite: true,
-            crit: false
-          });
-        }
-        continue;
-      }
-      if (e.kind === 'inkblot')
-        this.fields.push({
-          id: this.nextId++,
-          x: e.x,
-          z: e.z,
-          radius: 1.75,
-          ttl: 3.3,
-          kind: 'ink',
-          dps: 11 * this.damageScale(),
-          tickAcc: 0
-        });
-      if (elite && e.affix === 'volatile') {
-        // Death explosions must be dodgeable. The old instant burst punished the kill before
-        // the player could read it; now the red zone is part of the same hostile telegraph language.
-        this.scheduleStrike({
-          at: this.time + 0.62,
-          x: e.x,
-          z: e.z,
-          radius: 2.6,
-          damage: 24 * this.damageScale(),
-          faction: 'rival',
-          ownerId: e.id,
-          source: 'elite_volatile',
-          sourceSlot: -1,
-          intent: 'damage',
-          telegraph: 'elite_volatile_tell'
-        });
-      }
-      const xpVal = elite
-        ? 30
-        : e.kind === 'binder' || e.kind === 'redactor' || e.kind === 'indexer'
-          ? 4.0
-          : e.kind === 'marginwalker'
-            ? 3.0
-            : e.kind === 'bookmark'
-              ? 2.5
-              : e.kind === 'footnote'
-                ? 2.1
-                : e.kind === 'inkblot'
-                  ? 2.4
-                  : 1.8;
-      this.pickups.push({
-        id: this.nextId++,
-        x: e.x,
-        z: e.z,
-        value: xpVal * this.itemXpMul,
-        kind: 'xp'
-      });
-      if (elite && e.guardianPoi > 0) {
-        this.completePoi(e.guardianPoi);
-        continue;
-      }
-      if (elite && e.guardianPoi < 0) continue;
-      if (elite) {
-        if (e.rarity === 'uplifted' || e.rarity === 'legendary')
-          this.pickups.push({
-            id: this.nextId++,
-            x: e.x + 0.12,
-            z: e.z + 0.34,
-            value: 1,
-            kind: 'mutation'
-          });
-        let core =
-          2 + (eliteAffixThreat[e.affix] >= 2 ? 1 : 0) + (eliteAffixThreat[e.affix] >= 4 ? 1 : 0);
-        if (this.mode === 'clean' && this.allOwnedCatalysts().length === 0)
-          core = Math.max(core, 5);
-        if (
-          (() => { const st = this.skillsRuntime.get('sentry'); return !!st && this.mutationIs(st, 'sentry_salvager'); })() &&
-          e.sentryTouchedUntil > this.time
-        )
-          core += 1;
-        this.pickups.push({
-          id: this.nextId++,
-          x: e.x + 0.35,
-          z: e.z - 0.2,
-          value: Math.round(core * ELITE_RARITY_CORE[e.rarity]),
-          kind: 'core'
-        });
-        if (this.rng.float() < 0.18)
-          this.pickups.push({
-            id: this.nextId++,
-            x: e.x - 0.28,
-            z: e.z + 0.18,
-            value: 50,
-            kind: 'heal'
-          });
-      }
-    }
-    this.ents = alive;
-    for (const e of this.ents) if (e.kind !== 'binder') e.linkedTo = 0;
-    for (const b of this.ents)
-      if (b.kind === 'binder' && b.linkedTo) {
-        const target = this.entityStore.get(b.linkedTo);
-        if (target) target.linkedTo = b.id;
+    this.ents = this.deathResolution.resolve(this.ents);
+    for (const entity of this.ents) if (entity.kind !== 'binder') entity.linkedTo = 0;
+    for (const binder of this.ents)
+      if (binder.kind === 'binder' && binder.linkedTo) {
+        const target = this.entityStore.get(binder.linkedTo);
+        if (target) target.linkedTo = binder.id;
       }
   }
 
