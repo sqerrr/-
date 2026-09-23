@@ -2397,23 +2397,13 @@ export class Simulation {
    * Enemy-side item effects are authored per item. `allowClaim` is false when an item
    * effect is inherited through a refusal card so "learn one more refusal" cannot recurse.
    */
-  private scaleEliteDurability(e: Ent, mul: number) {
-    if (mul <= 0 || Math.abs(mul - 1) < 1e-6) return;
-    e.maxHp *= mul;
-    e.hp *= mul;
-  }
 
-  private applyEliteItem(e: Ent, id: ItemId, allowClaim: boolean) {
-    this.eliteProgression.applyItem(e, id, allowClaim);
-  }
 
-  private eliteInheritanceBudget(e: Ent) {
-    return 0; // compatibility shim; policy lives in EliteProgressionSystem.
-  }
 
-  private nativeEliteGrowthBudget(e: Ent) {
-    return 0; // compatibility shim; policy lives in EliteProgressionSystem.
-  }
+
+
+
+
 
   private grantNativeEliteGrowth(e: Ent) {
     this.eliteProgression.grantNativeGrowth(e);
@@ -2444,10 +2434,7 @@ export class Simulation {
       z: r.z
     });
   }
-  private claimOneMoreRefusal(e: Ent) {
-    // Kept only as a compatibility seam for older regression fixtures.
-    this.eliteProgression.applyItem(e, 'keen_eye', true);
-  }
+
 
   private updateConstructs() {
     this.constructs = this.constructSystem.update(this.constructs);
