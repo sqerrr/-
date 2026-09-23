@@ -56,6 +56,11 @@ export class EliteEchoSystem {
     this.readyAt.delete(entityId);
   }
 
+  clear() {
+    this.states.clear();
+    this.readyAt.clear();
+  }
+
   fieldRefusals(entity: Ent, distance: number) {
     const p = this.port;
     if (entity.hp <= 0 || !entity.repertoire.length || this.states.has(entity.id)) return;
