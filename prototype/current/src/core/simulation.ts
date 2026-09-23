@@ -57,7 +57,6 @@ import {
   type ChoreographyTrace,
   type Construct,
   type DelayedStrike,
-  type EliteEchoState,
   type Ent,
   type Field,
   type Obstacle,
@@ -441,7 +440,7 @@ export class Simulation {
   /**
    * D41/v0.11: a declined Phenomenon never calls the hero dispatcher from an elite.
    * The refusal preserves fantasy/identity but is translated to an authored duel pattern
-   * with tell -> active -> recovery in start/resolveEliteEcho below. effectGrammar remains
+   * with tell -> active -> recovery in EliteEchoSystem. effectGrammar remains
    * useful for ownership/LOS/reach data; it is not an excuse to mirror player geometry.
    */
   /** D28: a phenomenon forks three ways. */
