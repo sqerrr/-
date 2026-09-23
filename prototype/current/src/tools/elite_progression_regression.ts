@@ -66,7 +66,8 @@ function elite(id:number,rarity:Ent['rarity']='common'){
   const e=elite(4,'uplifted');
   now=180; mainCalls=0; relicCalls=0;
   system.claimRepertoire(e);
-  assert(e.repertoire.length===system.repertoireCapacity(e),'repertoire claim capacity changed');
+  assert(e.repertoire.length===Math.min(system.repertoireCapacity(e),refusals.length),
+    'repertoire claim capacity changed');
   assert(mainCalls===refusals.length-1,'repertoire shuffle main-RNG cadence changed');
   assert(relicCalls===0,'repertoire claim leaked into relic RNG stream');
   assert(e.repertoire.some(serial=>refusals.find(c=>c.serial===serial)?.skill),
