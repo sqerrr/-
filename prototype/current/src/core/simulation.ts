@@ -31,6 +31,7 @@ import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
 import { EntityStore } from './entityStore.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { Rng } from './rng.js';
+import { SquadDirector } from './squadDirector.js';
 import { StatusSystem } from './statusSystem.js';
 import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, pointAlongPolyline, polylineLength, sweepCircleT } from './geometry.js';
 import {
@@ -87,8 +88,7 @@ import type {
   RunMode,
   SkillId,
   SkillRuntime,
-  Snapshot,
-  SquadTask
+  Snapshot
 } from './types.js';
 
 // Tier tables. D49 fixes the target fight lengths (8-12 / 15-25 / 30-45 s); each tier is a
@@ -282,6 +282,7 @@ export class Simulation {
   private eliteAffix!: EliteAffixSystem;
   private bossBehavior!: BossBehaviorSystem;
   private enemyBehavior!: EnemyBehaviorSystem;
+  private squadDirector!: SquadDirector;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -495,7 +496,6 @@ export class Simulation {
   /** Held only for the length of a rival cast, so its damage can be charged to its owner. */
   private castOwner: Ent | null = null;
   private castRivalConcentration = 1;
-  private squadPlanAt = 0;
 
   constructor(cfg: SimConfig) {
     this.hz = cfg.hz;
@@ -654,6 +654,19 @@ export class Simulation {
         }),
       hitPlayer: (amount, attacker, source) => this.hitPlayer(amount, attacker, source),
       damageScale: () => this.damageScale()
+    });
+    this.squadDirector = new SquadDirector({
+      world: this.world,
+      time: () => this.time,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      playerVX: () => this.playerVX,
+      playerVZ: () => this.playerVZ,
+      aimX: () => this.aimX,
+      aimZ: () => this.aimZ,
+      entities: () => this.ents,
+      obstacles: () => this.obstacles,
+      freeOf: (x, z, radius) => this.freeOf(x, z, radius)
     });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
@@ -2050,93 +2063,8 @@ export class Simulation {
     e.z += (dz / d) * speed * mul * this.dt;
   }
 
-  private squadTaskFor(e: Ent, index: number): Exclude<SquadTask, 'none'> {
-    if (e.kind === 'marginwalker' || e.kind === 'redactor') return 'flank';
-    if (e.kind === 'bookmark') return 'intercept';
-    if (e.kind === 'binder' || e.kind === 'indexer') return 'hold';
-    const cycle: Exclude<SquadTask, 'none'>[] = ['press', 'flank', 'intercept', 'hold'];
-    return cycle[index % cycle.length];
-  }
-
-  private squadTarget(e: Ent, task: Exclude<SquadTask, 'none'>) {
-    const pm = Math.hypot(this.playerVX, this.playerVZ),
-      mvx = pm > 0.15 ? this.playerVX / pm : this.aimX,
-      mvz = pm > 0.15 ? this.playerVZ / pm : this.aimZ,
-      side = e.id % 2 ? 1 : -1,
-      px = -mvz * side,
-      pz = mvx * side;
-    if (task === 'press') {
-      const lane = ((e.id % 5) - 2) * 0.48;
-      return { x: this.px + px * lane, z: this.pz + pz * lane };
-    }
-    if (task === 'flank') {
-      const r = 3.6 + (e.id % 3) * 0.65;
-      return { x: this.px + px * r + mvx * 0.7, z: this.pz + pz * r + mvz * 0.7 };
-    }
-    if (task === 'intercept') {
-      const lead = pm > 0.15 ? 3.7 : 2.1;
-      return {
-        x: this.px + mvx * lead + px * ((e.id % 3) - 1) * 0.85,
-        z: this.pz + mvz * lead + pz * ((e.id % 3) - 1) * 0.85
-      };
-    }
-
-    const projectedX = this.px + mvx * 2.2,
-      projectedZ = this.pz + mvz * 2.2;
-    let best: Obstacle | null = null,
-      score = Infinity;
-    for (const o of this.obstacles) {
-      const d = Math.hypot(o.x - projectedX, o.z - projectedZ);
-      if (d < score && d < 9.5) {
-        score = d;
-        best = o;
-      }
-    }
-    if (best) {
-      const dx = this.px - best.x,
-        dz = this.pz - best.z,
-        d = Math.hypot(dx, dz) || 1,
-        edge = best.radius + e.radius + 0.65;
-      return {
-        x: best.x + (dx / d) * edge + (-dz / d) * side * 0.7,
-        z: best.z + (dz / d) * edge + (dx / d) * side * 0.7
-      };
-    }
-    return { x: this.px - mvx * 2.8 + px * side, z: this.pz - mvz * 2.8 + pz * side };
-  }
-
-  /**
-   * D21: small groups receive short-lived jobs rather than marching in a formation. The
-   * pause between plans lets each enemy's own behaviour reappear, while the four distinct
-   * destinations stop the whole crowd from collapsing into one AoE-friendly knot.
-   */
   private updateSquadTasks() {
-    if (this.time < this.squadPlanAt) return;
-    this.squadPlanAt = this.time + 2.6;
-    const candidates = this.ents
-      .filter(
-        (e) =>
-          e.hp > 0 &&
-          e.kind !== 'elite' &&
-          e.kind !== 'hero' &&
-          e.orderUntil <= this.time &&
-          Math.hypot(e.x - this.px, e.z - this.pz) < 21
-      )
-      .sort((a, b) => a.id - b.id)
-      .slice(0, 20);
-    for (let i = 0; i < candidates.length; i++) {
-      const e = candidates[i];
-      // Leave roughly one body in four on its native script at every planning beat.
-      if ((e.id + Math.floor(this.time * 2)) % 4 === 0) continue;
-      const task = this.squadTaskFor(e, i),
-        target = this.squadTarget(e, task),
-        q = this.freeOf(target.x, target.z, e.radius * 0.72);
-      e.orderX = Math.max(this.world.minX + 1, Math.min(this.world.maxX - 1, q.x));
-      e.orderZ = Math.max(this.world.minZ + 1, Math.min(this.world.maxZ - 1, q.z));
-      e.orderUntil = this.time + 1.25 + (e.id % 4) * 0.12;
-      e.squadTask = task;
-      e.squadUntil = e.orderUntil;
-    }
+    this.squadDirector.update();
   }
 
   private steerEliteToRelic(e: Ent, speed: number, playerDistance: number) {
