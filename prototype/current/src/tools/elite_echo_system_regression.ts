@@ -81,7 +81,7 @@ assert(recovery,'recovery state missing');
 now=recovery.until;
 system.update();
 assert(!system.has(owner.id),'Echo state survived recovery completion');
-assert(rangeCalls===2,'recovery cooldown RNG cadence changed');
+assert(Number(rangeCalls)===2,'recovery cooldown RNG cadence changed');
 
 // Recovery cooldown blocks immediate reuse, then allows the next authored Echo.
 system.fieldRefusals(owner,8);
