@@ -26,7 +26,7 @@ export interface ProjectileSystemPort {
   projectileOwner(projectile: Projectile): Ent | null;
   hasMutation(skill: SkillId, mutation: MutationId): boolean;
   gainAegisCharge(): void;
-  emitReaction(reaction: string, x: number, z: number, amount: number): void;
+  emitReaction(reaction: 'aegis', x: number, z: number, amount: number): void;
 
   obstaclesNear(x: number, z: number, radius: number): readonly Obstacle[];
   targetsFor(projectile: Projectile, x: number, z: number): readonly Ent[];
