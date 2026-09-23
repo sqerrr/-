@@ -26,6 +26,7 @@ import { fnv1a } from './hash.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
 import { ConstructSystem } from './constructSystem.js';
 import { DeathResolutionSystem } from './deathResolutionSystem.js';
+import { DelayedStrikeSystem } from './delayedStrikeSystem.js';
 import { EncounterDirector } from './encounterDirector.js';
 import { EliteAffixSystem } from './eliteAffixSystem.js';
 import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
@@ -282,6 +283,7 @@ export class Simulation {
   private legacyCatalysts!: LegacyCatalystSystem;
   private orbitSystem!: OrbitSystem;
   private deathResolution!: DeathResolutionSystem;
+  private delayedStrikeSystem!: DelayedStrikeSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -920,6 +922,22 @@ export class Simulation {
       completePoi: (id) => this.completePoi(id),
       randomFloat: () => this.rng.float()
     });
+    this.delayedStrikeSystem = new DelayedStrikeSystem({
+      time: () => this.time,
+      tick: () => this.tick,
+      heroX: () => this.px,
+      heroZ: () => this.pz,
+      ownerById: (id) => this.entityStore.get(id) ?? null,
+      entities: () => this.ents,
+      emitImpactShape: (source, intent, shape) =>
+        this.events.push({ type: 'CombatShape', tick: this.tick, source, intent, shape }),
+      queuePhysicalEvent: (event) => this.queuePhysicalEvent(event),
+      damageHero: (amount, source, owner) => this.damageHero(amount, source, owner, 1),
+      damageTarget: (target, amount, source, x, z, sourceSlot) =>
+        this.damage(target, amount, source, false, x, z, sourceSlot),
+      addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
+      finishAsyncPhysical: (activationId, x, z) => this.finishAsyncPhysical(activationId, x, z)
+    });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
     if (this.mode === 'clean') {
@@ -1206,64 +1224,7 @@ export class Simulation {
    * elite Echoes readable without pretending an instantaneous circle was an animation.
    */
   private updateDelayedStrikes() {
-    if (!this.delayedStrikes.length) return;
-    const keep: DelayedStrike[] = [];
-    for (const q of this.delayedStrikes) {
-      if (this.time + 1e-9 < q.at) {
-        keep.push(q);
-        continue;
-      }
-      const impactShape: CombatShape = { kind: 'circle', x: q.x, z: q.z, radius: q.radius };
-      this.events.push({
-        type: 'CombatShape',
-        tick: this.tick,
-        source: String(q.source) + '_impact',
-        intent: q.intent,
-        shape: impactShape
-      });
-      if(q.faction==='hero' && q.activationId){
-        const areaPoints=[0,1,2,3].map((i)=>{
-          const a=i*Math.PI/2;
-          return {x:q.x+Math.cos(a)*q.radius,z:q.z+Math.sin(a)*q.radius};
-        });
-        // This event is emitted at impact time, not at scheduling/telegraph time.
-        this.queuePhysicalEvent({
-          activationId:q.activationId,
-          slot:q.sourceSlot,
-          skill:q.source as SkillId,
-          kind:'impact',
-          x:q.x,
-          z:q.z,
-          radius:q.radius,
-          areaPoints,
-          shape:{...impactShape},
-          carrierKind:'impact',
-          carrierId:q.id
-        });
-      }
-      const owner = q.ownerId ? this.entityStore.get(q.ownerId) ?? null : null;
-      if (q.faction === 'rival') {
-        if (combatShapeIntersectsCircle(impactShape,this.px,this.pz,HERO_HIT_RADIUS))
-          this.damageHero(q.damage, q.source as DamageSourceId, owner, 1);
-      } else {
-        for (const e of this.ents) {
-          if (e.hp <= 0 || !combatShapeIntersectsCircle(impactShape,e.x,e.z,e.radius)) continue;
-          this.damage(e, q.damage, String(q.source), false, q.x, q.z, q.sourceSlot);
-        }
-      }
-      if (q.fieldKind)
-        this.fields.push({
-          id:this.nextId++,
-          activationId:q.activationId,
-          insideIds:[],
-          x:q.x,z:q.z,radius:q.radius*0.92,ttl:q.fieldDuration??2.5,kind:q.fieldKind,
-          dps:q.fieldDps??q.damage*0.18,tickAcc:0,faction:q.faction,ownerId:q.ownerId,
-          source:String(q.source),sourceSlot:q.sourceSlot,mutation:null,rivalConcentration:1,
-          behavior:q.fieldBehavior
-        });
-      this.finishAsyncPhysical(q.activationId,q.x,q.z);
-    }
-    this.delayedStrikes = keep;
+    this.delayedStrikes = this.delayedStrikeSystem.update(this.delayedStrikes);
   }
 
   private initPois() {
