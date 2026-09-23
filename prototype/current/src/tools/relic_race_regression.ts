@@ -56,7 +56,7 @@ px=20;pz=20;elite.x=0;elite.z=0;elite.relicSeekMul=1.5;
 system.replace([{id:201,x:2.8,z:0,item:'bane',bornAt:0}]);
 system.update();
 assert(eliteClaims.some(q=>q.entity===elite.id&&q.relic===201),'elite scaled pickup reach changed');
-assert(system.all.length===0,'claimed relic remained on the ground');
+assert(Number(system.all.length)===0,'claimed relic remained on the ground');
 
 // Steering targets the nearest visible find but immediate melee still wins.
 px=10;pz=0;elite.x=0;elite.z=0;elite.relicSeekMul=1;
