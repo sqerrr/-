@@ -9,6 +9,7 @@ const state=readFileSync('src/core/state.ts','utf8');
 const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const entityStore=readFileSync('src/core/entityStore.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
+const squadDirector=readFileSync('src/core/squadDirector.ts','utf8');
 const eliteBehavior=readFileSync('src/core/eliteBehaviorSystem.ts','utf8');
 const eliteAffix=readFileSync('src/core/eliteAffixSystem.ts','utf8');
 const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
@@ -38,6 +39,10 @@ assert(encounterDirector.includes('export class EncounterDirector'), 'run pacing
 for (const token of ['private spawnCredits =','private eliteAcc =','private firstElite ='])
   assert(!simulation.includes(token), 'encounter cadence state leaked back into Simulation: '+token);
 assert(simulation.includes('private encounterDirector'), 'Simulation no longer delegates encounter pacing');
+assert(squadDirector.includes('export class SquadDirector'), 'squad orchestration has no dedicated director');
+assert(simulation.includes('private squadDirector!: SquadDirector'), 'Simulation no longer delegates squad orchestration');
+assert(!simulation.includes('private squadTaskFor(') && !simulation.includes('private squadTarget('),
+  'squad task/target policy leaked back into Simulation');
 assert(eliteBehavior.includes('export class EliteBehaviorSystem'), 'elite chassis behavior has no dedicated system');
 for (const chassis of ['hunter','architect','broodmaker','bulwark','harvester','shepherd'])
   assert(eliteBehavior.includes("chassis === '"+chassis+"'"), 'elite behavior system missing chassis: '+chassis);
@@ -117,6 +122,7 @@ console.log('architecture-regression OK', {
   physicalLifecycleOwner:true,
   entityStore:true,
   encounterDirector:true,
+  squadDirector:true,
   eliteBehaviorSystem:true,
   eliteAffixSystem:true,
   bossBehaviorSystem:true,
