@@ -45,6 +45,7 @@ function enemy(kind:Ent['kind'],id:number,x=0,z=0){
 
 // Binder chooses a nearby non-binder and keeps identity by id.
 {
+  entities.length=0;
   const target=enemy('footnote',2,1,0);
   const binder=enemy('binder',3,0,0);
   binder.linkTimer=0;
@@ -54,6 +55,8 @@ function enemy(kind:Ent['kind'],id:number,x=0,z=0){
 
 // Redactor shortens a nearby player-created field.
 {
+  entities.length=0;
+  fields.length=0;
   const redactor=enemy('redactor',4,0,0);
   redactor.cooldown=0;
   fields.push({id:50,x:1,z:0,radius:2,ttl:5,kind:'fire',dps:1,tickAcc:0});
@@ -63,6 +66,7 @@ function enemy(kind:Ent['kind'],id:number,x=0,z=0){
 
 // Indexer creates a control field and routes nearby bodies to it.
 {
+  entities.length=0;
   fields.length=0;
   const indexer=enemy('indexer',5,0,0);
   const routed=enemy('footnote',6,1,1);
@@ -74,6 +78,7 @@ function enemy(kind:Ent['kind'],id:number,x=0,z=0){
 
 // Inkblot keeps its authored random cooldown and field damage scaling.
 {
+  entities.length=0;
   fields.length=0;
   const ink=enemy('inkblot',7,0,0);
   ink.cooldown=0;
