@@ -66,7 +66,7 @@ function enemy(kind:Ent['kind'],id:number,patch:Partial<Ent>={}){
   const live=makeEnt({id:3,kind:'footnote',x:1,z:0,hp:100,maxHp:100,radius:.5,speed:1,contactDps:0});
   entities.push(live);
   system.resolve(entities);
-  assert(live.toxinUntil>now && live.toxinDps===7.2,'toxic contagion payload/order changed');
+  assert(live.toxinUntil>now && Math.abs(live.toxinDps-7.2)<1e-9,'toxic contagion payload/order changed');
 }
 
 // Replicant death feeds back into the live parent and suppresses normal pickups.
