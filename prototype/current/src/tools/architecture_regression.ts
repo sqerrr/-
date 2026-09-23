@@ -20,6 +20,7 @@ const deathResolution=readFileSync('src/core/deathResolutionSystem.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
 const squadDirector=readFileSync('src/core/squadDirector.ts','utf8');
 const eliteBehavior=readFileSync('src/core/eliteBehaviorSystem.ts','utf8');
+const eliteProgression=readFileSync('src/core/eliteProgressionSystem.ts','utf8');
 const eliteAffix=readFileSync('src/core/eliteAffixSystem.ts','utf8');
 const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
 const enemyBehavior=readFileSync('src/core/enemyBehaviorSystem.ts','utf8');
@@ -150,6 +151,13 @@ assert(eliteBehavior.includes('export class EliteBehaviorSystem'), 'elite chassi
 for (const chassis of ['hunter','architect','broodmaker','bulwark','harvester','shepherd'])
   assert(eliteBehavior.includes("chassis === '"+chassis+"'"), 'elite behavior system missing chassis: '+chassis);
 assert(simulation.includes('private eliteBehavior!: EliteBehaviorSystem'), 'Simulation no longer delegates elite chassis AI');
+assert(eliteProgression.includes('export class EliteProgressionSystem'), 'elite ecosystem growth has no dedicated system');
+assert(simulation.includes('private eliteProgression!: EliteProgressionSystem'),
+  'Simulation no longer delegates elite progression policy');
+for (const method of ['scaleEliteDurability','eliteInheritanceBudget','nativeEliteGrowthBudget','claimOneMoreRefusal'])
+  assert(!simulation.includes('private '+method+'('), 'elite progression policy leaked back into Simulation: '+method);
+for (const token of ["case 'plating':","case 'keen_edge':","case 'reprisal':"])
+  assert(!simulation.includes(token), 'enemy-side item policy leaked back into Simulation: '+token);
 assert(eliteAffix.includes('export class EliteAffixSystem'), 'elite affixes have no dedicated behavior system');
 for (const affix of ['crowned','brood','vanguard','temporal','regenerating','shielded'])
   assert(eliteAffix.includes("entity.affix === '"+affix+"'"), 'elite affix system missing behavior: '+affix);
@@ -236,6 +244,7 @@ console.log('architecture-regression OK', {
   encounterDirector:true,
   squadDirector:true,
   eliteBehaviorSystem:true,
+  eliteProgressionSystem:true,
   eliteAffixSystem:true,
   bossBehaviorSystem:true,
   enemyBehaviorSystem:true,
