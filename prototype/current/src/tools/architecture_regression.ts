@@ -8,6 +8,7 @@ const simulation=readFileSync('src/core/simulation.ts','utf8');
 const state=readFileSync('src/core/state.ts','utf8');
 const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const projectileSystem=readFileSync('src/core/projectileSystem.ts','utf8');
+const orbitSystem=readFileSync('src/core/orbitSystem.ts','utf8');
 const fieldSystem=readFileSync('src/core/fieldSystem.ts','utf8');
 const legacyCatalyst=readFileSync('src/core/legacyCatalystSystem.ts','utf8');
 const constructSystem=readFileSync('src/core/constructSystem.ts','utf8');
@@ -78,6 +79,17 @@ for (const token of ["incoming === 'anchor'","incoming === 'capacitor'","incomin
   assert(!activationMethod.includes(token), 'legacy Catalyst behavior leaked back into activateSlot: '+token);
 assert(!simulation.includes('private topologyGuard = false') && !simulation.includes('private feedbackCountBonus ='),
   'legacy Catalyst runtime state leaked back into Simulation');
+assert(orbitSystem.includes('export class OrbitSystem'), 'persistent Orbit has no dedicated runtime/geometry owner');
+assert(simulation.includes('private orbitSystem!: OrbitSystem'), 'Simulation no longer delegates Orbit runtime');
+const orbitUpdate=simulation.slice(
+  simulation.indexOf('private updateOrbitBlades()'),
+  simulation.indexOf('private updateDots(', simulation.indexOf('private updateOrbitBlades()'))
+);
+assert(orbitUpdate.includes('this.orbitSystem.update('),
+  'Simulation updateOrbitBlades is no longer a thin orchestration wrapper');
+assert(!simulation.includes('private orbitProfile('), 'Orbit geometry policy leaked back into Simulation');
+assert(!simulation.includes('private orbitPhoenixAt =') && !simulation.includes('private orbitAcc ='),
+  'Orbit-specific cadence state leaked back into Simulation');
 assert(state.includes('export type ActivationContext ='), 'chain activation context is anonymous again');
 assert(entityStore.includes('export class EntityStore'), 'entity roster has no dedicated owner/query boundary');
 assert(simulation.includes('private entityStore = new EntityStore()'), 'Simulation no longer delegates entity identity/query ownership');
@@ -169,6 +181,7 @@ console.log('architecture-regression OK', {
   frameSnapshotReuse:true,
   physicalLifecycleOwner:true,
   projectileSystem:true,
+  orbitSystem:true,
   fieldSystem:true,
   constructSystem:true,
   legacyCatalystSystem:true,
