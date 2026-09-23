@@ -1759,9 +1759,7 @@ export class Simulation {
    * Refusal repertoire is learned ecosystem knowledge. Early encounters are intentionally
    * narrow for readability; later elites can carry a much broader selection.
    */
-  private eliteRepertoireCapacity(e: Ent) {
-    return this.eliteProgression.repertoireCapacity(e);
-  }
+
   private claimRepertoire(e: Ent) {
     this.eliteProgression.claimRepertoire(e);
   }
@@ -1779,9 +1777,7 @@ export class Simulation {
    * touch, mobility quickens it, and the two applied at the moment of the cast live in
    * damageHero and in the cadence below. Figures are provisional and stated in doc 23.
    */
-  private applyRefusedAxes(e: Ent) {
-    this.eliteProgression.applyRefusedAxes(e);
-  }
+
   /** heldBy is first-carrier bookkeeping; death clears that marker, not ecosystem knowledge. */
   private releaseRepertoire(e: Ent) {
     this.rivalCastAt.delete(e.id);
