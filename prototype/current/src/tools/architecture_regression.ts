@@ -43,7 +43,7 @@ assert(simulation.includes('private delayedStrikeSystem!: DelayedStrikeSystem'),
   'Simulation no longer delegates delayed impacts');
 const delayedUpdate=simulation.slice(
   simulation.indexOf('private updateDelayedStrikes()'),
-  simulation.indexOf('private scheduleStrike(', simulation.indexOf('private updateDelayedStrikes()'))
+  simulation.indexOf('private initPois(', simulation.indexOf('private updateDelayedStrikes()'))
 );
 assert(delayedUpdate.includes('this.delayedStrikeSystem.update(this.delayedStrikes)'),
   'Simulation updateDelayedStrikes is no longer a thin orchestration wrapper');
