@@ -20,6 +20,7 @@ const deathResolution=readFileSync('src/core/deathResolutionSystem.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
 const squadDirector=readFileSync('src/core/squadDirector.ts','utf8');
 const eliteBehavior=readFileSync('src/core/eliteBehaviorSystem.ts','utf8');
+const eliteEcho=readFileSync('src/core/eliteEchoSystem.ts','utf8');
 const eliteProgression=readFileSync('src/core/eliteProgressionSystem.ts','utf8');
 const eliteAffix=readFileSync('src/core/eliteAffixSystem.ts','utf8');
 const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
@@ -151,6 +152,13 @@ assert(eliteBehavior.includes('export class EliteBehaviorSystem'), 'elite chassi
 for (const chassis of ['hunter','architect','broodmaker','bulwark','harvester','shepherd'])
   assert(eliteBehavior.includes("chassis === '"+chassis+"'"), 'elite behavior system missing chassis: '+chassis);
 assert(simulation.includes('private eliteBehavior!: EliteBehaviorSystem'), 'Simulation no longer delegates elite chassis AI');
+assert(eliteEcho.includes('export class EliteEchoSystem'), 'refused Phenomenon Echoes have no dedicated state owner');
+assert(simulation.includes('private eliteEchoSystem!: EliteEchoSystem'), 'Simulation no longer delegates Elite Echo runtime');
+assert(!simulation.includes('private eliteEchoes =') && !simulation.includes('private rivalCastAt ='),
+  'Elite Echo state/cooldown storage leaked back into Simulation');
+for (const method of ['echoTellDuration','echoTelegraph','resolveEliteEcho'])
+  assert(!simulation.includes('private '+method+'('), 'Elite Echo authored state machine leaked back into Simulation: '+method);
+assert(simulation.includes('this.eliteEchoSystem.update()'), 'Simulation no longer advances Elite Echo owner');
 assert(eliteProgression.includes('export class EliteProgressionSystem'), 'elite ecosystem growth has no dedicated system');
 assert(simulation.includes('private eliteProgression!: EliteProgressionSystem'),
   'Simulation no longer delegates elite progression policy');
@@ -244,6 +252,7 @@ console.log('architecture-regression OK', {
   encounterDirector:true,
   squadDirector:true,
   eliteBehaviorSystem:true,
+  eliteEchoSystem:true,
   eliteProgressionSystem:true,
   eliteAffixSystem:true,
   bossBehaviorSystem:true,
