@@ -94,7 +94,7 @@ export class DelayedStrikeSystem {
         ) {
           p.damageHero(
             strike.damage,
-            strike.source as DamageSourceId,
+            strike.source,
             owner
           );
         }
