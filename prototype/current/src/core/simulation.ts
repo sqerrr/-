@@ -32,6 +32,7 @@ import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
 import { EntityStore } from './entityStore.js';
 import { FieldSystem } from './fieldSystem.js';
 import { LegacyCatalystSystem } from './legacyCatalystSystem.js';
+import { OrbitSystem } from './orbitSystem.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { ProjectileSystem } from './projectileSystem.js';
 import { Rng } from './rng.js';
@@ -292,6 +293,7 @@ export class Simulation {
   private fieldSystem!: FieldSystem;
   private constructSystem!: ConstructSystem;
   private legacyCatalysts!: LegacyCatalystSystem;
+  private orbitSystem!: OrbitSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -350,8 +352,6 @@ export class Simulation {
   private skillsRuntime = new Map<SkillId, SkillRuntime>();
   private catalystRuntime = new Map<CatalystId, CatalystRuntime>();
   private beatAcc = 0;
-  private orbitAcc = 0;
-  private orbitPhoenixAt = 0;
   /** Shared cadence for Hunter Battery: the apotheosis is a coordinated volley, not five independent damage multipliers. */
   private moveAmount = 0;
   /**
@@ -854,6 +854,44 @@ export class Simulation {
           targetX,
           targetZ
         })
+    });
+    this.orbitSystem = new OrbitSystem({
+      time: () => this.time,
+      tick: () => this.tick,
+      heroX: () => this.px,
+      heroZ: () => this.pz,
+      entities: () => this.ents,
+      countAlive: (predicate) => this.entityStore.countAlive(predicate),
+      bestAlive: (compare) => this.entityStore.bestAlive(compare),
+      powerBucket: (runtime) => this.powerBucket(runtime),
+      skillRadius: (runtime, base) => this.skillRadius(runtime, base),
+      hasMutation: (runtime, mutation) => this.mutationIs(runtime, mutation),
+      multiplicity: () =>
+        this.supportsAxis('orbit_blades', 'multiplicity') ? this.resonance.multiplicity : 0,
+      quantityDoctrine: () => this.doctrines.quantity,
+      orbitActivationId: () => this.physical.orbitActivationId,
+      retireOrbitActivation: (x, z) => {
+        const activationId = this.physical.orbitActivationId;
+        this.physical.orbitActivationId = 0;
+        if (activationId) this.finishAsyncPhysical(activationId, x, z);
+      },
+      queuePhysicalEvent: (event) => this.queuePhysicalEvent(event),
+      damageTarget: (target, amount, x, z, slot) =>
+        this.damage(target, amount, 'orbit_blades', false, x, z, slot),
+      addCloseDamage: (amount) => {
+        this.closeDamage += amount;
+      },
+      grantBarrier: (amount) => this.grantBarrier(amount),
+      aegisCharge: () => this.aegisCharge,
+      clearAegisCharge: () => {
+        this.aegisCharge = 0;
+      },
+      combatShape: (source, shape, intent = 'damage') => this.combatShape(source, shape, intent),
+      emitRareEvent: (title, detail, x, z) =>
+        this.events.push({ type: 'RareEvent', tick: this.tick, title, detail, x, z }),
+      spawnProjectile: (projectile) => {
+        this.spawnProjectile(projectile);
+      }
     });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
@@ -2571,118 +2609,16 @@ export class Simulation {
     this.constructs = this.constructSystem.update(this.constructs);
   }
 
-  private orbitProfile(st: SkillRuntime, center = this.orbitCenter()) {
-    let count =
-      3 +
-      Math.max(0, Math.round(st.count) - 1) +
-      (this.supportsAxis(st.id, 'multiplicity') ? this.resonance.multiplicity : 0) +
-      Math.min(3, Math.floor(this.doctrines.quantity / 2)),
-      damageMul = 1;
-    if (st.mutation === 'orbit_many') count += 3;
-    else if (st.mutation === 'orbit_saw') { count = Math.max(2, count - 1); damageMul *= 1.4; }
-    count = Math.max(2, Math.min(12, count));
-    let radius = this.skillRadius(st, skills.orbit_blades.baseRadius),
-      crowd = 0;
-    if (this.mutationIs(st,'orbit_blood')) {
-      crowd=this.entityStore.countAlive((e)=>{
-        const dx=e.x-center.x,dz=e.z-center.z;
-        return dx*dx+dz*dz<36;
-      });
-      radius*=1+Math.min(0.34,crowd*0.017);
-      damageMul*=1+Math.min(0.48,crowd*0.024);
-      if(this.mutationIs(st,'orbit_sanguine_crown')) radius*=1+Math.min(0.22,crowd*0.01);
-    }
-    // Quantity is allowed to be a genuine power axis in a horde game. Twice as many blades
-    // can approach twice the contact rate; spacing around the orbit is the natural limiter.
-    const hitInterval=Math.max(0.085,Math.min(0.5,0.38*(3/count)));
-    return { count, radius, damageMul, crowd, hitInterval };
-  }
+
 
   private updateOrbitBlades() {
-    const st=this.skillsRuntime.get('orbit_blades');
-    if(!st||!this.isActiveSkill('orbit_blades')){
-      if(this.physical.orbitActivationId){
-        const old=this.orbitCenter();
-        const id=this.physical.orbitActivationId;
-        this.physical.orbitActivationId=0;
-        this.finishAsyncPhysical(id,old.x,old.z);
-      }
-      return;
-    }
-    const center=this.orbitCenter(), mut=st.mutation, profile=this.orbitProfile(st,center),
-      damage=skills.orbit_blades.baseDamage*this.powerBucket(st)*0.36*profile.damageMul,
-      angularSpeed=mut==='orbit_saw'?2.55:3.4,
-      bladeRadius=mut==='orbit_saw'?0.58:0.42,
-      slot=this.slots.indexOf('orbit_blades');
-
-    // Gameplay uses the same discrete blade positions the renderer uses. There is no hidden
-    // annulus any more: standing on the orbit radius between blades is safe until a blade arrives.
-    const blades:{x:number;z:number;index:number}[]=[];
-    for(let i=0;i<profile.count;i++){
-      const a=this.time*angularSpeed+(i*Math.PI*2)/profile.count;
-      blades.push({
-        x:center.x+Math.cos(a)*profile.radius,
-        z:center.z+Math.sin(a)*profile.radius,
-        index:i
-      });
-    }
-    for(const e of this.ents){
-      if(e.hp<=0)continue;
-      const blade=blades.find(b=>circleIntersectsCircle(b.x,b.z,bladeRadius,e.x,e.z,e.radius));
-      if(!blade)continue;
-      if(this.time-e.orbitHitAt<profile.hitInterval)continue;
-      e.orbitHitAt=this.time;
-      let m=damage;
-      if(mut==='orbit_saw'&&e.kind==='elite')m*=1.9;
-      this.damage(e,m,'orbit_blades',false,blade.x,blade.z,slot);
-      this.closeDamage+=m;
-      if(this.physical.orbitActivationId){
-        this.queuePhysicalEvent({
-          activationId:this.physical.orbitActivationId,
-          slot,
-          skill:'orbit_blades',
-          kind:'contact',
-          x:blade.x,
-          z:blade.z,
-          radius:bladeRadius,
-          carrierKind:'orbit',
-          carrierId:blade.index,
-          targetId:e.id
-        });
-      }
-      if(this.mutationIs(st,'orbit_sanguine_crown')&&profile.crowd>=5)
-        this.grantBarrier(Math.min(3.2,m*0.02));
-    }
-    if(this.mutationIs(st,'orbit_aegis_crown')&&this.aegisCharge>=6){
-      this.aegisCharge=0;this.grantBarrier(16);
-      const rr=profile.radius+1.8,shape:CombatShape={kind:'circle',x:center.x,z:center.z,radius:rr};
-      this.combatShape('orbit_aegis_crown',shape,'control');
-      for(const e of this.ents){
-        if(e.hp<=0||!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;
-        const dx=e.x-center.x,dz=e.z-center.z,d=Math.hypot(dx,dz)||1;
-        this.damage(e,22*this.powerBucket(st),'orbit_blades',false,center.x,center.z);
-        e.x+=dx/d*0.75;e.z+=dz/d*0.75;
-      }
-      this.events.push({type:'RareEvent',tick:this.tick,title:'КОРОНА ЭГИДЫ',detail:'Перехваты выпущены ударной волной',x:center.x,z:center.z});
-    }
-    if(this.mutationIs(st,'orbit_phoenix')&&this.time>=this.orbitPhoenixAt){
-      this.orbitPhoenixAt=this.time+1.35;
-      const t=this.entityStore.bestAlive((a,b)=>{
-        const priority=Number((b.markUntil>this.time)||b.kind==='elite')-Number((a.markUntil>this.time)||a.kind==='elite');
-        if(priority) return priority;
-        const adx=a.x-center.x,adz=a.z-center.z,bdx=b.x-center.x,bdz=b.z-center.z;
-        return adx*adx+adz*adz-(bdx*bdx+bdz*bdz);
-      });
-      if(t){
-        const dx=t.x-center.x,dz=t.z-center.z,m=Math.hypot(dx,dz)||1;
-        this.spawnProjectile({
-          x:center.x+dx/m*profile.radius,z:center.z+dz/m*profile.radius,vx:dx/m*8.5,vz:dz/m*8.5,
-          radius:0.28,ttl:2.8,damage:skills.orbit_blades.baseDamage*this.powerBucket(st)*1.25,coverDamage:16,
-          faction:'hero',ownerId:0,source:'orbit_blades',sourceSlot:slot,mutation:st.mutation,activationId:this.physical.orbitActivationId||undefined,
-          apotheosis:'orbit_phoenix',rivalConcentration:1,behavior:'returner',returnAt:1.3,phase:0,hitIds:[]
-        });
-      }
-    }
+    const runtime = this.skillsRuntime.get('orbit_blades');
+    this.orbitSystem.update(
+      runtime,
+      !!runtime && this.isActiveSkill('orbit_blades'),
+      this.slots.indexOf('orbit_blades'),
+      () => this.orbitCenter()
+    );
   }
 
   private effectiveTempo() {
@@ -3578,15 +3514,10 @@ export class Simulation {
       st = this.skillsRuntime.get('orbit_blades');
     if (!t || !st) return;
     const center = this.orbitCenter(),
-      p = this.orbitProfile(st, center),
-      bladeRadius=st.mutation==='orbit_saw'?0.58:0.42,
-      speed=st.mutation==='orbit_saw'?2.55:3.4;
-    for (let i = 0; i < p.count; i++) {
-      const a=this.time*speed+(i*Math.PI*2)/p.count,
-        x=center.x+Math.cos(a)*p.radius,
-        z=center.z+Math.sin(a)*p.radius;
-      this.traceArea(x,z,bladeRadius);
-      t.carriers.push({ kind: 'orbit', index: i });
+      geometry = this.orbitSystem.geometry(st, center);
+    for (const blade of geometry.blades) {
+      this.traceArea(blade.x, blade.z, geometry.bladeRadius);
+      t.carriers.push({ kind: 'orbit', index: blade.index });
     }
   }
 
@@ -3640,10 +3571,10 @@ export class Simulation {
     const st = this.skillsRuntime.get('orbit_blades');
     if (!st || !this.isActiveSkill('orbit_blades')) return null;
     const center = this.orbitCenter(),
-      profile = this.orbitProfile(st, center),
-      index = ref.index % Math.max(1, profile.count),
-      a = this.time * (st.mutation === 'orbit_saw' ? 2.55 : 3.4) + (index * Math.PI * 2) / profile.count;
-    return { x: center.x + Math.cos(a) * profile.radius, z: center.z + Math.sin(a) * profile.radius };
+      geometry = this.orbitSystem.geometry(st, center),
+      index = ref.index % Math.max(1, geometry.profile.count),
+      blade = geometry.blades[index];
+    return blade ? { x: blade.x, z: blade.z } : null;
   }
 
   private tracePath(trace: ChoreographyTrace) {
@@ -5606,7 +5537,7 @@ export class Simulation {
       orbit: (() => {
         const st=this.skillsRuntime.get('orbit_blades');
         if(!st||!this.isActiveSkill('orbit_blades')) return {active:false,count:0,radius:0,centerX:this.px,centerZ:this.pz,mutation:null,apotheosis:null};
-        const center=this.orbitCenter(),p=this.orbitProfile(st,center);
+        const center=this.orbitCenter(),p=this.orbitSystem.profile(st,center);
         return {active:true,count:p.count,radius:p.radius,centerX:center.x,centerZ:center.z,mutation:st.mutation,apotheosis:st.mutationApotheosis};
       })(),
       world: {
