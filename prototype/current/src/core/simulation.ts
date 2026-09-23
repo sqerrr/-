@@ -29,6 +29,7 @@ import { DelayedStrikeSystem } from './delayedStrikeSystem.js';
 import { EncounterDirector } from './encounterDirector.js';
 import { EliteAffixSystem } from './eliteAffixSystem.js';
 import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
+import { EliteProgressionSystem } from './eliteProgressionSystem.js';
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
 import { EntityStore } from './entityStore.js';
 import { FieldSystem } from './fieldSystem.js';
@@ -102,11 +103,6 @@ import type {
 
 // Tier tables. D49 fixes the target fight lengths (8-12 / 15-25 / 30-45 s); each tier is a
 // step up in durability, payout and repertoire.
-const ELITE_RARITY_CAPACITY: Record<EliteRarity, number> = {
-  common: 2,
-  uplifted: 4,
-  legendary: 6
-};
 /**
  * First calibration against measured contact time. elite_report put the medians at 1 / 2 / 3.3 s
  * against D49 windows centred on 10 / 20 / 37.5 - every tier short by the same factor of ten,
@@ -274,6 +270,7 @@ export class Simulation {
   private rng: Rng;
   private encounterDirector!: EncounterDirector;
   private eliteBehavior!: EliteBehaviorSystem;
+  private eliteProgression!: EliteProgressionSystem;
   private eliteAffix!: EliteAffixSystem;
   private bossBehavior!: BossBehaviorSystem;
   private enemyBehavior!: EnemyBehaviorSystem;
@@ -493,6 +490,15 @@ export class Simulation {
     this.worldRng = new Rng((cfg.seed ^ 0x27d4eb2f) >>> 0);
     this.relicRng = new Rng((cfg.seed ^ 0x6a09e667) >>> 0);
     this.runDuration = cfg.runDuration ?? 480;
+    this.eliteProgression = new EliteProgressionSystem({
+      time: () => this.time,
+      runDuration: () => this.runDuration,
+      refusalStore: () => this.refusalStore,
+      legacyItems: () => this.eliteLegacyItems,
+      evolutionHistory: () => this.eliteEvolutionHistory,
+      mainRandomInt: (maxExclusive) => this.rng.int(maxExclusive),
+      relicRandomInt: (maxExclusive) => this.relicRng.int(maxExclusive)
+    });
     this.eliteBehavior = new EliteBehaviorSystem({
       runDuration: this.runDuration,
       world: this.world,
@@ -1754,43 +1760,14 @@ export class Simulation {
    * narrow for readability; later elites can carry a much broader selection.
    */
   private eliteRepertoireCapacity(e: Ent) {
-    const t = Math.max(0, Math.min(1, this.time / this.runDuration));
-    const base = ELITE_RARITY_CAPACITY[e.rarity];
-    // Early elites teach chassis first. After that the ecosystem is intentionally allowed
-    // to accumulate a broad vocabulary instead of freezing at the old 1/3/6 inventory caps.
-    if (this.time < 60) return Math.min(1, base);
-    if (this.time < 120) return Math.min(3, base + 1);
-    const growth = e.rarity === 'legendary' ? Math.floor(t * 7) : Math.floor(t * 6);
-    return Math.min(12, base + growth);
+    return this.eliteProgression.repertoireCapacity(e);
   }
   private claimRepertoire(e: Ent) {
-    // Refusals are ecosystem knowledge, not a scarce inventory lock. heldBy still records
-    // the first visible carrier, but another elite may learn the same refusal concurrently.
-    const pool = [...this.refusalStore];
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = this.rng.int(i + 1);
-      [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
-    const armed = pool.findIndex((q) => !!q.skill);
-    if (armed > 0) {
-      const lead = pool[armed];
-      pool.splice(armed, 1);
-      pool.unshift(lead);
-    }
-    for (const card of pool.slice(0, this.eliteRepertoireCapacity(e))) {
-      if (card.heldBy === 0) card.heldBy = e.id;
-      e.repertoire.push(card.serial);
-    }
-    this.applyRefusedAxes(e);
+    this.eliteProgression.claimRepertoire(e);
   }
   /** How many cards of one growth direction this elite is holding. */
   private rivalAxisCount(e: Ent, axis: ResonanceId): number {
-    let n = 0;
-    for (const serial of e.repertoire) {
-      const c = this.refusalStore.find((x) => x.serial === serial);
-      if (c && c.kind === 'axis' && c.resonance === axis) n++;
-    }
-    return n;
+    return this.eliteProgression.rivalAxisCount(e, axis);
   }
   /**
    * Roughly half of what the hero declines is a growth direction rather than a weapon,
@@ -1803,24 +1780,13 @@ export class Simulation {
    * damageHero and in the cadence below. Figures are provisional and stated in doc 23.
    */
   private applyRefusedAxes(e: Ent) {
-    for (const serial of e.repertoire) {
-      const c = this.refusalStore.find((x) => x.serial === serial);
-      if (c && c.kind === 'item' && c.item) this.applyEliteItem(e, c.item, false);
-    }
-    // Persistence mirrors by function in persistentDuration: rival fields/constructs linger
-    // longer. It deliberately does not touch max HP, preserving the calibrated D49 dial.
-    const sharp = this.rivalAxisCount(e, 'conductivity');
-    if (sharp) e.contactDps *= Math.pow(1.12, sharp);
-    const quick = this.rivalAxisCount(e, 'mobility');
-    if (quick) e.speed *= Math.pow(1.12, quick);
+    this.eliteProgression.applyRefusedAxes(e);
   }
   /** heldBy is first-carrier bookkeeping; death clears that marker, not ecosystem knowledge. */
   private releaseRepertoire(e: Ent) {
     this.rivalCastAt.delete(e.id);
     this.eliteEchoes.delete(e.id);
-    if (!e.repertoire.length) return;
-    for (const c of this.refusalStore) if (c.heldBy === e.id) c.heldBy = 0;
-    e.repertoire.length = 0;
+    this.eliteProgression.releaseRepertoire(e);
   }
 
   /**
@@ -2438,157 +2404,33 @@ export class Simulation {
   }
 
   private applyEliteItem(e: Ent, id: ItemId, allowClaim: boolean) {
-    // Enemy-side items are intentionally not five category aliases. Each pickup changes a
-    // different pressure axis so item combinations produce different elites over the run.
-    switch (id) {
-      case 'plating':
-        this.scaleEliteDurability(e, 1.16);
-        break;
-      case 'vitality':
-        this.scaleEliteDurability(e, 1.22);
-        break;
-      case 'aegis_core':
-        e.relicDamageTakenMul = (e.relicDamageTakenMul ?? 1) * 0.88;
-        break;
-      case 'ablation':
-        e.relicDamageTakenMul = (e.relicDamageTakenMul ?? 1) * 0.9;
-        break;
-      case 'keen_edge':
-        e.relicCastMul = (e.relicCastMul ?? 1) * 1.16;
-        e.contactDps *= 1.08;
-        if (allowClaim) e.groundRelicCastMul = (e.groundRelicCastMul ?? 1) * 1.16;
-        break;
-      case 'hollow_point':
-        e.relicCritChance = (e.relicCritChance ?? 0) + 0.12;
-        break;
-      case 'siphon':
-        e.relicSiphon = (e.relicSiphon ?? 0) + 0.035;
-        break;
-      case 'bane':
-        e.relicCastMul = (e.relicCastMul ?? 1) * 1.18;
-        e.relicReachMul = (e.relicReachMul ?? 1) * 1.08;
-        if (allowClaim) e.groundRelicCastMul = (e.groundRelicCastMul ?? 1) * 1.18;
-        break;
-      case 'light_step':
-        e.speed *= 1.12;
-        break;
-      case 'quickened':
-        e.relicGapMul = (e.relicGapMul ?? 1) * 0.82;
-        break;
-      case 'short_cord':
-        e.relicGapMul = (e.relicGapMul ?? 1) * 0.9;
-        e.speed *= 1.05;
-        break;
-      case 'afterimage':
-        e.relicDamageTakenMul = (e.relicDamageTakenMul ?? 1) * 0.92;
-        e.speed *= 1.04;
-        break;
-      case 'lodestone':
-        e.relicSeekMul = (e.relicSeekMul ?? 1) * 1.55;
-        break;
-      case 'keen_eye':
-        e.relicSeekMul = (e.relicSeekMul ?? 1) * 1.25;
-        if (allowClaim) this.claimOneMoreRefusal(e);
-        break;
-      case 'scavenger':
-        this.scaleEliteDurability(e, 1.08);
-        e.relicCastMul = (e.relicCastMul ?? 1) * 1.06;
-        break;
-      case 'beacon':
-        e.relicSeekMul = (e.relicSeekMul ?? 1) * 1.75;
-        e.relicGapMul = (e.relicGapMul ?? 1) * 0.94;
-        break;
-      case 'spoils':
-        // Turns the carrier into a local pack leader instead of a numerical loot bonus.
-        e.affixPulse = Math.min(e.affixPulse, 1.5);
-        e.buffUntil = Math.max(e.buffUntil, this.time + 1.8);
-        break;
-      case 'unravel':
-        e.relicDamageTakenMul = (e.relicDamageTakenMul ?? 1) * 0.88;
-        break;
-      case 'tribute':
-        this.scaleEliteDurability(e, 1.15);
-        e.contactDps *= 1.08;
-        break;
-      case 'reprisal':
-        e.relicCastMul = (e.relicCastMul ?? 1) * 1.2;
-        e.relicGapMul = (e.relicGapMul ?? 1) * 0.92;
-        if (allowClaim) e.groundRelicCastMul = (e.groundRelicCastMul ?? 1) * 1.2;
-        break;
-    }
+    this.eliteProgression.applyItem(e, id, allowClaim);
   }
 
   private eliteInheritanceBudget(e: Ent) {
-    const t = Math.max(0, Math.min(1, this.time / this.runDuration));
-    const base = e.rarity === 'legendary' ? 2 : e.rarity === 'uplifted' ? 1 : 0;
-    if (this.time < 90) return Math.min(base, 1);
-    return Math.min(10, base + Math.floor(t * 7));
+    return 0; // compatibility shim; policy lives in EliteProgressionSystem.
   }
 
   private nativeEliteGrowthBudget(e: Ent) {
-    if (this.time < 120) return 0;
-    const depth = 1 + Math.floor((this.time - 120) / 90);
-    const rarity = e.rarity === 'legendary' ? 2 : e.rarity === 'uplifted' ? 1 : 0;
-    return Math.min(6, depth + rarity);
+    return 0; // compatibility shim; policy lives in EliteProgressionSystem.
   }
 
   private grantNativeEliteGrowth(e: Ent) {
-    const budget = this.nativeEliteGrowthBudget(e);
-    if (!budget) return;
-    const owned = new Set<ItemId>([...(e.relicItems ?? []), ...(e.evolutionItems ?? [])]);
-    const pool = itemOrder.filter((id) => !owned.has(id));
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = this.rng.int(i + 1);
-      [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
-    e.evolutionItems ??= [];
-    for (const id of pool.slice(0, budget)) {
-      e.evolutionItems.push(id);
-      this.eliteEvolutionHistory.push(id);
-      this.applyEliteItem(e, id, true);
-    }
+    this.eliteProgression.grantNativeGrowth(e);
   }
 
   private inheritEliteEvolution(e: Ent) {
-    if (!this.eliteEvolutionHistory.length) return;
-    e.evolutionItems ??= [];
-    const captured = new Set(e.relicItems ?? []);
-    for (const id of new Set(this.eliteEvolutionHistory)) {
-      e.evolutionItems.push(id);
-      if (!captured.has(id)) this.applyEliteItem(e, id, false);
-    }
+    this.eliteProgression.inheritEvolution(e);
   }
 
   private inheritEliteLegacy(e: Ent, all = false) {
-    if (!this.eliteLegacyItems.length) return;
-    e.relicItems ??= [];
-    if (all) {
-      // The Warden visibly carries the complete captured history, including repeated finds.
-      // Repeats already increase its global legacy mass through boss HP scaling; applying the
-      // same multiplicative item effect over and over would turn a lucky duplicate streak into
-      // exponential noise, so each distinct mechanical rule is applied once.
-      e.relicItems.push(...this.eliteLegacyItems);
-      for (const id of new Set(this.eliteLegacyItems)) this.applyEliteItem(e, id, false);
-      return;
-    }
-    const pool = [...this.eliteLegacyItems];
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = this.relicRng.int(i + 1);
-      [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
-    for (const id of pool.slice(0, this.eliteInheritanceBudget(e))) {
-      e.relicItems.push(id);
-      this.applyEliteItem(e, id, false);
-    }
+    this.eliteProgression.inheritLegacy(e, all);
   }
 
   private giveEliteRelic(e: Ent, r: Relic) {
     const def = items[r.item];
     this.metrics.relicsTakenByElites++;
-    e.relicItems ??= [];
-    e.relicItems.push(r.item);
-    this.eliteLegacyItems.push(r.item);
-    this.applyEliteItem(e, r.item, true);
+    this.eliteProgression.recordCapturedRelic(e, r.item);
     const record = this.eliteLogById.get(e.id);
     if (record) record.itemsTaken.push(r.item);
     this.events.push({
@@ -2603,16 +2445,8 @@ export class Simulation {
     });
   }
   private claimOneMoreRefusal(e: Ent) {
-    const pool = this.refusalStore.filter((card) => !e.repertoire.includes(card.serial));
-    if (!pool.length) return;
-    const card = pool[this.relicRng.int(pool.length)];
-    if (card.heldBy === 0) card.heldBy = e.id;
-    e.repertoire.push(card.serial);
-    // Apply only the new card. Re-running applyRefusedAxes would compound every old
-    // mobility/item modifier each time an elite learns one more refusal.
-    if (card.kind === 'item' && card.item) this.applyEliteItem(e, card.item, false);
-    else if (card.kind === 'axis' && card.resonance === 'conductivity') e.contactDps *= 1.12;
-    else if (card.kind === 'axis' && card.resonance === 'mobility') e.speed *= 1.12;
+    // Kept only as a compatibility seam for older regression fixtures.
+    this.eliteProgression.applyItem(e, 'keen_eye', true);
   }
 
   private updateConstructs() {
