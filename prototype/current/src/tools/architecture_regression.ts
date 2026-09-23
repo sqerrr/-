@@ -10,6 +10,7 @@ const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const entityStore=readFileSync('src/core/entityStore.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
 const eliteBehavior=readFileSync('src/core/eliteBehaviorSystem.ts','utf8');
+const eliteAffix=readFileSync('src/core/eliteAffixSystem.ts','utf8');
 const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
 const enemyBehavior=readFileSync('src/core/enemyBehaviorSystem.ts','utf8');
 const stateModel=readFileSync('src/core/state.ts','utf8');
@@ -41,6 +42,16 @@ assert(eliteBehavior.includes('export class EliteBehaviorSystem'), 'elite chassi
 for (const chassis of ['hunter','architect','broodmaker','bulwark','harvester','shepherd'])
   assert(eliteBehavior.includes("chassis === '"+chassis+"'"), 'elite behavior system missing chassis: '+chassis);
 assert(simulation.includes('private eliteBehavior!: EliteBehaviorSystem'), 'Simulation no longer delegates elite chassis AI');
+assert(eliteAffix.includes('export class EliteAffixSystem'), 'elite affixes have no dedicated behavior system');
+for (const affix of ['crowned','brood','vanguard','temporal','regenerating','shielded'])
+  assert(eliteAffix.includes("entity.affix === '"+affix+"'"), 'elite affix system missing behavior: '+affix);
+assert(simulation.includes('private eliteAffix!: EliteAffixSystem'), 'Simulation no longer delegates elite affix behavior');
+const enemyAiBlock=simulation.slice(
+  simulation.indexOf('private updateEnemyAI()'),
+  simulation.indexOf('private elitePatternCooldown(', simulation.indexOf('private updateEnemyAI()'))
+);
+for (const token of ["affix === 'temporal'","affix === 'shielded'","affix === 'vanguard'","affix === 'brood'"])
+  assert(!enemyAiBlock.includes(token), 'elite affix behavior leaked back into updateEnemyAI: '+token);
 assert(!simulation.includes("if (c === 'hunter')") && !simulation.includes('private beginElitePattern('),
   'authored elite chassis state machines leaked back into Simulation');
 assert(bossBehavior.includes('export class BossBehaviorSystem'), 'Warden behavior has no dedicated system');
@@ -107,6 +118,7 @@ console.log('architecture-regression OK', {
   entityStore:true,
   encounterDirector:true,
   eliteBehaviorSystem:true,
+  eliteAffixSystem:true,
   bossBehaviorSystem:true,
   enemyBehaviorSystem:true,
   statusSystem:true,
