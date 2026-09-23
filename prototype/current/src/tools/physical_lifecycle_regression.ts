@@ -252,7 +252,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   const sim=fixture('orbit_blades','frost_ring','carrier');
   sim.tick=60; // past the initial hit interval
   sim.ents=sim.ents.slice(0,1);
-  const e=sim.ents[0], st=sim.skillsRuntime.get('orbit_blades'), center={x:0,z:0}, profile=sim.orbitProfile(st,center);
+  const e=sim.ents[0], st=sim.skillsRuntime.get('orbit_blades'), center={x:0,z:0}, profile=sim.orbitSystem.profile(st,center);
   sim.activateSlot(0);
   const nextTime=(sim.tick+1)/sim.hz, speed=st.mutation==='orbit_saw'?2.55:3.4,
     gap=nextTime*speed+Math.PI/profile.count;
@@ -272,7 +272,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   const sim=fixture('orbit_blades','frost_ring','carrier');
   sim.tick=60;sim.ents=sim.ents.slice(0,1);
   const st=sim.skillsRuntime.get('orbit_blades');st.mutation='orbit_outbound';
-  const e=sim.ents[0],profile=sim.orbitProfile(st,{x:0,z:0});
+  const e=sim.ents[0],profile=sim.orbitSystem.profile(st,{x:0,z:0});
   e.x=20;e.z=20;
   sim.activateSlot(0);
   assert(casts(sim,'frost_ring').length===0,'Outbound pulse masqueraded as a Carrier contact');
@@ -436,7 +436,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
         if(left==='orbit_blades'){
           sim.tick=60;
           sim.ents=sim.ents.slice(0,1);
-          const st=sim.skillsRuntime.get(left),p=sim.orbitProfile(st,{x:0,z:0}),
+          const st=sim.skillsRuntime.get(left),p=sim.orbitSystem.profile(st,{x:0,z:0}),
             speed=st.mutation==='orbit_saw'?2.55:3.4,a=((sim.tick+1)/sim.hz)*speed;
           sim.ents[0].x=Math.cos(a)*p.radius;
           sim.ents[0].z=Math.sin(a)*p.radius;
