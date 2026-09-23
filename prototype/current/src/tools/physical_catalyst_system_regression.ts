@@ -72,12 +72,12 @@ const reset=()=>{casts.length=0;events.length=0;reactions=0;entities.length=0;};
   reset();
   const bare=binding('reverse');
   system.handle(bare,event('terminal',{x:5,z:0}));
-  assert(bare.done&&casts.length===0,'Reverse fabricated a route from bare terminal');
+  assert(bare.done&&Number(casts.length)===0,'Reverse fabricated a route from bare terminal');
 
   const b=binding('reverse');
   system.handle(b,event('path',{previousX:0,previousZ:0,x:3,z:0,carrierKind:'projectile',carrierId:2}));
   system.handle(b,event('terminal',{x:5,z:0,carrierKind:'projectile',carrierId:2}));
-  assert(casts.length===1&&casts[0].x===5&&Number(casts[0].aimX)<0,
+  assert(Number(casts.length)===1&&Number(casts[0].x)===5&&Number(casts[0].aimX)<0,
     'Reverse no longer starts at endpoint facing back along route');
 }
 
@@ -89,7 +89,7 @@ const reset=()=>{casts.length=0;events.length=0;reactions=0;entities.length=0;};
   const before=target.x;
   system.handle(b,event('area',{x:0,z:0,radius:2,shape:{kind:'circle',x:0,z:0,radius:2}}));
   assert(target.x<before&&target.displacedUntil>now,'Collapse stopped pulling bodies in shared area');
-  assert(casts.length===1&&casts[0].x===0&&casts[0].z===0,'radial Collapse payload moved off center');
+  assert(Number(casts.length)===1&&Number(casts[0].x)===0&&Number(casts[0].z)===0,'radial Collapse payload moved off center');
   assert(events.some(e=>e.type==='CatalystChoreography'&&e.mode==='collapse'),
     'Collapse choreography event missing');
 }
