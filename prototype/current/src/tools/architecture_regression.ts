@@ -13,6 +13,7 @@ const fieldSystem=readFileSync('src/core/fieldSystem.ts','utf8');
 const legacyCatalyst=readFileSync('src/core/legacyCatalystSystem.ts','utf8');
 const constructSystem=readFileSync('src/core/constructSystem.ts','utf8');
 const entityStore=readFileSync('src/core/entityStore.ts','utf8');
+const deathResolution=readFileSync('src/core/deathResolutionSystem.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
 const squadDirector=readFileSync('src/core/squadDirector.ts','utf8');
 const eliteBehavior=readFileSync('src/core/eliteBehaviorSystem.ts','utf8');
@@ -91,6 +92,19 @@ assert(!simulation.includes('private orbitProfile('), 'Orbit geometry policy lea
 assert(!simulation.includes('private orbitPhoenixAt =') && !simulation.includes('private orbitAcc ='),
   'Orbit-specific cadence state leaked back into Simulation');
 assert(state.includes('export type ActivationContext ='), 'chain activation context is anonymous again');
+assert(deathResolution.includes('export class DeathResolutionSystem'), 'entity death consequences have no dedicated resolver');
+assert(simulation.includes('private deathResolution!: DeathResolutionSystem'), 'Simulation no longer delegates entity death consequences');
+const cleanupBlock=simulation.slice(
+  simulation.indexOf('private cleanup()'),
+  simulation.indexOf('private checkProgression(', simulation.indexOf('private cleanup()'))
+);
+assert(cleanupBlock.includes('this.deathResolution.resolve(this.ents)'),
+  'Simulation cleanup no longer delegates death consequences');
+for (const token of ["e.affix === 'volatile'","e.kind === 'inkblot'","replicant_feedback","sentry_salvager"])
+  assert(!cleanupBlock.includes(token), 'death policy leaked back into Simulation cleanup: '+token);
+assert(!simulation.includes('const ELITE_RARITY_CORE:') && !simulation.includes('const eliteAffixThreat:'),
+  'death-only elite reward tables leaked back into Simulation');
+
 assert(entityStore.includes('export class EntityStore'), 'entity roster has no dedicated owner/query boundary');
 assert(simulation.includes('private entityStore = new EntityStore()'), 'Simulation no longer delegates entity identity/query ownership');
 assert(!simulation.includes('this.ents.find('), 'hot-path id lookup bypasses EntityStore index');
@@ -186,6 +200,7 @@ console.log('architecture-regression OK', {
   constructSystem:true,
   legacyCatalystSystem:true,
   entityStore:true,
+  deathResolutionSystem:true,
   encounterDirector:true,
   squadDirector:true,
   eliteBehaviorSystem:true,
