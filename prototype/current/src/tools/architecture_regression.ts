@@ -7,6 +7,7 @@ function assert(ok: unknown, message: string): asserts ok {
 const simulation=readFileSync('src/core/simulation.ts','utf8');
 const state=readFileSync('src/core/state.ts','utf8');
 const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
+const physicalActivation=readFileSync('src/core/physicalActivationSystem.ts','utf8');
 const physicalCatalyst=readFileSync('src/core/physicalCatalystSystem.ts','utf8');
 const projectileSystem=readFileSync('src/core/projectileSystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
@@ -35,6 +36,13 @@ assert(state.includes('export type PhysicalEvent =') && state.includes('export t
 assert(!simulation.includes("type EnemyState = 'normal'"), 'Simulation owns entity-state declarations again');
 assert(!simulation.includes('type CatalystBinding ='), 'Simulation owns Catalyst binding declarations again');
 assert(physical.includes('export class PhysicalLifecycle'), 'physical lifecycle has no dedicated owner');
+assert(physicalActivation.includes('export class PhysicalActivationSystem'),
+  'Catalyst 2.x activation protocol has no dedicated owner');
+assert(simulation.includes('private physicalActivations!: PhysicalActivationSystem'),
+  'Simulation no longer delegates physical activation protocol');
+for (const method of ['isPhysicalCatalyst','armOutgoingPhysicalCatalyst','publishImmediatePhysicalTrace','tracePath'])
+  assert(!simulation.includes('private '+method+'('), 'physical activation protocol leaked back into Simulation: '+method);
+
 assert(physicalCatalyst.includes('export class PhysicalCatalystSystem'), 'Catalyst 2.x binding policy has no dedicated owner');
 assert(simulation.includes('private physicalCatalysts!: PhysicalCatalystSystem'),
   'Simulation no longer delegates Catalyst 2.x binding policy');
@@ -216,6 +224,7 @@ console.log('architecture-regression OK', {
   frameSnapshotReuse:true,
   physicalLifecycleOwner:true,
   physicalCatalystSystem:true,
+  physicalActivationSystem:true,
   projectileSystem:true,
   delayedStrikeSystem:true,
   orbitSystem:true,
