@@ -10,10 +10,10 @@ const orbit:any = new Simulation({seed:88001,hz:60,benchmark:true,mode:'clean'})
 orbit.configureBenchmarkLoadout({slots:['orbit_blades'],catalysts:[]});
 const ost=orbit.skillsRuntime.get('orbit_blades');
 ost.count=1; orbit.resonance.multiplicity=0; orbit.doctrines.quantity=0;
-const baseProfile=orbit.orbitProfile(ost), baseSnap=orbit.snapshot().orbit;
+const baseProfile=orbit.orbitSystem.profile(ost,orbit.orbitCenter()), baseSnap=orbit.snapshot().orbit;
 assert(baseSnap.active && baseSnap.count===baseProfile.count && baseSnap.radius===baseProfile.radius,'orbit snapshot drifted from gameplay profile');
 orbit.resonance.multiplicity=2; orbit.doctrines.quantity=6; ost.count=2;
-const grown=orbit.orbitProfile(ost), grownSnap=orbit.snapshot().orbit;
+const grown=orbit.orbitSystem.profile(ost,orbit.orbitCenter()), grownSnap=orbit.snapshot().orbit;
 assert(grown.count>baseProfile.count,'orbit count modifiers do not change gameplay count');
 assert(grown.hitInterval<baseProfile.hitInterval,'more orbit blades do not increase real contact cadence');
 assert(grownSnap.count===grown.count && grownSnap.radius===grown.radius,'renderer orbit state is not simulation-authored');
