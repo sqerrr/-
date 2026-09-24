@@ -1043,6 +1043,7 @@ export class Simulation {
       cycle: () => this.cycle,
       skillRadius: (runtime, base, slot) => this.skillRadius(runtime, base, slot),
       skillRange: (runtime, base) => this.skillRange(runtime, base),
+      persistentDuration: (runtime, base, slot) => this.persistentDuration(runtime, base, slot),
       powerBucket: (runtime) => this.powerBucket(runtime),
       slotAmp: (slot, target) => this.slotAmp(slot, target),
       memoryFactor: () => this.memoryFactor(),
@@ -1054,19 +1055,36 @@ export class Simulation {
       bestTarget: (source, predicate, compare) => this.bestTarget(source, predicate, compare),
       targetVisible: (source, target) => this.targetVisible(source, target),
       aimPoint: (source, range) => this.aimPoint(source, range),
+      rotatedAim: (source, radians) => this.rotatedAim(source, radians),
+      rayHits: (source, aimX, aimZ, range, width, maxHits = 99) =>
+        this.rayHits(source, aimX, aimZ, range, width, maxHits),
+      firstBlockingObstacleHit: (x0, z0, x1, z1, padding = 0.08) => {
+        const hit = this.firstBlockingObstacleHit(x0, z0, x1, z1, padding);
+        return hit ? { t: hit.t } : null;
+      },
       damage: (target, amount, source, directional, sourceX, sourceZ, sourceSlot) =>
         this.damage(target, amount, source, directional, sourceX, sourceZ, sourceSlot),
       spawnProjectile: (projectile) => {
         this.spawnProjectile(projectile);
       },
       scheduleStrike: (strike) => this.scheduleStrike(strike),
+      addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
       addCloseDamage: (amount) => {
         this.closeDamage += amount;
       },
       addActivationControl: (amount) => {
         this.currentActivationControl += amount;
       },
-      noteState: (state) => this.noteState(state)
+      noteState: (state) => this.noteState(state),
+      noteReaction: () => {
+        this.metrics.reactions++;
+      },
+      emitReaction: (reaction, x, z, amount) =>
+        this.events.push({ type: 'Reaction', tick: this.tick, reaction, x, z, amount }),
+      emitRareEvent: (title, detail, x, z) =>
+        this.events.push({ type: 'RareEvent', tick: this.tick, title, detail, x, z }),
+      grantBarrier: (amount) => this.grantBarrier(amount),
+      doctrineForce: () => this.doctrines.force
     });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
@@ -2450,15 +2468,11 @@ export class Simulation {
 
   private dispatchSkill(id: SkillId, st: SkillRuntime, slot: number, src: CastSource) {
     if (this.phenomenonCasts.cast(id, st, slot, src)) return;
-    if (id === 'ember_lance') this.castEmber(st, slot, src);
-    else if (id === 'frost_ring') this.castFrost(st, slot, src);
-    else if (id === 'rail_spear') this.castRail(st, slot, src);
-    else if (id === 'cleaver') this.castCleaver(st, slot, src);
+    if (id === 'cleaver') this.castCleaver(st, slot, src);
     else if (id === 'chain_arc') this.castArc(st, slot, src);
     else if (id === 'orbit_blades') this.castOrbit(st, slot, src);
     else if (id === 'mortar_bloom') this.castMortar(st, slot, src);
     else if (id === 'sentry') this.castSentry(st, slot, src);
-    else if (id === 'toxic_mist') this.castToxic(st, slot, src);
     else if (id === 'repulse_halo') this.castRepulse(st, slot, src);
     else if (id === 'mass_driver') this.castMassDriver(st, slot, src);
   }
@@ -3128,137 +3142,10 @@ export class Simulation {
     this.events.push({ type: 'CombatShape', tick: this.tick, source, intent, shape });
   }
 
-  private castEmber(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut = st.mutation,
-      count = this.projectileCount(st, slot);
-    let rays: number[] = [];
-    if (mut === 'ember_volley') {
-      const n = Math.max(3, count + 2);
-      for (let i = 0; i < n; i++) rays.push((i - (n - 1) / 2) * 0.13);
-    } else if (count > 1) {
-      for (let i = 0; i < count; i++) rays.push((i - (count - 1) / 2) * 0.08);
-    } else rays = [0];
-    for (const ang of rays) {
-      const a = this.rotatedAim(src, ang),
-        range = this.skillRange(st, mut === 'ember_furnace' ? 8 : skills.ember_lance.baseRange),
-        width = this.skillRadius(st, mut === 'ember_furnace' ? 1.05 : 0.4, slot),
-        maxHits = this.mutationIs(st, 'ember_impaler') ? 4 : 1;
-      this.combatShape('ember_lance', {
-        kind: 'ray',
-        x: src.x,
-        z: src.z,
-        aimX: a.x,
-        aimZ: a.z,
-        range,
-        halfWidth: width
-      });
-      for (const h of this.rayHits(src, a.x, a.z, range, width, maxHits)) {
-        let dmg =
-          skills.ember_lance.baseDamage *
-          this.powerBucket(st) *
-          this.slotAmp(slot, h.e) *
-          (mut === 'ember_volley' ? 0.82 : count > 1 ? 0.86 : 1);
-        if (this.mutationIs(st, 'ember_impaler') && h.e.kind === 'elite') dmg *= 1.7;
-        const chilled = h.e.chillUntil > this.time;
-        if (chilled) {
-          h.e.chillUntil = 0;
-          dmg *= 1.25;
-          this.metrics.reactions++;
-          this.events.push({
-            type: 'Reaction',
-            tick: this.tick,
-            reaction: 'thermal_shock',
-            x: h.e.x,
-            z: h.e.z,
-            amount: dmg * 0.35
-          });
-        }
-        this.damage(h.e, dmg, 'ember_lance', true);
-        h.e.igniteUntil = Math.max(
-          h.e.igniteUntil,
-          this.time + 3.2 * (1 + st.statusPotency) * this.memoryFactor()
-        );
-        this.noteState('ignite');
-        if (chilled) {
-          for (const o of this.targetsFor(src)) {
-            if (o !== h.e && o.hp > 0 && Math.hypot(o.x - h.e.x, o.z - h.e.z) < 1.65)
-              this.damage(o, dmg * 0.35, 'thermal_shock', false, h.e.x, h.e.z);
-          }
-        }
-        if (mut === 'ember_brand') h.e.markUntil = this.time + 4.5 * this.memoryFactor();
-      }
-    }
-    if (mut === 'ember_furnace') {
-      this.fields.push({
-        id: this.nextId++,
-        x: src.x + src.aimX * 3.3,
-        z: src.z + src.aimZ * 3.3,
-        radius: this.skillRadius(st, 1.5, slot),
-        ttl: this.persistentDuration(st, 2.9, slot),
-        kind: 'fire',
-        dps: 17 * this.powerBucket(st),
-        tickAcc: 0,
-        faction: src.faction,
-        ownerId: src.owner?.id ?? 0,
-        source: st.id,
-        sourceSlot: slot,
-        mutation: st.mutation,
-        rivalConcentration: effectGrammar[st.id].rivalConcentration
-      });
-      this.noteState('field');
-    }
-  }
-  private castFrost(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut=st.mutation,r=this.skillRadius(st,skills.frost_ring.baseRadius,slot),
-      shape:CombatShape={kind:'circle',x:src.x,z:src.z,radius:r};
-    this.combatShape('frost_ring',shape,'control');
-    let shattered=0; let firstShatter:Ent|null=null;
-    for(const e of this.targetsFor(src)){
-      const d=Math.hypot(e.x-src.x,e.z-src.z); if(!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;
-      const wasChilled=e.chillUntil>this.time, wasFrozen=(e.frozenUntil??0)>this.time;
-      let dmg=skills.frost_ring.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e);
-      if(mut==='frost_rim')dmg*=d>r*0.62?2:0.48;
-      const ignited=e.igniteUntil>this.time;
-      if(ignited){e.igniteUntil=0;dmg*=1.18;this.metrics.reactions++;this.events.push({type:'Reaction',tick:this.tick,reaction:'thermal_shock',x:e.x,z:e.z,amount:dmg*0.42});}
-      const meterGain=1+st.statusPotency*0.45+(this.doctrines.force*0.08); e.frostMeter=(e.frostMeter??0)+meterGain;
-      const freezeAt=e.kind==='elite'?3.5:2.0;
-      if((e.frostMeter??0)>=freezeAt){e.frostMeter=0;e.frozenUntil=this.time+(e.kind==='elite'?0.7:1.35)*this.memoryFactor();e.exposedUntil=Math.max(e.exposedUntil,this.time+(e.kind==='elite'?0.85:0.45));}
-      let shatter=wasFrozen||(mut==='frost_snap'&&wasChilled);
-      if(shatter){dmg+=22*this.powerBucket(st);e.frozenUntil=0;e.chillUntil=0;shattered++;firstShatter??=e;this.events.push({type:'RareEvent',tick:this.tick,title:'РАСКОЛ',detail:e.kind==='elite'?'Хрупкость элиты разбита':'Лёд расколот',x:e.x,z:e.z});}
-      const killed=this.damage(e,dmg,'frost_ring',false,src.x,src.z,slot);
-      e.chillUntil=Math.max(e.chillUntil,this.time+2.4*(1+st.statusPotency)*this.memoryFactor());this.noteState('chill');this.currentActivationControl+=1+st.control;
-      if(this.mutationIs(st,'frost_brittle'))e.exposedUntil=Math.max(e.exposedUntil,this.time+2.8*this.memoryFactor());
-      if(this.mutationIs(st,'frost_skin')&&killed&&(wasChilled||ignited||shatter))this.grantBarrier(9);
-      if(this.mutationIs(st,'frost_spirefall')&&(shatter||e.exposedUntil>this.time)){
-        for(const [ox,oz] of [[1.5,0],[-1.5,0],[0,1.5],[0,-1.5]])this.scheduleStrike({at:this.time+0.22,x:e.x+ox,z:e.z+oz,radius:0.62,damage:11*this.powerBucket(st),faction:src.faction,ownerId:src.owner?.id??0,source:'frost_ring',sourceSlot:slot,intent:'damage',telegraph:'frost_spire_tell'});
-      }
-    }
-    if(mut==='frost_front'){
-      this.fields.push({id:this.nextId++,x:src.x,z:src.z,radius:r*1.12,ttl:this.persistentDuration(st,1.6,slot),kind:'frost',dps:13*this.powerBucket(st),tickAcc:0,faction:src.faction,ownerId:src.owner?.id??0,source:st.id,sourceSlot:slot,mutation:st.mutation,rivalConcentration:effectGrammar[st.id].rivalConcentration});this.noteState('field');
-    }
-    if(this.mutationIs(st,'frost_glacier_heart')&&shattered>0){
-      const target=firstShatter??{x:src.x+src.aimX*2,z:src.z+src.aimZ*2} as Ent,dx=target.x-src.x,dz=target.z-src.z,m=Math.hypot(dx,dz)||1;
-      this.spawnProjectile({x:src.x,z:src.z,vx:dx/m*3.1,vz:dz/m*3.1,radius:1.15,ttl:4.5,damage:12*this.powerBucket(st),coverDamage:18,faction:src.faction,ownerId:src.owner?.id??0,source:'frost_ring',sourceSlot:slot,mutation:st.mutation,apotheosis:st.mutationApotheosis,rivalConcentration:1,behavior:'roller',phase:0,hitIds:[],growth:0.02});
-    }
-    if(this.mutationIs(st,'frost_worldstorm')){
-      this.spawnProjectile({x:src.x,z:src.z,vx:src.aimX*2.25,vz:src.aimZ*2.25,radius:r*0.62,ttl:7.0,damage:9*this.powerBucket(st),coverDamage:25,faction:src.faction,ownerId:src.owner?.id??0,source:'frost_ring',sourceSlot:slot,mutation:st.mutation,apotheosis:st.mutationApotheosis,rivalConcentration:1,behavior:'roller',phase:0,hitIds:[],growth:0.035});
-      this.events.push({type:'RareEvent',tick:this.tick,title:'БЕЛЫЙ ШТОРМ',detail:'Ледяной фронт движется через арену',x:src.x,z:src.z});
-    }
-  }
 
-  private castRail(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut=st.mutation;if(mut==='rail_gun'&&this.cycle%2===1)return;
-    const requestedCount=this.projectileCount(st,slot), count=mut==='rail_gun'?1:requestedCount+(mut==='rail_fan'?2:0),rays:number[]=[];
-    for(let i=0;i<count;i++)rays.push((i-(count-1)/2)*(mut==='rail_fan'?0.11:0.072));
-    let latticePoint:{x:number;z:number}|null=null;
-    for(const ang of rays){const a=this.rotatedAim(src,ang);let base=skills.rail_spear.baseDamage*this.powerBucket(st)*(mut==='rail_gun'?2.35:mut==='rail_fan'?0.58:mut==='rail_rack'?0.78:1);const requestedRange=this.skillRange(st,mut==='rail_gun'?25:skills.rail_spear.baseRange),width=this.skillRadius(st,0.34,slot),endX=src.x+a.x*requestedRange,endZ=src.z+a.z*requestedRange,block=this.firstBlockingObstacleHit(src.x,src.z,endX,endZ,width*0.2),range=requestedRange*(block?.t??1);this.combatShape('rail_spear',{kind:'ray',x:src.x,z:src.z,aimX:a.x,aimZ:a.z,range,halfWidth:width});const hits=this.rayHits(src,a.x,a.z,range,width,mut==='rail_gun'?14:mut==='rail_fan'?5:8);let first=true;
-      for(const h of hits){let dmg=base*this.slotAmp(slot,h.e);if(this.mutationIs(st,'rail_spot')&&h.e.markUntil>this.time)dmg*=1.25;const hadMark=h.e.markUntil>this.time;this.damage(h.e,dmg,'rail_spear',true,src.x,src.z,slot);h.e.embedded=Math.min(8,h.e.embedded+(mut==='rail_rack'?2:1));this.noteState('embed');if((this.mutationIs(st,'rail_spot')||hadMark)&&hadMark)h.e.exposedUntil=this.time+3;if(this.mutationIs(st,'rail_harpoon')&&first&&h.e.kind==='elite'){const dx=src.x-h.e.x,dz=src.z-h.e.z,d=Math.hypot(dx,dz)||1;h.e.x+=dx/d*1.25;h.e.z+=dz/d*1.25;}
-        if(this.mutationIs(st,'rail_execution_line')&&first&&h.e.kind==='elite')this.scheduleStrike({at:this.time+0.55,x:h.e.x,z:h.e.z,radius:0.85,damage:base*1.25,faction:src.faction,ownerId:src.owner?.id??0,source:'rail_spear',sourceSlot:slot,intent:'damage',telegraph:'rail_execution_beacon'});
-        if(this.mutationIs(st,'rail_sky_lance')&&hadMark)this.scheduleStrike({at:this.time+0.72,x:h.e.x,z:h.e.z,radius:1.0,damage:base*1.7,faction:src.faction,ownerId:src.owner?.id??0,source:'rail_spear',sourceSlot:slot,intent:'damage',telegraph:'rail_sky_lance_beacon'});
-        latticePoint??={x:h.e.x,z:h.e.z};first=false;}
-    }
-    if(this.mutationIs(st,'rail_lattice')){const p=latticePoint??this.aimPoint(src,this.skillRange(st,skills.rail_spear.baseRange)*0.75),a0=Math.atan2(src.aimZ,src.aimX);for(const off of [0,Math.PI/2])for(let i=-3;i<=3;i++){const a=a0+off;this.scheduleStrike({at:this.time+0.42+Math.abs(i)*0.035,x:p.x+Math.cos(a)*i*1.3,z:p.z+Math.sin(a)*i*1.3,radius:0.42,damage:skills.rail_spear.baseDamage*this.powerBucket(st)*0.48,faction:src.faction,ownerId:src.owner?.id??0,source:'rail_spear',sourceSlot:slot,intent:'damage',telegraph:'rail_lattice_node'});}}
-  }
+
+
+
 
   private castCleaver(st: SkillRuntime, slot: number, src: CastSource, repeat = false) {
     const mut=st.mutation,r=this.skillRadius(st,skills.cleaver.baseRadius,slot);let half=mut==='cleaver_guillotine'?0.65:1.12;if(mut==='cleaver_roundhouse')half=Math.PI;const shape:CombatShape={kind:'sector',x:src.x,z:src.z,radius:r,aimX:src.aimX,aimZ:src.aimZ,halfAngle:half};this.combatShape('cleaver',shape);let kills=0,hookX=0,hookZ=0,hookN=0,ruptures=0;
@@ -3393,16 +3280,7 @@ export class Simulation {
     this.noteState('construct');
   }
 
-  private castToxic(st: SkillRuntime, slot: number, src: CastSource) {
-    let r=this.skillRadius(st,skills.toxic_mist.baseRadius,slot),dps=skills.toxic_mist.baseDamage*this.powerBucket(st)*this.slotAmp(slot);if(st.mutation==='toxic_distilled'){r*=0.58;dps*=1.85;}const x=this.mutationIs(st,'toxic_plume')?src.x-src.vx*0.55:src.x,z=this.mutationIs(st,'toxic_plume')?src.z-src.vz*0.55:src.z;
-    const mistShape:CombatShape={kind:'circle',x,z,radius:r};
-    const reactiveTargets:Ent[]=[];if(this.mutationIs(st,'toxic_reactive'))for(const e of this.targetsFor(src)){if(e.hp<=0||!combatShapeIntersectsCircle(mistShape,e.x,e.z,e.radius))continue;const reactive=e.igniteUntil>this.time||e.chillUntil>this.time||(e.frozenUntil??0)>this.time||e.exposedUntil>this.time||e.displacedUntil>this.time;if(reactive){this.damage(e,dps*1.25,'septic_cut',false,x,z,slot);this.metrics.reactions++;reactiveTargets.push(e);}}
-    const pushField=(fx:number,fz:number,fr:number,ttl:number,behavior?:'host')=>this.fields.push({id:this.nextId++,x:fx,z:fz,radius:fr,ttl,kind:'toxic',dps,tickAcc:0,faction:src.faction,ownerId:src.owner?.id??0,source:st.id,sourceSlot:slot,mutation:st.mutation,rivalConcentration:effectGrammar[st.id].rivalConcentration,behavior});
-    this.combatShape('toxic_mist',mistShape,'field');pushField(x,z,r,this.persistentDuration(st,4.2,slot),this.mutationIs(st,'toxic_pestilent_host')?'host':undefined);
-    if(this.mutationIs(st,'toxic_plague_road')){const m=Math.hypot(src.vx,src.vz)||1,dx=src.vx/m,dz=src.vz/m;for(let i=1;i<=3;i++)pushField(x-dx*i*1.3,z-dz*i*1.3,r*0.55,2.4);}
-    if(this.mutationIs(st,'toxic_septic_bloom'))for(const e of reactiveTargets){for(let i=0;i<4;i++){const a=i*Math.PI/2;pushField(e.x+Math.cos(a)*1.1,e.z+Math.sin(a)*1.1,r*0.42,2.2);this.scheduleStrike({at:this.time+0.12+i*0.04,x:e.x+Math.cos(a)*1.1,z:e.z+Math.sin(a)*1.1,radius:r*0.45,damage:dps*0.72,faction:src.faction,ownerId:src.owner?.id??0,source:'toxic_mist',sourceSlot:slot,intent:'field',telegraph:'septic_bloom'});}}
-    this.noteState('toxin');
-  }
+
 
   private castRepulse(st: SkillRuntime, slot: number, src: CastSource) {
     const mut = st.mutation,
