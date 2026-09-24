@@ -10,6 +10,7 @@ const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const physicalActivation=readFileSync('src/core/physicalActivationSystem.ts','utf8');
 const physicalCatalyst=readFileSync('src/core/physicalCatalystSystem.ts','utf8');
 const projectileSystem=readFileSync('src/core/projectileSystem.ts','utf8');
+const phenomenonCastSystem=readFileSync('src/core/phenomenonCastSystem.ts','utf8');
 const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
 const orbitSystem=readFileSync('src/core/orbitSystem.ts','utf8');
@@ -57,6 +58,14 @@ for (const token of ['activationPending =','catalystBindings:','physicalEvents:'
   assert(!simulation.includes(token), 'physical lifecycle storage leaked back into Simulation: '+token);
 assert(simulation.includes('private physical = new PhysicalLifecycle()'),
   'Simulation no longer delegates causal activation bookkeeping');
+assert(phenomenonCastSystem.includes('export class PhenomenonCastSystem'),
+  'Phenomenon cast behavior has no dedicated system');
+assert(simulation.includes('private phenomenonCasts!: PhenomenonCastSystem'),
+  'Simulation no longer delegates migrated Phenomenon casts');
+assert(simulation.includes('this.phenomenonCasts.cast(id, st, slot, src)'),
+  'dispatchSkill no longer routes through PhenomenonCastSystem');
+for (const method of ['castBreachLine','castContactSaw','castBackhand','castSpreadingFront','castShardFan','castTetherDrag','castPinBurst'])
+  assert(!simulation.includes('private '+method+'('), 'migrated Phenomenon cast leaked back into Simulation: '+method);
 assert(delayedStrikeSystem.includes('export class DelayedStrikeSystem'), 'delayed impacts have no dedicated runtime system');
 assert(simulation.includes('private delayedStrikeSystem!: DelayedStrikeSystem'),
   'Simulation no longer delegates delayed impacts');
@@ -252,6 +261,7 @@ console.log('architecture-regression OK', {
   physicalCatalystSystem:true,
   physicalActivationSystem:true,
   projectileSystem:true,
+  phenomenonCastSystem:true,
   relicRaceSystem:true,
   delayedStrikeSystem:true,
   orbitSystem:true,
