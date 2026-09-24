@@ -39,6 +39,7 @@ import { OrbitSystem } from './orbitSystem.js';
 import { PhysicalActivationSystem } from './physicalActivationSystem.js';
 import { PhysicalCatalystSystem } from './physicalCatalystSystem.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
+import { PhenomenonCastSystem } from './phenomenonCastSystem.js';
 import { ProjectileSystem } from './projectileSystem.js';
 import { RelicRaceSystem } from './relicRaceSystem.js';
 import { Rng } from './rng.js';
@@ -287,6 +288,7 @@ export class Simulation {
   private physicalActivations!: PhysicalActivationSystem;
   private physicalCatalysts!: PhysicalCatalystSystem;
   private relicRace!: RelicRaceSystem;
+  private phenomenonCasts!: PhenomenonCastSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -1035,6 +1037,36 @@ export class Simulation {
       skillAt: (slot) => this.slots[slot] ?? null,
       addBinding: (binding) => this.physical.addBinding(binding),
       queueEvent: (event) => this.physical.queue(event)
+    });
+    this.phenomenonCasts = new PhenomenonCastSystem({
+      time: () => this.time,
+      cycle: () => this.cycle,
+      skillRadius: (runtime, base, slot) => this.skillRadius(runtime, base, slot),
+      skillRange: (runtime, base) => this.skillRange(runtime, base),
+      powerBucket: (runtime) => this.powerBucket(runtime),
+      slotAmp: (slot, target) => this.slotAmp(slot, target),
+      memoryFactor: () => this.memoryFactor(),
+      mutationIs: (runtime, mutation) => this.mutationIs(runtime, mutation),
+      projectileCount: (runtime, slot) => this.projectileCount(runtime, slot),
+      combatShape: (source, shape, intent = 'damage', physicalTrace = true) =>
+        this.combatShape(source, shape, intent, physicalTrace),
+      targetsFor: (source) => this.targetsFor(source),
+      bestTarget: (source, predicate, compare) => this.bestTarget(source, predicate, compare),
+      targetVisible: (source, target) => this.targetVisible(source, target),
+      aimPoint: (source, range) => this.aimPoint(source, range),
+      damage: (target, amount, source, directional, sourceX, sourceZ, sourceSlot) =>
+        this.damage(target, amount, source, directional, sourceX, sourceZ, sourceSlot),
+      spawnProjectile: (projectile) => {
+        this.spawnProjectile(projectile);
+      },
+      scheduleStrike: (strike) => this.scheduleStrike(strike),
+      addCloseDamage: (amount) => {
+        this.closeDamage += amount;
+      },
+      addActivationControl: (amount) => {
+        this.currentActivationControl += amount;
+      },
+      noteState: (state) => this.noteState(state)
     });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
@@ -2403,220 +2435,21 @@ export class Simulation {
   }
 
   /** A wide lane that keeps its full weight through every body standing in it. */
-  private castBreachLine(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut = st.mutation;
-    let range = skills.breach_line.baseRange * (1 + st.range);
-    let width = this.skillRadius(st, skills.breach_line.baseRadius, slot);
-    if (mut === 'breach_wide') width *= 1.6;
-    if (mut === 'breach_deep') {
-      width *= 0.7;
-      range *= 1.25;
-    }
-    this.combatShape('breach_line', {
-      kind: 'sector',
-      x: src.x,
-      z: src.z,
-      radius: range,
-      aimX: src.aimX,
-      aimZ: src.aimZ,
-      halfAngle: Math.atan2(width, Math.max(0.6, range * 0.5))
-    });
-    for (const e of this.targetsFor(src)) {
-      const dx = e.x - src.x,
-        dz = e.z - src.z,
-        along = dx * src.aimX + dz * src.aimZ;
-      if (along < -e.radius || along > range) continue;
-      if (Math.abs(dx * src.aimZ - dz * src.aimX) > width + e.radius) continue;
-      let dmg = skills.breach_line.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
-      if (mut === 'breach_wide') dmg *= 0.78;
-      if (mut === 'breach_deep') dmg *= 1.3;
-      this.damage(e, dmg, 'breach_line', true);
-      if (mut === 'breach_stagger') {
-        e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.6 * this.memoryFactor());
-        this.noteState('displaced');
-      }
-    }
-  }
+
   /** Constant work in contact: no aiming pause, no reach, nothing at all on the retreat. */
-  private castContactSaw(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut = st.mutation,
-      r = this.skillRadius(st, skills.contact_saw.baseRadius, slot);
-    const half = mut === 'saw_spin' ? Math.PI : 1.0;
-    this.combatShape('contact_saw', {
-      kind: 'sector',
-      x: src.x,
-      z: src.z,
-      radius: r,
-      aimX: src.aimX,
-      aimZ: src.aimZ,
-      halfAngle: half
-    });
-    for (const e of this.targetsFor(src)) {
-      const dx = e.x - src.x,
-        dz = e.z - src.z,
-        d = Math.hypot(dx, dz);
-      if (d > r + e.radius || d < 0.01) continue;
-      const dot = (dx / d) * src.aimX + (dz / d) * src.aimZ;
-      if (Math.acos(Math.max(-1, Math.min(1, dot))) > half) continue;
-      let dmg = skills.contact_saw.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
-      if (mut === 'saw_teeth') dmg *= 2;
-      if (mut === 'saw_spin') dmg *= 0.7;
-      this.damage(e, dmg, 'contact_saw', true);
-      this.closeDamage += dmg;
-      if (mut === 'saw_bleed') {
-        e.woundUntil = Math.max(e.woundUntil, this.time + 3.4 * this.memoryFactor());
-        e.woundDps = Math.max(e.woundDps, 5.5 * this.powerBucket(st));
-        this.noteState('wound');
-      }
-    }
-  }
+
   /** Pays for walking through the mass rather than backing away from it. */
-  private castBackhand(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut = st.mutation;
-    let r = this.skillRadius(st, skills.backhand.baseRadius, slot);
-    const moving = Math.hypot(src.vx, src.vz);
-    let bx = moving > 0.05 ? -src.vx / moving : -src.aimX,
-      bz = moving > 0.05 ? -src.vz / moving : -src.aimZ;
-    if (mut === 'backhand_wake') r *= 1 + Math.min(0.6, moving * 0.09);
-    const half = mut === 'backhand_twin' ? Math.PI : 1.75;
-    this.combatShape('backhand', {
-      kind: 'sector',
-      x: src.x,
-      z: src.z,
-      radius: r,
-      aimX: bx,
-      aimZ: bz,
-      halfAngle: half
-    });
-    for (const e of this.targetsFor(src)) {
-      const dx = e.x - src.x,
-        dz = e.z - src.z,
-        d = Math.hypot(dx, dz);
-      if (d > r + e.radius || d < 0.01) continue;
-      const dot = (dx / d) * bx + (dz / d) * bz;
-      if (Math.acos(Math.max(-1, Math.min(1, dot))) > half) continue;
-      let dmg = skills.backhand.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
-      if (mut === 'backhand_twin') dmg *= 0.68;
-      this.damage(e, dmg, 'backhand', true);
-      this.closeDamage += dmg;
-      if (mut === 'backhand_shove') {
-        e.x += (dx / d) * 1.6;
-        e.z += (dz / d) * 1.6;
-        e.displacedUntil = Math.max(e.displacedUntil, this.time + 0.35);
-        this.noteState('displaced');
-      }
-    }
-  }
+
   /** A ring that leaves the ground at the feet alone and takes the middle distance. */
-  private castSpreadingFront(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut = st.mutation;
-    let outer = this.skillRadius(st, skills.spreading_front.baseRadius, slot),
-      inner = mut === 'front_inner' ? 0.2 : 2.3;
-    if (mut === 'front_far') {
-      outer *= 1.3;
-      inner *= 1.5;
-    }
-    this.combatShape('spreading_front', { kind: 'circle', x: src.x, z: src.z, radius: outer });
-    for (const e of this.targetsFor(src)) {
-      const d = Math.hypot(e.x - src.x, e.z - src.z);
-      if (d > outer + e.radius || d < inner - e.radius) continue;
-      let dmg = skills.spreading_front.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
-      if (mut === 'front_far') dmg *= 0.8;
-      this.damage(e, dmg, 'spreading_front', false);
-      if (mut === 'front_slow') {
-        e.chillUntil = Math.max(e.chillUntil, this.time + 2.2 * this.memoryFactor());
-        this.noteState('chill');
-      }
-    }
-  }
+
   /** Covers an angle instead of a point, so a rough aim still lands something. */
-  private castShardFan(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut=st.mutation, range=this.skillRange(st,skills.shard_fan.baseRange);
-    let count=Math.min(5,this.projectileCount(st,slot));
-    let spread=0.18, speed=9.2, damage=skills.shard_fan.baseDamage*this.powerBucket(st)*this.slotAmp(slot);
-    if(mut==='fan_tight'){count=1;speed=12.4;damage*=1.55;spread=0;}
-    if(mut==='fan_wide'){count=Math.max(3,count);spread=0.34;damage*=0.82;}
-    if(this.mutationIs(st,'fan_storm')) count=Math.min(7,count+2);
-    let baseAimX=src.aimX,baseAimZ=src.aimZ;
-    if(this.mutationIs(st,'returner_execution')){
-      const priority=this.bestTarget(
-        src,
-        (e)=>e.kind==='elite'&&this.targetVisible(src,e),
-        (a,b)=>{
-          const marked=Number(b.markUntil>this.time)-Number(a.markUntil>this.time);
-          if(marked) return marked;
-          const adx=a.x-src.x,adz=a.z-src.z,bdx=b.x-src.x,bdz=b.z-src.z;
-          return adx*adx+adz*adz-(bdx*bdx+bdz*bdz);
-        }
-      );
-      if(priority){const dx=priority.x-src.x,dz=priority.z-src.z,m=Math.hypot(dx,dz)||1;baseAimX=dx/m;baseAimZ=dz/m;priority.markUntil=Math.max(priority.markUntil,this.time+2.4);}
-    }
-    for(let i=0;i<count;i++){
-      const ang=count===1?0:(i-(count-1)/2)*spread, c=Math.cos(ang),sn=Math.sin(ang), ax=baseAimX*c-baseAimZ*sn,az=baseAimX*sn+baseAimZ*c;
-      this.combatShape('shard_fan',{kind:'ray',x:src.x,z:src.z,aimX:ax,aimZ:az,range,halfWidth:0.18},'damage',false);
-      this.spawnProjectile({x:src.x+ax*0.55,z:src.z+az*0.55,vx:ax*speed,vz:az*speed,radius:0.22,ttl:Math.max(1.8,range/speed*2.2),damage,coverDamage:damage*0.7,faction:src.faction,ownerId:src.owner?.id??0,source:'shard_fan',sourceSlot:slot,mutation:mut,apotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.shard_fan.rivalConcentration,behavior:'returner',returnAt:Math.max(0.75,range/speed*0.78),phase:0,hitIds:[],carousel:this.mutationIs(st,'returner_carousel'),trailAcc:0});
-    }
-  }
 
-  private castTetherDrag(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut=st.mutation, range=this.skillRange(st,skills.tether_drag.baseRange), base=this.aimPoint(src,range);
-    const anchors:{x:number;z:number}[]=[];
-    if(this.mutationIs(st,'gravity_dragnet')){
-      for(let i=0;i<3;i++){const a=i*Math.PI*2/3+this.cycle*0.4;anchors.push({x:base.x+Math.cos(a)*2.3,z:base.z+Math.sin(a)*2.3});}
-    } else anchors.push(base);
-    const radius=this.skillRadius(st,mut==='tether_net'?4.8:mut==='tether_hook'?2.2:3.4,slot);
-    for(const anchor of anchors){
-      const dx0=anchor.x-src.x,dz0=anchor.z-src.z,d0=Math.hypot(dx0,dz0)||1;
-      this.combatShape('tether_line',{kind:'ray',x:src.x,z:src.z,aimX:dx0/d0,aimZ:dz0/d0,range:d0,halfWidth:0.08},'control');
-      const dragShape:CombatShape={kind:'circle',x:anchor.x,z:anchor.z,radius};
-      this.combatShape('tether_drag',dragShape,'control');
-      let pulled=0;
-      const candidates=this.targetsFor(src).filter(e=>e.hp>0&&combatShapeIntersectsCircle(dragShape,e.x,e.z,e.radius)).sort((a,b)=>Math.hypot(a.x-anchor.x,a.z-anchor.z)-Math.hypot(b.x-anchor.x,b.z-anchor.z));
-      const cap=mut==='tether_hook'?2:mut==='tether_net'?10:6;
-      for(const e of candidates){if(pulled++>=cap)break;const dx=anchor.x-e.x,dz=anchor.z-e.z,d=Math.hypot(dx,dz)||1,pull=(mut==='tether_hook'?2.4:1.35)*(1+st.control*0.25);this.damage(e,skills.tether_drag.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e),'tether_drag',false,anchor.x,anchor.z,slot);e.x+=dx/d*Math.min(pull,d*0.62);e.z+=dz/d*Math.min(pull,d*0.62);e.displacedUntil=Math.max(e.displacedUntil,this.time+(this.mutationIs(st,'tether_lock')?1.85:this.mutationIs(st,'tether_bind')?1.2:0.65));this.currentActivationControl+=1.2+st.control;this.noteState('displaced');
-        if(this.mutationIs(st,'gravity_prison')&&e.kind==='elite'){e.exposedUntil=Math.max(e.exposedUntil,this.time+2.1);e.chillUntil=Math.max(e.chillUntil,this.time+1.2);if(e.affix==='shielded')e.shieldStability=Math.max(0,(e.shieldStability??100)-28);this.combatShape('gravity_prison',{kind:'circle',x:e.x,z:e.z,radius:e.radius+1.2},'control');}
-      }
-      if(this.mutationIs(st,'gravity_singularity')) this.scheduleStrike({at:this.time+0.65,x:anchor.x,z:anchor.z,radius:radius*0.72,damage:skills.tether_drag.baseDamage*this.powerBucket(st)*2.4,faction:src.faction,ownerId:src.owner?.id??0,source:'tether_drag',sourceSlot:slot,intent:'control',telegraph:'gravity_singularity_tell'});
-    }
-  }
 
-  private castPinBurst(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut = st.mutation,
-      range = skills.pin_burst.baseRange * (1 + st.range);
-    let r = this.skillRadius(st, skills.pin_burst.baseRadius, slot);
-    if (mut === 'pin_deep') r *= 0.75;
-    const tx = src.x + src.aimX * range,
-      tz = src.z + src.aimZ * range;
-    this.combatShape('pin_burst', { kind: 'circle', x: tx, z: tz, radius: r });
-    for (const e of this.targetsFor(src)) {
-      const d = Math.hypot(e.x - tx, e.z - tz);
-      if (d > r + e.radius) continue;
-      let dmg = skills.pin_burst.baseDamage * this.powerBucket(st) * this.slotAmp(slot, e);
-      if (mut === 'pin_deep') dmg *= 1.45;
-      if (mut === 'pin_twin') dmg *= 0.62;
-      this.damage(e, dmg, 'pin_burst', false);
-      e.displacedUntil = Math.max(e.displacedUntil, this.time + 1.1 * this.memoryFactor());
-      this.noteState('displaced');
-      if (mut === 'pin_field') {
-        e.toxinUntil = Math.max(e.toxinUntil, this.time + 4.2 * this.memoryFactor());
-        e.toxinDps = Math.max(e.toxinDps, 6 * this.powerBucket(st));
-        this.noteState('toxin');
-      }
-    }
-    if (mut === 'pin_twin') {
-      for (const e of this.targetsFor(src)) {
-        const d = Math.hypot(e.x - tx, e.z - tz);
-        if (d > r * 1.3 + e.radius) continue;
-        this.damage(
-          e,
-          skills.pin_burst.baseDamage * 0.62 * this.powerBucket(st) * this.slotAmp(slot, e),
-          'pin_burst',
-          false
-        );
-      }
-    }
-  }
+
+
+
   private dispatchSkill(id: SkillId, st: SkillRuntime, slot: number, src: CastSource) {
+    if (this.phenomenonCasts.cast(id, st, slot, src)) return;
     if (id === 'ember_lance') this.castEmber(st, slot, src);
     else if (id === 'frost_ring') this.castFrost(st, slot, src);
     else if (id === 'rail_spear') this.castRail(st, slot, src);
@@ -2628,13 +2461,6 @@ export class Simulation {
     else if (id === 'toxic_mist') this.castToxic(st, slot, src);
     else if (id === 'repulse_halo') this.castRepulse(st, slot, src);
     else if (id === 'mass_driver') this.castMassDriver(st, slot, src);
-    else if (id === 'breach_line') this.castBreachLine(st, slot, src);
-    else if (id === 'contact_saw') this.castContactSaw(st, slot, src);
-    else if (id === 'backhand') this.castBackhand(st, slot, src);
-    else if (id === 'spreading_front') this.castSpreadingFront(st, slot, src);
-    else if (id === 'shard_fan') this.castShardFan(st, slot, src);
-    else if (id === 'tether_drag') this.castTetherDrag(st, slot, src);
-    else if (id === 'pin_burst') this.castPinBurst(st, slot, src);
   }
   private activateSlot(slot: number) {
     const lastSlot = this.activeSpan() - 1,
