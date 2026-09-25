@@ -36,6 +36,7 @@ import { EliteProgressionSystem } from './eliteProgressionSystem.js';
 import { EliteSpawnSystem } from './eliteSpawnSystem.js';
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
 import { EnemySpawnSystem } from './enemySpawnSystem.js';
+import { EnemyRecycleSystem } from './enemyRecycleSystem.js';
 import { EnemyDamageModifierSystem } from './enemyDamageModifierSystem.js';
 import { EntityStore } from './entityStore.js';
 import { FieldSystem } from './fieldSystem.js';
@@ -228,6 +229,7 @@ export class Simulation {
   private bossBehavior!: BossBehaviorSystem;
   private enemyBehavior!: EnemyBehaviorSystem;
   private enemySpawns!: EnemySpawnSystem;
+  private enemyRecycler!: EnemyRecycleSystem;
   private enemyDamageModifiers!: EnemyDamageModifierSystem;
   private squadDirector!: SquadDirector;
   private projectileSystem!: ProjectileSystem;
@@ -305,7 +307,6 @@ export class Simulation {
   private pois: Poi[] = [];
   private bossSpawned = false;
   private bossDefeated = false;
-  private recycleAcc = 0;
   private skillsRuntime = new Map<SkillId, SkillRuntime>();
   private catalystRuntime = new Map<CatalystId, CatalystRuntime>();
   private beatAcc = 0;
@@ -445,6 +446,22 @@ export class Simulation {
           tick: this.tick,
           entity: entity.id,
           kind: entity.kind,
+          x: entity.x,
+          z: entity.z
+        });
+      }
+    });
+    this.enemyRecycler = new EnemyRecycleSystem({
+      dt: () => this.dt,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      entities: () => this.ents,
+      pointAroundPlayer: (min, max) => this.pointAroundPlayer(min, max),
+      emitEliteReacquired: (entity) => {
+        this.events.push({
+          type: 'EliteReacquired',
+          tick: this.tick,
+          entity: entity.id,
           x: entity.x,
           z: entity.z
         });
@@ -1754,37 +1771,7 @@ export class Simulation {
   }
 
   private recycleFarEnemies() {
-    this.recycleAcc += this.dt;
-    if (this.recycleAcc < 0.35) return;
-    this.recycleAcc = 0;
-    for (const e of this.ents) {
-      if (e.hp <= 0) continue;
-      const d = Math.hypot(e.x - this.px, e.z - this.pz);
-      if (e.kind !== 'elite' && d > 29) {
-        const q = this.pointAroundPlayer(14, 19);
-        e.x = q.x;
-        e.z = q.z;
-        e.orderUntil = 0;
-        e.state = 'normal';
-        e.stateTimer = 0;
-        continue;
-      }
-      if (e.kind === 'elite' && d > (e.boss ? 38 : 33)) {
-        const q = this.pointAroundPlayer(e.boss ? 11 : 12, e.boss ? 15 : 16);
-        e.x = q.x;
-        e.z = q.z;
-        e.state = 'normal';
-        e.stateTimer = 0;
-        e.adaptStage = 0;
-        this.events.push({
-          type: 'EliteReacquired',
-          tick: this.tick,
-          entity: e.id,
-          x: e.x,
-          z: e.z
-        });
-      }
-    }
+    this.enemyRecycler.update();
   }
 
   step(cmd: Command = { moveX: 0, moveZ: 0, aimX: 1, aimZ: -1 }) {
