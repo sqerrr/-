@@ -37,6 +37,7 @@ const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
 const enemyBehavior=readFileSync('src/core/enemyBehaviorSystem.ts','utf8');
 const enemyDamageModifier=readFileSync('src/core/enemyDamageModifierSystem.ts','utf8');
 const playerDamageSystem=readFileSync('src/core/playerDamageSystem.ts','utf8');
+const playerMovementSystem=readFileSync('src/core/playerMovementSystem.ts','utf8');
 const stateModel=readFileSync('src/core/state.ts','utf8');
 const testHarness=readFileSync('src/testing/simulationHarness.ts','utf8');
 const statusSystem=readFileSync('src/core/statusSystem.ts','utf8');
@@ -205,6 +206,33 @@ for (const token of [
 ])
   assert(!damageHeroBlock.includes(token),
     'rival damage policy leaked back into Simulation.damageHero: '+token);
+assert(playerMovementSystem.includes('export class PlayerMovementSystem'),
+  'hero movement/dash runtime has no dedicated owner');
+assert(simulation.includes('private playerMovement!: PlayerMovementSystem'),
+  'Simulation no longer delegates hero movement runtime');
+const stepBlock=simulation.slice(
+  simulation.indexOf('  step(cmd: Command'),
+  simulation.indexOf('  private designMinutes()', simulation.indexOf('  step(cmd: Command'))
+);
+assert(stepBlock.includes('this.playerMovement.update(cmd)'),
+  'Simulation.step no longer delegates locomotion to PlayerMovementSystem');
+for (const token of [
+  'dashDirX','dashDirZ','DASH_SPEED','dashCooldownMul','dashIFrameMul',
+  'this.playerVX =','this.playerVZ =','this.px +=','this.pz +='
+])
+  assert(!stepBlock.includes(token),
+    'movement policy leaked back into Simulation.step: '+token);
+for (const field of [
+  'moveAmount','movementSamples','movementSum','dashDirX','dashDirZ'
+])
+  assert(!simulation.includes('private '+field),
+    'retired/moved movement state leaked back into Simulation: '+field);
+assert(simulation.includes('this.playerMovement.extendIFrames(this.time + duration)'),
+  'Phenomenon-granted dash iframes no longer route through PlayerMovementSystem');
+assert(simulation.includes('dashing: this.playerMovement.isDashing(this.time)') &&
+       simulation.includes('dashReady: this.playerMovement.isDashReady(this.time)') &&
+       simulation.includes('dashCharge: this.playerMovement.dashCharge(this.time)'),
+  'snapshot duplicates dash runtime policy instead of reading PlayerMovementSystem');
 for (const method of [
   'castBreachLine','castContactSaw','castBackhand','castSpreadingFront','castShardFan','castTetherDrag','castPinBurst',
   'castEmber','castFrost','castRail','castToxic',
@@ -447,6 +475,7 @@ console.log('architecture-regression OK', {
   enemyBehaviorSystem:true,
   enemyDamageModifierSystem:true,
   playerDamageSystem:true,
+  playerMovementSystem:true,
   statusSystem:true,
   entityComponents:true,
   typedTestHarness:true
