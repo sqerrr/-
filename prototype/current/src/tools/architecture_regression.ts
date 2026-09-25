@@ -33,6 +33,7 @@ const eliteProgression=readFileSync('src/core/eliteProgressionSystem.ts','utf8')
 const eliteAffix=readFileSync('src/core/eliteAffixSystem.ts','utf8');
 const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
 const enemyBehavior=readFileSync('src/core/enemyBehaviorSystem.ts','utf8');
+const enemyDamageModifier=readFileSync('src/core/enemyDamageModifierSystem.ts','utf8');
 const stateModel=readFileSync('src/core/state.ts','utf8');
 const testHarness=readFileSync('src/testing/simulationHarness.ts','utf8');
 const statusSystem=readFileSync('src/core/statusSystem.ts','utf8');
@@ -129,6 +130,23 @@ assert(!phenomenonCastSystem.includes('addCloseDamage') &&
   'retired close-damage telemetry port returned');
 assert(!fieldSystem.includes('addFieldDamage'),
   'retired field-damage telemetry port returned');
+assert(enemyDamageModifier.includes('export class EnemyDamageModifierSystem'),
+  'incoming enemy damage modifiers have no dedicated pipeline');
+assert(simulation.includes('private enemyDamageModifiers!: EnemyDamageModifierSystem'),
+  'Simulation no longer delegates incoming enemy damage modifiers');
+const enemyDamageBlock=simulation.slice(
+  simulation.indexOf('  private damage('),
+  simulation.indexOf('  private damageHero(', simulation.indexOf('  private damage('))
+);
+assert(enemyDamageBlock.includes('this.enemyDamageModifiers.resolve('),
+  'enemy damage no longer routes through EnemyDamageModifierSystem');
+for (const token of [
+  'itemDamageMul','itemEliteDamageMul','itemCrit',
+  'relicDamageTakenMul','markUntil','linkedTo',
+  'eliteDamageResponse.beforeDamage','eliteAffix.modifyIncomingDamage'
+])
+  assert(!enemyDamageBlock.includes(token),
+    'incoming modifier policy leaked back into Simulation.damage: '+token);
 for (const method of [
   'castBreachLine','castContactSaw','castBackhand','castSpreadingFront','castShardFan','castTetherDrag','castPinBurst',
   'castEmber','castFrost','castRail','castToxic',
@@ -367,6 +385,7 @@ console.log('architecture-regression OK', {
   eliteAffixSystem:true,
   bossBehaviorSystem:true,
   enemyBehaviorSystem:true,
+  enemyDamageModifierSystem:true,
   statusSystem:true,
   entityComponents:true,
   typedTestHarness:true
