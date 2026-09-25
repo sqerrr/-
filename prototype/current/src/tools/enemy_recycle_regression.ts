@@ -98,12 +98,12 @@ assert(pointCalls.length === 0, 'early recycle consumed placement callbacks');
 system.update();
 assert(Number(normal.x) === 14 && Number(normal.z) === -19,
   'ordinary enemy recycle ring changed');
-assert(normal.orderUntil === 0 && normal.state === 'normal' && normal.stateTimer === 0,
+assert(Number(normal.orderUntil) === 0 && String(normal.state) === 'normal' && Number(normal.stateTimer) === 0,
   'ordinary recycle no longer clears transient movement/order state');
 
 assert(Number(elite.x) === 12 && Number(elite.z) === -16,
   'regular elite recycle ring changed');
-assert(elite.state === 'normal' && elite.stateTimer === 0 && elite.adaptStage === 0,
+assert(String(elite.state) === 'normal' && Number(elite.stateTimer) === 0 && Number(elite.adaptStage) === 0,
   'regular elite recycle no longer resets adaptation/runtime state');
 assert(reacquired.includes(elite.id), 'regular elite reacquire event disappeared');
 
