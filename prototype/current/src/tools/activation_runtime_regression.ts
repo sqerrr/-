@@ -51,7 +51,7 @@ const parent = activation.suspend();
 activation.begin(3, true);
 activation.recordHit(99, 100);
 activation.addControl(9);
-assert(activation.derived && activation.hits.size === 1 && activation.damage === 100,
+assert(activation.derived && numeric(activation.hits.size) === 1 && numeric(activation.damage) === 100,
   'nested physical payload did not get an isolated frame');
 activation.restore(parent);
 assert(
@@ -72,7 +72,7 @@ assert(numeric(activation.damage) === 45, 'activation end erased completed score
 activation.clearContext(8, 9);
 assert(
   activation.context.skill === null &&
-  activation.context.hitIds.length === 0 &&
+  numeric(activation.context.hitIds.length) === 0 &&
   numeric(activation.context.x) === 8 &&
   numeric(activation.context.z) === 9,
   'chain context reset changed'
