@@ -23,6 +23,7 @@ const combatLedger=readFileSync('src/core/combatLedger.ts','utf8');
 const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
 const rewardOfferFactory=readFileSync('src/core/rewardOfferFactory.ts','utf8');
 const progressionOfferSystem=readFileSync('src/core/progressionOfferSystem.ts','utf8');
+const poiSystem=readFileSync('src/core/poiSystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
 const orbitSystem=readFileSync('src/core/orbitSystem.ts','utf8');
 const fieldSystem=readFileSync('src/core/fieldSystem.ts','utf8');
@@ -309,6 +310,20 @@ assert(progressionOfferSystem.includes('export class ProgressionOfferSystem'),
   'progression reward selection has no dedicated policy owner');
 assert(simulation.includes('private progressionOffers!: ProgressionOfferSystem'),
   'Simulation no longer delegates progression offer selection');
+
+assert(poiSystem.includes('export class PoiSystem'), 'world POIs have no dedicated owner');
+assert(simulation.includes('private poiSystem!: PoiSystem'), 'Simulation no longer delegates POI lifecycle');
+assert(simulation.includes('private get pois(): Poi[] { return this.poiSystem.all; }'),
+  'Simulation POI compatibility view no longer delegates to PoiSystem');
+const poiDirectorBlock=simulation.slice(
+  simulation.indexOf('private updatePoiDirector()'),
+  simulation.indexOf('private bossDirector()', simulation.indexOf('private updatePoiDirector()'))
+);
+assert(poiDirectorBlock.includes('this.poiSystem.update()') &&
+       poiDirectorBlock.includes('return this.poiSystem.complete(id)'),
+  'Simulation POI seams are no longer thin delegation');
+for (const token of ["kind: 'phenomenon', x: 14","type: 'PoiAwakened'","type: 'PoiCleared'"])
+  assert(!poiDirectorBlock.includes(token), 'POI lifecycle/policy leaked back into Simulation: '+token);
 for (const method of [
   'generateCatalystDiscovery','generateResonanceChoice','generateDiscovery',
   'generateLevelOffers','generateMutationTargetOffers','generateEliteCache'
@@ -626,6 +641,7 @@ console.log('architecture-regression OK', {
   relicRaceSystem:true,
   rewardOfferFactory:true,
   progressionOfferSystem:true,
+  poiSystem:true,
   delayedStrikeSystem:true,
   orbitSystem:true,
   fieldSystem:true,
