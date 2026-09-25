@@ -48,6 +48,7 @@ import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { PhenomenonCastSystem } from './phenomenonCastSystem.js';
 import { PhenomenonKillReactionSystem } from './phenomenonKillReactionSystem.js';
 import { PlayerDamageSystem } from './playerDamageSystem.js';
+import { PlayerMovementSystem } from './playerMovementSystem.js';
 import { ProjectileSystem } from './projectileSystem.js';
 import { RelicRaceSystem } from './relicRaceSystem.js';
 import { Rng } from './rng.js';
@@ -301,6 +302,7 @@ export class Simulation {
   private phenomenonCasts!: PhenomenonCastSystem;
   private phenomenonKillReactions!: PhenomenonKillReactionSystem;
   private playerDamage!: PlayerDamageSystem;
+  private playerMovement!: PlayerMovementSystem;
   private statefulPhenomenonCasts!: StatefulPhenomenonCastSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
@@ -362,29 +364,26 @@ export class Simulation {
   private skillsRuntime = new Map<SkillId, SkillRuntime>();
   private catalystRuntime = new Map<CatalystId, CatalystRuntime>();
   private beatAcc = 0;
-  /** Shared cadence for Hunter Battery: the apotheosis is a coordinated volley, not five independent damage multipliers. */
-  private moveAmount = 0;
   /**
-   * D17. The window is deliberately shorter than the dash itself, so the tail of every
-   * dash is exposed, and the cooldown only starts once the dash ends. Together that
-   * leaves a guaranteed gap of vulnerability between windows, which is what the design
-   * note means by refusing an endless chain of invulnerability. Nothing refunds a dash,
-   * kills included.
+   * Compatibility aliases keep public tuning/tests stable while PlayerMovementSystem owns
+   * dash timing and velocity state.
    */
-  static readonly DASH_SPEED = 22;
-  static readonly DASH_DURATION = 0.18;
-  static readonly DASH_IFRAMES = 0.13;
-  static readonly DASH_COOLDOWN = 1.6;
-  private dashDirX = 0;
-  private dashDirZ = 0;
-  private dashUntil = -99;
-  private dashIFramesUntil = -99;
-  private dashReadyAt = 0;
-  private dashWindowSaved = false;
-  private playerVX = 0;
-  private playerVZ = 0;
-  private movementSamples = 0;
-  private movementSum = 0;
+  static readonly DASH_SPEED = PlayerMovementSystem.DASH_SPEED;
+  static readonly DASH_DURATION = PlayerMovementSystem.DASH_DURATION;
+  static readonly DASH_IFRAMES = PlayerMovementSystem.DASH_IFRAMES;
+  static readonly DASH_COOLDOWN = PlayerMovementSystem.DASH_COOLDOWN;
+  private get dashUntil() { return this.playerMovement.dashUntil; }
+  private set dashUntil(value: number) { this.playerMovement.dashUntil = value; }
+  private get dashIFramesUntil() { return this.playerMovement.dashIFramesUntil; }
+  private set dashIFramesUntil(value: number) { this.playerMovement.dashIFramesUntil = value; }
+  private get dashReadyAt() { return this.playerMovement.dashReadyAt; }
+  private set dashReadyAt(value: number) { this.playerMovement.dashReadyAt = value; }
+  private get dashWindowSaved() { return this.playerMovement.dashWindowSaved; }
+  private set dashWindowSaved(value: boolean) { this.playerMovement.dashWindowSaved = value; }
+  private get playerVX() { return this.playerMovement.vx; }
+  private set playerVX(value: number) { this.playerMovement.vx = value; }
+  private get playerVZ() { return this.playerMovement.vz; }
+  private set playerVZ(value: number) { this.playerMovement.vz = value; }
   private charge = 0;
   private butcherStacks = 0;
   private activation = new ActivationRuntime();
@@ -476,6 +475,24 @@ export class Simulation {
     this.worldRng = new Rng((cfg.seed ^ 0x27d4eb2f) >>> 0);
     this.relicRng = new Rng((cfg.seed ^ 0x6a09e667) >>> 0);
     this.runDuration = cfg.runDuration ?? 480;
+    this.playerMovement = new PlayerMovementSystem({
+      time: () => this.time,
+      dt: () => this.dt,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      setPlayerPosition: (x, z) => {
+        this.px = x;
+        this.pz = z;
+      },
+      aimX: () => this.aimX,
+      aimZ: () => this.aimZ,
+      moveSpeed: () => this.moveSpeed,
+      dashCooldownMultiplier: () => this.dashCooldownMul,
+      dashIFrameMultiplier: () => this.dashIFrameMul,
+      metrics: () => this.metrics,
+      noteEncounterDash: (time) => this.eliteEncountersLedger.noteDash(time),
+      clampWorld: () => this.clampWorld()
+    });
     this.combatLedger = new CombatLedger({
       time: () => this.time,
       metrics: () => this.metrics,
@@ -1278,7 +1295,7 @@ export class Simulation {
       },
       displaceSource: (source, dx, dz) => this.displaceSource(source, dx, dz),
       grantHeroDashIFrames: (duration) => {
-        this.dashIFramesUntil = Math.max(this.dashIFramesUntil, this.time + duration);
+        this.playerMovement.extendIFrames(this.time + duration);
       }
     });
     this.benchmark = !!cfg.benchmark;
@@ -1835,44 +1852,7 @@ export class Simulation {
       this.aimX = cmd.aimX / aimMag;
       this.aimZ = cmd.aimZ / aimMag;
     }
-    const mag = Math.hypot(cmd.moveX, cmd.moveZ);
-    this.moveAmount = Math.min(1, mag);
-    this.playerVX = 0;
-    this.playerVZ = 0;
-    if (cmd.dash && this.time >= this.dashUntil && this.time >= this.dashReadyAt) {
-      let dx = cmd.moveX,
-        dz = cmd.moveZ,
-        dm = Math.hypot(dx, dz);
-      if (dm <= 0.001) {
-        dx = this.aimX;
-        dz = this.aimZ;
-        dm = 1;
-      }
-      this.dashDirX = dx / dm;
-      this.dashDirZ = dz / dm;
-      this.dashUntil = this.time + Simulation.DASH_DURATION;
-      this.dashIFramesUntil = this.time + Simulation.DASH_IFRAMES * this.dashIFrameMul;
-      this.dashReadyAt = this.dashUntil + Simulation.DASH_COOLDOWN * this.dashCooldownMul;
-      this.dashWindowSaved = false;
-      this.metrics.dashes++;
-      this.eliteEncountersLedger.noteDash(this.time);
-    }
-    if (this.time < this.dashUntil) {
-      this.moveAmount = 1;
-      this.playerVX = this.dashDirX * Simulation.DASH_SPEED;
-      this.playerVZ = this.dashDirZ * Simulation.DASH_SPEED;
-      this.px += this.playerVX * this.dt;
-      this.pz += this.playerVZ * this.dt;
-      this.clampWorld();
-    } else if (mag > 0.001) {
-      this.playerVX = (cmd.moveX / mag) * this.moveSpeed;
-      this.playerVZ = (cmd.moveZ / mag) * this.moveSpeed;
-      this.px += this.playerVX * this.dt;
-      this.pz += this.playerVZ * this.dt;
-      this.clampWorld();
-    }
-    this.movementSamples++;
-    this.movementSum += this.moveAmount;
+    this.playerMovement.update(cmd);
     this.updatePoiDirector();
     this.bossDirector();
     this.spawnDirector();
@@ -3767,15 +3747,9 @@ export class Simulation {
         power: this.globalPower,
         pickupRadius: this.pickupRadius,
         fortune: this.fortune,
-        dashing: this.time < this.dashUntil,
-        dashReady: this.time >= this.dashReadyAt && this.time >= this.dashUntil,
-        dashCharge: Math.max(
-          0,
-          Math.min(
-            1,
-            1 - (this.dashReadyAt - this.time) / Math.max(0.0001, Simulation.DASH_COOLDOWN)
-          )
-        ),
+        dashing: this.playerMovement.isDashing(this.time),
+        dashReady: this.playerMovement.isDashReady(this.time),
+        dashCharge: this.playerMovement.dashCharge(this.time),
         invulnerable: this.time < this.dashIFramesUntil
       },
       entities: this.ents.map((e) => ({
