@@ -27,6 +27,7 @@ import { ActivationRuntime } from './activationRuntime.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
 import { ConstructSystem } from './constructSystem.js';
 import { ChoreographyTraceSystem } from './choreographyTraceSystem.js';
+import { CombatLedger } from './combatLedger.js';
 import { DeathResolutionSystem } from './deathResolutionSystem.js';
 import { DelayedStrikeSystem } from './delayedStrikeSystem.js';
 import { EncounterDirector } from './encounterDirector.js';
@@ -284,6 +285,7 @@ export class Simulation {
   private projectileSystem!: ProjectileSystem;
   private fieldSystem!: FieldSystem;
   private constructSystem!: ConstructSystem;
+  private combatLedger!: CombatLedger;
   private legacyCatalysts!: LegacyCatalystSystem;
   private orbitSystem!: OrbitSystem;
   private deathResolution!: DeathResolutionSystem;
@@ -375,15 +377,10 @@ export class Simulation {
   private dashWindowSaved = false;
   private playerVX = 0;
   private playerVZ = 0;
-  private directionalDamage = 0;
-  private closeDamage = 0;
-  private fieldDamage = 0;
   private movementSamples = 0;
   private movementSum = 0;
   private charge = 0;
   private butcherStacks = 0;
-  private killsBySource = new Map<string, number>();
-  private hitsBySource = new Map<string, number>();
   private activation = new ActivationRuntime();
   private capacitorCharge = 0;
   private capacitorConsumed = false;
@@ -399,10 +396,6 @@ export class Simulation {
   private orbitChoreoX = 0;
   private orbitChoreoZ = 0;
   private orbitChoreoCarrier: ChoreographyCarrier | null = null;
-  private damageBySource = new Map<string, number>();
-  // Mirror of damageBySource for blows that landed on the player. Feeds the "what hit me"
-  // half of the elite telemetry (D52). Deliberately kept out of the canonical hash.
-  private damageToHeroBySource = new Map<string, number>();
   private rewardOffers: RewardOffer[] | null = null;
   private mutationOffer: MutationOffer | null = null;
   private mutationRefusalToken = true;
@@ -479,6 +472,12 @@ export class Simulation {
     this.worldRng = new Rng((cfg.seed ^ 0x27d4eb2f) >>> 0);
     this.relicRng = new Rng((cfg.seed ^ 0x6a09e667) >>> 0);
     this.runDuration = cfg.runDuration ?? 480;
+    this.combatLedger = new CombatLedger({
+      time: () => this.time,
+      metrics: () => this.metrics,
+      eliteEncounter: (entityId) => this.eliteLogById.get(entityId),
+      slotIndex: (skill) => this.slots.indexOf(skill)
+    });
     this.eliteProgression = new EliteProgressionSystem({
       time: () => this.time,
       runDuration: () => this.runDuration,
@@ -799,9 +798,6 @@ export class Simulation {
         this.damage(target, amount, source, false, x, z, sourceSlot);
       },
       memoryFactor: () => this.memoryFactor(),
-      addFieldDamage: (amount) => {
-        this.fieldDamage += amount;
-      },
       queuePhysicalEvent: (event) => this.queuePhysicalEvent(event)
     });
     this.constructSystem = new ConstructSystem({
@@ -934,9 +930,6 @@ export class Simulation {
       queuePhysicalEvent: (event) => this.queuePhysicalEvent(event),
       damageTarget: (target, amount, x, z, slot) =>
         this.damage(target, amount, 'orbit_blades', false, x, z, slot),
-      addCloseDamage: (amount) => {
-        this.closeDamage += amount;
-      },
       grantBarrier: (amount) => this.grantBarrier(amount),
       aegisCharge: () => this.aegisCharge,
       clearAegisCharge: () => {
@@ -1088,9 +1081,6 @@ export class Simulation {
       },
       scheduleStrike: (strike) => this.scheduleStrike(strike),
       addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
-      addCloseDamage: (amount) => {
-        this.closeDamage += amount;
-      },
       addActivationControl: (amount) => this.activation.addControl(amount),
       noteState: (state) => this.noteState(state),
       noteReaction: () => {
@@ -1134,9 +1124,6 @@ export class Simulation {
       },
       scheduleStrike: (strike) => this.scheduleStrike(strike),
       addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
-      addCloseDamage: (amount) => {
-        this.closeDamage += amount;
-      },
       addActivationControl: (amount) => this.activation.addControl(amount),
       noteState: (state) => this.noteState(state),
       noteReaction: () => {
@@ -3009,37 +2996,13 @@ export class Simulation {
     e.hp -= actual;
     e.lastDamageAt = this.time;
     if (source === 'sentry') e.sentryTouchedUntil = this.time + 4;
-    this.metrics.damage += actual;
-    this.damageBySource.set(source, (this.damageBySource.get(source) ?? 0) + actual);
-    this.hitsBySource.set(source, (this.hitsBySource.get(source) ?? 0) + 1);
+    this.combatLedger.recordEnemyHit(e, source, actual, sourceSlot);
     this.eliteDamageResponse.noteResolvedDamage(source, actual, this.activation.derived);
-    if (e.kind === 'elite') {
-      this.metrics.eliteDamage += actual;
-      const record = this.eliteLogById.get(e.id);
-      if (record) {
-        record.damageFromHero += actual;
-        const delayedOwner: Partial<Record<string, SkillId>> = {
-          wound_dot: 'cleaver',
-          toxin_dot: 'toxic_mist',
-          arc_field: 'chain_arc',
-          fire_field: 'ember_lance'
-        };
-        const ownerSkill = delayedOwner[source] ?? (skills[source as SkillId] ? (source as SkillId) : null);
-        const resolvedSlot = sourceSlot >= 0 ? sourceSlot : ownerSkill ? this.slots.indexOf(ownerSkill) : -1;
-        const node = resolvedSlot >= 0 ? `${resolvedSlot}:${ownerSkill ?? source}` : `derived:${source}`;
-        record.damageFromHeroByNode[node] = (record.damageFromHeroByNode[node] ?? 0) + actual;
-        if (record.engagedAt < 0) record.engagedAt = this.time;
-        record.lastExchangeAt = this.time;
-      }
-    }
-    if (directional) this.directionalDamage += actual;
     if (source === 'cleaver' || source === 'orbit_blades') {
-      this.closeDamage += actual;
       if (this.doctrines.guard > 0 && Math.hypot(e.x - this.px, e.z - this.pz) < 4.2)
         this.grantBarrier(Math.min(3.5, actual * (0.0025 + this.doctrines.guard * 0.0014)));
       this.eliteAffix.afterCloseDamage(e, actual, this.doctrines.force);
     }
-    if (source.includes('field') || source === 'toxic_mist') this.fieldDamage += actual;
     if (skill && this.activation.slot >= 0) {
       this.activation.recordHit(e.id, actual);
       if (this.choreography.matchesSkill(skill.id))
@@ -3060,7 +3023,7 @@ export class Simulation {
     });
     const killed = before > 0 && e.hp <= 0;
     if (this.itemSiphon > 0) this.healPlayer(Math.min(before, actual) * this.itemSiphon);
-    if (killed) this.killsBySource.set(source, (this.killsBySource.get(source) ?? 0) + 1);
+    if (killed) this.combatLedger.recordKill(source);
     if (killed && skill && this.activation.slot >= 0)
       this.activation.recordKill(actual - before);
     if (
@@ -3112,7 +3075,6 @@ export class Simulation {
     this.hitPlayer(amount, attacker, source);
     if (attacker && (attacker.relicSiphon ?? 0) > 0)
       attacker.hp = Math.min(attacker.maxHp, attacker.hp + amount * (attacker.relicSiphon ?? 0));
-    this.damageToHeroBySource.set(source, (this.damageToHeroBySource.get(source) ?? 0) + amount);
     return this.php <= 0;
   }
   private cleanup() {
@@ -3866,9 +3828,7 @@ export class Simulation {
 
   telemetry() {
     return {
-      damageBySource: Object.fromEntries(this.damageBySource),
-      killsBySource: Object.fromEntries(this.killsBySource),
-      hitsBySource: Object.fromEntries(this.hitsBySource),
+      ...this.combatLedger.telemetry(),
       avgEnemies: this.metrics.enemySamples
         ? this.metrics.enemyCountSum / this.metrics.enemySamples
         : 0,

@@ -44,7 +44,6 @@ export interface OrbitSystemPort {
   queuePhysicalEvent(event: PhysicalEvent): void;
 
   damageTarget(target: Ent, amount: number, x: number, z: number, slot: number): void;
-  addCloseDamage(amount: number): void;
   grantBarrier(amount: number): void;
 
   aegisCharge(): number;
@@ -160,7 +159,6 @@ export class OrbitSystem {
       if (runtime.mutation === 'orbit_saw' && entity.kind === 'elite') amount *= 1.9;
 
       p.damageTarget(entity, amount, blade.x, blade.z, slot);
-      p.addCloseDamage(amount);
 
       const activationId = p.orbitActivationId();
       if (activationId) {

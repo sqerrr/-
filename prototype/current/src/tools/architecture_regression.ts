@@ -15,6 +15,7 @@ const statefulPhenomenonCastSystem=readFileSync('src/core/statefulPhenomenonCast
 const choreographyTraceSystem=readFileSync('src/core/choreographyTraceSystem.ts','utf8');
 const activationRuntime=readFileSync('src/core/activationRuntime.ts','utf8');
 const activationPipeline=readFileSync('src/core/activationPipelineSystem.ts','utf8');
+const combatLedger=readFileSync('src/core/combatLedger.ts','utf8');
 const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
 const orbitSystem=readFileSync('src/core/orbitSystem.ts','utf8');
@@ -107,6 +108,27 @@ assert(activationPipeline.includes('this.activation.suspend()') && activationPip
   'nested Catalyst payload no longer preserves the parent activation frame');
 for (const method of ['activateSlot','castCatalystPayload','beginPhysicalActivation'])
   assert(!simulation.includes('private '+method+'('), 'activation orchestration leaked back into Simulation: '+method);
+assert(combatLedger.includes('export class CombatLedger'),
+  'diagnostic combat source accounting has no dedicated owner');
+assert(simulation.includes('private combatLedger!: CombatLedger'),
+  'Simulation no longer delegates combat source accounting');
+assert(simulation.includes('this.combatLedger.recordEnemyHit(') &&
+       simulation.includes('this.combatLedger.recordKill('),
+  'resolved enemy combat no longer routes through CombatLedger');
+assert(simulation.includes('...this.combatLedger.telemetry()'),
+  'telemetry no longer reads source accounting from CombatLedger');
+for (const field of [
+  'directionalDamage','closeDamage','fieldDamage',
+  'damageBySource','killsBySource','hitsBySource','damageToHeroBySource'
+])
+  assert(!simulation.includes('private '+field),
+    'dead/diagnostic combat state leaked back into Simulation: '+field);
+assert(!phenomenonCastSystem.includes('addCloseDamage') &&
+       !statefulPhenomenonCastSystem.includes('addCloseDamage') &&
+       !orbitSystem.includes('addCloseDamage'),
+  'retired close-damage telemetry port returned');
+assert(!fieldSystem.includes('addFieldDamage'),
+  'retired field-damage telemetry port returned');
 for (const method of [
   'castBreachLine','castContactSaw','castBackhand','castSpreadingFront','castShardFan','castTetherDrag','castPinBurst',
   'castEmber','castFrost','castRail','castToxic',
@@ -327,6 +349,7 @@ console.log('architecture-regression OK', {
   choreographyTraceSystem:true,
   activationRuntime:true,
   activationPipelineSystem:true,
+  combatLedger:true,
   relicRaceSystem:true,
   delayedStrikeSystem:true,
   orbitSystem:true,

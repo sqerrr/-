@@ -60,7 +60,6 @@ export interface PhenomenonCastPort {
   scheduleStrike(strike: Omit<DelayedStrike, 'id'>): void;
   addField(field: Omit<Field, 'id'>): void;
 
-  addCloseDamage(amount: number): void;
   addActivationControl(amount: number): void;
   noteState(state: string): void;
   noteReaction(): void;
@@ -196,7 +195,6 @@ export class PhenomenonCastSystem {
       if (mut === 'saw_teeth') dmg *= 2;
       if (mut === 'saw_spin') dmg *= 0.7;
       p.damage(e, dmg, 'contact_saw', true);
-      p.addCloseDamage(dmg);
       if (mut === 'saw_bleed') {
         e.woundUntil = Math.max(e.woundUntil, p.time() + 3.4 * p.memoryFactor());
         e.woundDps = Math.max(e.woundDps, 5.5 * p.powerBucket(st));
@@ -233,7 +231,6 @@ export class PhenomenonCastSystem {
       let dmg = skills.backhand.baseDamage * p.powerBucket(st) * p.slotAmp(slot, e);
       if (mut === 'backhand_twin') dmg *= 0.68;
       p.damage(e, dmg, 'backhand', true);
-      p.addCloseDamage(dmg);
       if (mut === 'backhand_shove') {
         e.x += (dx / d) * 1.6;
         e.z += (dz / d) * 1.6;

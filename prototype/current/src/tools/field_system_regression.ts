@@ -11,7 +11,6 @@ const entities:Ent[]=[];
 const physical:PhysicalEvent[]=[];
 const targetHits:{id:number;amount:number;source:string}[]=[];
 const heroHits:DamageSourceId[]=[];
-let fieldDamage=0;
 
 const port:FieldSystemPort={
   dt:()=>dt,
@@ -35,7 +34,6 @@ const port:FieldSystemPort={
     target.hp-=amount;
   },
   memoryFactor:()=>2,
-  addFieldDamage:(amount)=>{fieldDamage+=amount;},
   queuePhysicalEvent:(event)=>physical.push(event)
 };
 const system=new FieldSystem(port);
@@ -48,7 +46,7 @@ function enemy(id:number,x:number,z:number){
 
 // Periodic toxic damage preserves status payload, corrosive bonus and field telemetry.
 {
-  entities.length=0; targetHits.length=0; physical.length=0; fieldDamage=0;
+  entities.length=0; targetHits.length=0; physical.length=0;
   const e=enemy(1,0.5,0);
   e.affix='shielded';
   const field:Field={
@@ -59,8 +57,7 @@ function enemy(id:number,x:number,z:number){
   assert(alive.length===1,'live field was retired');
   assert(targetHits.length===1 && Math.abs(targetHits[0].amount-16.5)<1e-9,'corrosive damage changed');
   assert(e.toxinUntil>now && e.toxinDps===22,'toxin status payload changed');
-  assert(fieldDamage===10,'field damage telemetry changed');
-  assert(physical.length===1 && physical[0].kind==='contact' && physical[0].targetId===e.id,
+    assert(physical.length===1 && physical[0].kind==='contact' && physical[0].targetId===e.id,
     'field entry no longer emits Catalyst contact');
 
   system.update(alive);
@@ -104,4 +101,4 @@ function enemy(id:number,x:number,z:number){
   assert(heroHits[0]==='fire_field','rival field lost named damage source');
 }
 
-console.log('field-system-regression OK',{targetHits:targetHits.length,contacts:physical.length,fieldDamage,heroHits});
+console.log('field-system-regression OK',{targetHits:targetHits.length,contacts:physical.length,heroHits});
