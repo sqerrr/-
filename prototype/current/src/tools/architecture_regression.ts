@@ -26,6 +26,7 @@ const deathResolution=readFileSync('src/core/deathResolutionSystem.ts','utf8');
 const encounterDirector=readFileSync('src/core/encounterDirector.ts','utf8');
 const squadDirector=readFileSync('src/core/squadDirector.ts','utf8');
 const eliteBehavior=readFileSync('src/core/eliteBehaviorSystem.ts','utf8');
+const eliteDamageResponse=readFileSync('src/core/eliteDamageResponseSystem.ts','utf8');
 const eliteEcho=readFileSync('src/core/eliteEchoSystem.ts','utf8');
 const eliteProgression=readFileSync('src/core/eliteProgressionSystem.ts','utf8');
 const eliteAffix=readFileSync('src/core/eliteAffixSystem.ts','utf8');
@@ -285,8 +286,22 @@ assert(types.includes('export type BossPatternId ='), 'boss patterns are stringl
 
 assert(!simulation.includes("e.bossPattern === 'condensed'"), 'Shepherd adaptation is stored in bossPattern again');
 assert(!simulation.includes('e.bossPattern = key'), 'Bulwark damage memory is stored in bossPattern again');
-assert(simulation.includes('e.shepherdMode') && simulation.includes('e.prismMemory'),
+assert(eliteDamageResponse.includes('entity.shepherdMode') && eliteDamageResponse.includes('entity.prismMemory'),
   'elite-specific adaptation state is not separated from boss attack state');
+assert(eliteDamageResponse.includes('export class EliteDamageResponseSystem'),
+  'reactive elite damage rules have no dedicated owner');
+assert(simulation.includes('private eliteDamageResponse!: EliteDamageResponseSystem'),
+  'Simulation no longer delegates reactive elite damage rules');
+assert(simulation.includes('this.eliteDamageResponse.beforeDamage(') &&
+       simulation.includes('this.eliteDamageResponse.noteResolvedDamage('),
+  'enemy damage no longer routes through EliteDamageResponseSystem');
+assert(!simulation.includes('private damageSamples:'),
+  'Shepherd damage signature storage leaked back into Simulation');
+assert(eliteAffix.includes('modifyIncomingDamage(') && eliteAffix.includes('afterCloseDamage('),
+  'shield damage semantics are no longer owned by EliteAffixSystem');
+assert(simulation.includes('this.eliteAffix.modifyIncomingDamage(') &&
+       simulation.includes('this.eliteAffix.afterCloseDamage('),
+  'shielded damage no longer routes through EliteAffixSystem');
 
 assert(eliteUi.includes('export const eliteChassisUi'), 'elite presentation metadata has no single catalogue');
 assert(!ui.includes('const chassisName: Record'), 'platform duplicated chassis metadata again');
@@ -323,6 +338,7 @@ console.log('architecture-regression OK', {
   encounterDirector:true,
   squadDirector:true,
   eliteBehaviorSystem:true,
+  eliteDamageResponseSystem:true,
   eliteEchoSystem:true,
   eliteProgressionSystem:true,
   eliteAffixSystem:true,
