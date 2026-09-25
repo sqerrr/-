@@ -2601,7 +2601,7 @@ export class Simulation {
     if (this.phenomenonCasts.cast(id, st, slot, src)) return;
     this.statefulPhenomenonCasts.cast(id, st, slot, src);
   }
-  private registerAsyncPhysical(activationId: number) {  private registerAsyncPhysical(activationId: number) {
+  private registerAsyncPhysical(activationId: number) {
     this.physical.registerAsync(activationId);
   }
 
@@ -2617,7 +2617,7 @@ export class Simulation {
 
 
 
-  private flushPhysicalEvents() {  private flushPhysicalEvents() {
+  private flushPhysicalEvents() {
     this.physical.flush(
       (binding, event) => this.physicalCatalysts.handle(binding, event),
       (activationId) => this.constructs.some((construct) => construct.activationId === activationId)
