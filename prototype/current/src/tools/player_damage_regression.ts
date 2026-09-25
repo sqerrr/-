@@ -116,11 +116,11 @@ barrier = 10;
 armor = 0;
 guardDoctrine = 0;
 system.hit(25, attacker, 'contact');
-assert(barrier === 0, 'barrier absorption changed');
-assert(hp === 85, 'HP damage after barrier changed');
-assert(metrics.damageTaken === 15, 'damageTaken should count HP loss only');
-assert(encounter.damageToHero === 25, 'elite encounter should record mitigated pre-barrier damage');
-assert(encounter.damageToHeroBySource.contact === 25, 'per-source encounter accounting changed');
+assert(numeric(barrier) === 0, 'barrier absorption changed');
+assert(numeric(hp) === 85, 'HP damage after barrier changed');
+assert(numeric(metrics.damageTaken) === 15, 'damageTaken should count HP loss only');
+assert(numeric(encounter.damageToHero) === 25, 'elite encounter should record mitigated pre-barrier damage');
+assert(numeric(encounter.damageToHeroBySource.contact) === 25, 'per-source encounter accounting changed');
 assert(encounter.engagedAt === now && encounter.lastExchangeAt === now,
   'elite exchange timestamps changed');
 assert(events.at(-1)?.barrierDamage === 10 && events.at(-1)?.hpDamage === 15,
