@@ -14,6 +14,7 @@ const phenomenonCastSystem=readFileSync('src/core/phenomenonCastSystem.ts','utf8
 const phenomenonKillReaction=readFileSync('src/core/phenomenonKillReactionSystem.ts','utf8');
 const statefulPhenomenonCastSystem=readFileSync('src/core/statefulPhenomenonCastSystem.ts','utf8');
 const choreographyTraceSystem=readFileSync('src/core/choreographyTraceSystem.ts','utf8');
+const choiceRuntime=readFileSync('src/core/choiceRuntime.ts','utf8');
 const activationRuntime=readFileSync('src/core/activationRuntime.ts','utf8');
 const activationPipeline=readFileSync('src/core/activationPipelineSystem.ts','utf8');
 const combatLedger=readFileSync('src/core/combatLedger.ts','utf8');
@@ -94,6 +95,28 @@ assert(simulation.includes('private statefulPhenomenonCasts!: StatefulPhenomenon
   'Simulation no longer delegates stateful Phenomenon casts');
 assert(simulation.includes('this.statefulPhenomenonCasts.cast(id, st, slot, src)'),
   'dispatchSkill no longer routes through the stateful Phenomenon family');
+assert(choiceRuntime.includes('export class ChoiceRuntime'),
+  'progression choice window has no dedicated runtime owner');
+assert(simulation.includes('private choiceRuntime = new ChoiceRuntime()'),
+  'Simulation no longer delegates progression choice state');
+for (const field of [
+  'rewardOffers: RewardOffer[]','mutationOffer: MutationOffer',
+  'mutationRefusalToken =','choiceSerial =','pendingMutationTarget ='
+])
+  assert(!simulation.includes('private '+field),
+    'raw progression choice state leaked back into Simulation: '+field);
+assert(simulation.includes('return this.choiceRuntime.hasChoice'),
+  'Simulation.hasChoice no longer reads the choice runtime');
+for (const call of [
+  'this.choiceRuntime.openRewards(','this.choiceRuntime.takeReward(index)',
+  'this.choiceRuntime.openMutation(','this.choiceRuntime.closeMutation()',
+  'this.choiceRuntime.beginMutationTarget()','this.choiceRuntime.consumeMutationTarget()',
+  'this.choiceRuntime.replaceMutationChoice('
+])
+  assert(simulation.includes(call),
+    'choice lifecycle no longer routes through ChoiceRuntime: '+call);
+assert(!simulation.includes('this.choiceSerial++'),
+  'choice serial policy leaked back into Simulation');
 assert(choreographyTraceSystem.includes('export class ChoreographyTraceSystem'),
   'activation choreography has no dedicated trace owner');
 assert(simulation.includes('private choreography = new ChoreographyTraceSystem()'),
@@ -453,6 +476,7 @@ console.log('architecture-regression OK', {
   phenomenonKillReactionSystem:true,
   statefulPhenomenonCastSystem:true,
   choreographyTraceSystem:true,
+  choiceRuntime:true,
   activationRuntime:true,
   activationPipelineSystem:true,
   combatLedger:true,
