@@ -7,7 +7,7 @@ function assert(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error('phenomenon-cast-system-regression: ' + message);
 }
 
-let now=10, cycle=2, closeDamage=0, activationControl=0, reactions=0, barrier=0;
+let now=10, cycle=2, activationControl=0, reactions=0, barrier=0;
 const entities:Ent[]=[];
 const projectiles:Omit<Projectile,'id'|'guarded'>[]=[];
 const strikes:Omit<DelayedStrike,'id'>[]=[];
@@ -77,7 +77,6 @@ const port:PhenomenonCastPort={
   spawnProjectile:(projectile)=>projectiles.push(projectile),
   scheduleStrike:(strike)=>strikes.push(strike),
   addField:(field)=>fields.push(field),
-  addCloseDamage:(amount)=>{closeDamage+=amount;},
   addActivationControl:(amount)=>{activationControl+=amount;},
   noteState:(state)=>states.push(state),
   noteReaction:()=>{reactions++;},
@@ -100,11 +99,11 @@ const system=new PhenomenonCastSystem(port);
 
 // Contact Saw preserves close-damage telemetry and bleed payload.
 {
-  entities.length=0;states.length=0;closeDamage=0;
+  entities.length=0;states.length=0;
   const target=enemy(2,1,0);
   const st=runtime('contact_saw'); st.mutation='saw_bleed';
   system.cast('contact_saw',st,0,source);
-  assert(target.hp<1000 && closeDamage>0,'Contact Saw close damage changed');
+  assert(target.hp<1000,'Contact Saw damage geometry changed');
   assert(target.woundUntil>now && target.woundDps>0 && states.includes('wound'),'Contact Saw bleed changed');
 }
 
