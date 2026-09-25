@@ -46,6 +46,7 @@ import { PhysicalActivationSystem } from './physicalActivationSystem.js';
 import { PhysicalCatalystSystem } from './physicalCatalystSystem.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { PhenomenonCastSystem } from './phenomenonCastSystem.js';
+import { PhenomenonKillReactionSystem } from './phenomenonKillReactionSystem.js';
 import { ProjectileSystem } from './projectileSystem.js';
 import { RelicRaceSystem } from './relicRaceSystem.js';
 import { Rng } from './rng.js';
@@ -297,6 +298,7 @@ export class Simulation {
   private physicalCatalysts!: PhysicalCatalystSystem;
   private relicRace!: RelicRaceSystem;
   private phenomenonCasts!: PhenomenonCastSystem;
+  private phenomenonKillReactions!: PhenomenonKillReactionSystem;
   private statefulPhenomenonCasts!: StatefulPhenomenonCastSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
@@ -739,6 +741,17 @@ export class Simulation {
       this.eliteDamageResponse,
       this.eliteAffix
     );
+    this.phenomenonKillReactions = new PhenomenonKillReactionSystem({
+      entities: () => this.ents,
+      globalPower: () => this.globalPower,
+      hasMutation: (skill, mutation) => {
+        const runtime = this.skillsRuntime.get(skill);
+        return !!runtime && this.mutationIs(runtime, mutation);
+      },
+      damage: (target, amount, source, sourceX, sourceZ) => {
+        this.damage(target, amount, source, false, sourceX, sourceZ);
+      }
+    });
     this.squadDirector = new SquadDirector({
       world: this.world,
       time: () => this.time,
@@ -3020,22 +3033,7 @@ export class Simulation {
     if (killed) this.combatLedger.recordKill(source);
     if (killed && skill && this.activation.slot >= 0)
       this.activation.recordKill(actual - before);
-    if (
-      killed &&
-      source === 'ember_lance' &&
-      (() => { const st = this.skillsRuntime.get('ember_lance'); return !!st && this.mutationIs(st, 'ember_backdraft'); })()
-    ) {
-      for (const o of this.ents) {
-        if (o !== e && o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < 2.3) {
-          const dx = e.x - o.x,
-            dz = e.z - o.z,
-            d = Math.hypot(dx, dz) || 1;
-          o.x += (dx / d) * 0.45;
-          o.z += (dz / d) * 0.45;
-          this.damage(o, 18 * (1 + this.globalPower), 'backdraft', false, e.x, e.z);
-        }
-      }
-    }
+    if (killed) this.phenomenonKillReactions.onKill(e, source);
     return killed;
   }
   // Damage landing on the player. Mitigation, barrier and death are owned by hitPlayer,
