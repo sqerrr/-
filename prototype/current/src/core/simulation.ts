@@ -44,6 +44,7 @@ import { ProjectileSystem } from './projectileSystem.js';
 import { RelicRaceSystem } from './relicRaceSystem.js';
 import { Rng } from './rng.js';
 import { SquadDirector } from './squadDirector.js';
+import { StatefulPhenomenonCastSystem } from './statefulPhenomenonCastSystem.js';
 import { StatusSystem } from './statusSystem.js';
 import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle, sweepCircleT } from './geometry.js';
 import {
@@ -289,6 +290,7 @@ export class Simulation {
   private physicalCatalysts!: PhysicalCatalystSystem;
   private relicRace!: RelicRaceSystem;
   private phenomenonCasts!: PhenomenonCastSystem;
+  private statefulPhenomenonCasts!: StatefulPhenomenonCastSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -1085,6 +1087,149 @@ export class Simulation {
         this.events.push({ type: 'RareEvent', tick: this.tick, title, detail, x, z }),
       grantBarrier: (amount) => this.grantBarrier(amount),
       doctrineForce: () => this.doctrines.force
+    });
+    this.statefulPhenomenonCasts = new StatefulPhenomenonCastSystem({
+      time: () => this.time,
+      cycle: () => this.cycle,
+      skillRadius: (runtime, base, slot) => this.skillRadius(runtime, base, slot),
+      skillRange: (runtime, base) => this.skillRange(runtime, base),
+      persistentDuration: (runtime, base, slot) => this.persistentDuration(runtime, base, slot),
+      powerBucket: (runtime) => this.powerBucket(runtime),
+      slotAmp: (slot, target) => this.slotAmp(slot, target),
+      memoryFactor: () => this.memoryFactor(),
+      mutationIs: (runtime, mutation) => this.mutationIs(runtime, mutation),
+      projectileCount: (runtime, slot) => this.projectileCount(runtime, slot),
+      combatShape: (source, shape, intent = 'damage', physicalTrace = true) =>
+        this.combatShape(source, shape, intent, physicalTrace),
+      targetsFor: (source) => this.targetsFor(source),
+      bestTarget: (source, predicate, compare) => this.bestTarget(source, predicate, compare),
+      targetVisible: (source, target) => this.targetVisible(source, target),
+      aimPoint: (source, range) => this.aimPoint(source, range),
+      rotatedAim: (source, radians) => this.rotatedAim(source, radians),
+      rayHits: (source, aimX, aimZ, range, width, maxHits = 99) =>
+        this.rayHits(source, aimX, aimZ, range, width, maxHits),
+      firstBlockingObstacleHit: (x0, z0, x1, z1, padding = 0.08) => {
+        const hit = this.firstBlockingObstacleHit(x0, z0, x1, z1, padding);
+        return hit ? { t: hit.t } : null;
+      },
+      damage: (target, amount, source, directional, sourceX, sourceZ, sourceSlot) =>
+        this.damage(target, amount, source, directional, sourceX, sourceZ, sourceSlot),
+      spawnProjectile: (projectile) => {
+        this.spawnProjectile(projectile);
+      },
+      scheduleStrike: (strike) => this.scheduleStrike(strike),
+      addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
+      addCloseDamage: (amount) => {
+        this.closeDamage += amount;
+      },
+      addActivationControl: (amount) => {
+        this.currentActivationControl += amount;
+      },
+      noteState: (state) => this.noteState(state),
+      noteReaction: () => {
+        this.metrics.reactions++;
+      },
+      emitReaction: (reaction, x, z, amount) =>
+        this.events.push({ type: 'Reaction', tick: this.tick, reaction, x, z, amount }),
+      emitRareEvent: (title, detail, x, z) =>
+        this.events.push({ type: 'RareEvent', tick: this.tick, title, detail, x, z }),
+      grantBarrier: (amount) => this.grantBarrier(amount),
+      doctrineForce: () => this.doctrines.force,
+
+      resonanceMultiplicity: () => this.resonance.multiplicity,
+      doctrineQuantity: () => this.doctrines.quantity,
+      activationCountBonus: () => this.activationCountBonus,
+      mutationCountAdd: (runtime) => this.mutationContinuation(runtime)?.countAdd ?? 0,
+      multiplicityFor: (runtime) =>
+        this.supportsAxis(runtime.id, 'multiplicity') ? this.resonance.multiplicity : 0,
+
+      butcherStacks: () => this.butcherStacks,
+      setButcherStacks: (value) => {
+        this.butcherStacks = value;
+      },
+      randomFloat: () => this.rng.float(),
+      randomRange: (min, max) => this.rng.range(min, max),
+
+      constructs: () => this.constructs,
+      nearestEntity: (x, z, predicate, maxDistance) =>
+        this.entityStore.nearest(x, z, predicate, maxDistance),
+
+      prepareOrbitActivation: (source) => {
+        if (source.faction !== 'hero') return;
+        if (
+          this.physical.orbitActivationId &&
+          this.physical.orbitActivationId !== this.physical.currentActivationId
+        ) {
+          const oldCenter = this.orbitCenter();
+          this.finishAsyncPhysical(
+            this.physical.orbitActivationId,
+            oldCenter.x,
+            oldCenter.z
+          );
+        }
+        if (
+          this.physical.currentActivationId &&
+          this.physical.orbitActivationId !== this.physical.currentActivationId
+        )
+          this.registerAsyncPhysical(this.physical.currentActivationId);
+        this.physical.orbitActivationId = this.physical.currentActivationId;
+      },
+
+      freeOf: (x, z, radius) => this.freeOf(x, z, radius),
+      currentPhysicalActivationId: () => this.physical.currentActivationId,
+      addSentryConstruct: (construct) => {
+        const id = this.nextId++;
+        this.constructs.push({ id, ...construct });
+        if (construct.activationId) this.registerAsyncPhysical(construct.activationId);
+        if (
+          this.currentChoreography &&
+          construct.faction === 'hero'
+        )
+          this.currentChoreography.carriers.push({ kind: 'construct', id });
+        this.events.push({
+          type: 'ConstructSpawned',
+          tick: this.tick,
+          skill: 'sentry',
+          x: construct.x,
+          z: construct.z
+        });
+        return id;
+      },
+      trimConstructs: (max) => {
+        while (this.constructs.length > max) {
+          const removed = this.constructs.shift();
+          if (removed?.activationId)
+            this.finishAsyncPhysical(removed.activationId, removed.x, removed.z);
+        }
+      },
+
+      charge: () => this.charge,
+      setCharge: (value) => {
+        this.charge = value;
+      },
+
+      cargoCount: (source, range) => {
+        let cargo = 0;
+        for (const construct of this.constructs) {
+          const dx = construct.x - source.x,
+            dz = construct.z - source.z,
+            along = dx * source.aimX + dz * source.aimZ,
+            lateral = Math.abs(dx * source.aimZ - dz * source.aimX);
+          if (along > 0 && along < range && lateral < 1.5) cargo++;
+        }
+        for (const pickup of this.pickups) {
+          const dx = pickup.x - source.x,
+            dz = pickup.z - source.z,
+            along = dx * source.aimX + dz * source.aimZ,
+            lateral = Math.abs(dx * source.aimZ - dz * source.aimX);
+          if (along > 0 && along < range && lateral < 1.1) cargo++;
+        }
+        return cargo;
+      },
+      displaceSource: (source, dx, dz) => this.displaceSource(source, dx, dz),
+      grantHeroDashIFrames: (duration) => {
+        this.dashIFramesUntil = Math.max(this.dashIFramesUntil, this.time + duration);
+      }
     });
     this.benchmark = !!cfg.benchmark;
     this.mode = cfg.mode ?? 'clean';
@@ -2468,13 +2613,7 @@ export class Simulation {
 
   private dispatchSkill(id: SkillId, st: SkillRuntime, slot: number, src: CastSource) {
     if (this.phenomenonCasts.cast(id, st, slot, src)) return;
-    if (id === 'cleaver') this.castCleaver(st, slot, src);
-    else if (id === 'chain_arc') this.castArc(st, slot, src);
-    else if (id === 'orbit_blades') this.castOrbit(st, slot, src);
-    else if (id === 'mortar_bloom') this.castMortar(st, slot, src);
-    else if (id === 'sentry') this.castSentry(st, slot, src);
-    else if (id === 'repulse_halo') this.castRepulse(st, slot, src);
-    else if (id === 'mass_driver') this.castMassDriver(st, slot, src);
+    this.statefulPhenomenonCasts.cast(id, st, slot, src);
   }
   private activateSlot(slot: number) {
     const lastSlot = this.activeSpan() - 1,
@@ -3147,197 +3286,20 @@ export class Simulation {
 
 
 
-  private castCleaver(st: SkillRuntime, slot: number, src: CastSource, repeat = false) {
-    const mut=st.mutation,r=this.skillRadius(st,skills.cleaver.baseRadius,slot);let half=mut==='cleaver_guillotine'?0.65:1.12;if(mut==='cleaver_roundhouse')half=Math.PI;const shape:CombatShape={kind:'sector',x:src.x,z:src.z,radius:r,aimX:src.aimX,aimZ:src.aimZ,halfAngle:half};this.combatShape('cleaver',shape);let kills=0,hookX=0,hookZ=0,hookN=0,ruptures=0;
-    for(const e of this.targetsFor(src)){const dx=e.x-src.x,dz=e.z-src.z,d=Math.hypot(dx,dz);if(d<0.01||!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;let dmg=skills.cleaver.baseDamage*this.powerBucket(st)*this.slotAmp(slot,e)*(repeat?0.65:1);if(mut==='cleaver_guillotine'&&e.hp/e.maxHp<0.25)dmg*=2;if(this.mutationIs(st,'cleaver_deep'))dmg*=1.22;const killed=this.damage(e,dmg,'cleaver',true,src.x,src.z,slot);this.closeDamage+=dmg;if(killed)kills++;
-      if(this.mutationIs(st,'cleaver_deep')){const push=e.kind==='elite'?0.22:0.62;e.x+=dx/d*push;e.z+=dz/d*push;e.displacedUntil=Math.max(e.displacedUntil,this.time+0.45);this.noteState('displaced');}
-      if(mut==='cleaver_hook'||this.mutationIs(st,'cleaver_chainhook')){const tx=src.x-e.x,tz=src.z-e.z,td=Math.hypot(tx,tz)||1,pull=this.mutationIs(st,'cleaver_chainhook')?1.05:0.65;e.x+=tx/td*pull*(1+st.control);e.z+=tz/td*pull*(1+st.control);hookX+=e.x;hookZ+=e.z;hookN++;}
-      if(this.mutationIs(st,'cleaver_rupture')&&ruptures<6){ruptures++;const burst=skills.cleaver.baseDamage*this.powerBucket(st)*0.48,rr=1.55,rupture:CombatShape={kind:'circle',x:e.x,z:e.z,radius:rr};this.combatShape('cleaver_rupture',rupture);for(const o of this.targetsFor(src))if(o.hp>0&&o.id!==e.id&&combatShapeIntersectsCircle(rupture,o.x,o.z,o.radius))this.damage(o,burst,'cleaver',false,e.x,e.z,slot);}
-    }
-    if(this.mutationIs(st,'cleaver_rift_hook')&&hookN){const x=hookX/hookN,z=hookZ/hookN;this.scheduleStrike({at:this.time+0.24,x,z,radius:2.1,damage:skills.cleaver.baseDamage*this.powerBucket(st)*0.72,faction:src.faction,ownerId:src.owner?.id??0,source:'cleaver',sourceSlot:slot,intent:'control',telegraph:'cleaver_rift_tell'});}
-    if(this.mutationIs(st,'cleaver_rhythm')&&kills>0&&!repeat){this.butcherStacks=Math.min(6,this.butcherStacks+kills);if(this.mutationIs(st,'cleaver_harvest_dance')||this.rng.float()<Math.min(0.65,this.butcherStacks*0.16)){const ax=src.aimX,az=src.aimZ;src.aimX=-az;src.aimZ=ax;this.combatShape('cleaver_harvest_dance',{kind:'circle',x:src.x,z:src.z,radius:r*1.18});this.castCleaver(st,slot,src,true);src.aimX=ax;src.aimZ=az;if(this.mutationIs(st,'cleaver_harvest_dance'))this.grantBarrier(3.5*kills);this.butcherStacks=0;}}
-    if(!repeat&&this.supportsAxis(st.id,'multiplicity')&&this.resonance.multiplicity>0){const ax=src.aimX,az=src.aimZ;for(let i=0;i<Math.min(2,this.resonance.multiplicity);i++){const a=(i%2===0?1:-1)*(0.22+0.08*i),c=Math.cos(a),q=Math.sin(a);src.aimX=ax*c-az*q;src.aimZ=ax*q+az*c;this.castCleaver(st,slot,src,true);}src.aimX=ax;src.aimZ=az;}
-  }
-
-  private castArc(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut=st.mutation,
-      maxJumps=(mut==='arc_forked'?7:4)+Math.max(0,st.count-1)+this.resonance.multiplicity+
-        (!src.owner?Math.min(3,Math.floor(this.doctrines.quantity/2)):0)+
-        this.activationCountBonus+(this.mutationContinuation(st)?.countAdd??0),
-      jumpRange=this.skillRange(st,this.mutationIs(st,'arc_relay')?5.8:4.2);
-    const available=this.targetsFor(src).filter(e=>e.hp>0&&this.targetVisible(src,e)&&Math.hypot(e.x-src.x,e.z-src.z)<=this.skillRange(st,skills.chain_arc.baseRange)+e.radius);
-    let current:Ent|undefined;const embedded=available.filter(e=>e.embedded>0);if(embedded.length)current=embedded.sort((a,b)=>b.embedded-a.embedded)[0];if(mut==='arc_ground')current=available.filter(e=>e.markUntil>this.time||e.embedded>0).sort((a,b)=>Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];if(!current)current=available.sort((a,b)=>Math.hypot(a.x-src.x,a.z-src.z)-Math.hypot(b.x-src.x,b.z-src.z))[0];if(!current)return;
-    const hit=new Set<number>(),path:Ent[]=[];let jumps=0,prevX=src.x,prevZ=src.z;
-    while(current&&jumps<maxJumps){hit.add(current.id);path.push(current);let dmg=skills.chain_arc.baseDamage*this.powerBucket(st)*this.slotAmp(slot,current)*Math.pow(mut==='arc_forked'?0.93:0.88,jumps);if(mut==='arc_ground'&&(current.markUntil>this.time||current.embedded>0))dmg*=1.45;if(current.embedded>0){dmg*=1.28;current.embedded--;this.metrics.reactions++;}this.combatShape('chain_arc',{kind:'ray',x:prevX,z:prevZ,aimX:(current.x-prevX)/(Math.hypot(current.x-prevX,current.z-prevZ)||1),aimZ:(current.z-prevZ)/(Math.hypot(current.x-prevX,current.z-prevZ)||1),range:Math.hypot(current.x-prevX,current.z-prevZ),halfWidth:0.08});this.damage(current,dmg,'chain_arc',false,prevX,prevZ,slot);this.noteState('charge');if(this.mutationIs(st,'arc_cage')&&this.time-current.lastArcAt<2.2)this.fields.push({id:this.nextId++,x:current.x,z:current.z,radius:1.25,ttl:1.7*(1+st.duration),kind:'arc',dps:13*this.powerBucket(st),tickAcc:0,faction:src.faction,ownerId:src.owner?.id??0,source:st.id,sourceSlot:slot,mutation:st.mutation,rivalConcentration:effectGrammar[st.id].rivalConcentration});current.lastArcAt=this.time;prevX=current.x;prevZ=current.z;jumps++;let next:Ent|undefined,best=999;for(const e of this.targetsFor(src)){if(e.hp<=0||hit.has(e.id))continue;const dd=Math.hypot(e.x-prevX,e.z-prevZ);if(dd<=jumpRange+e.radius&&dd<best){best=dd;next=e;}}current=next;}
-    if(this.mutationIs(st,'arc_capacitive')&&path.length&&jumps<maxJumps){
-      const unused=Math.min(4,maxJumps-jumps), target=path[0], relay=this.mutationIs(st,'arc_relay');
-      for(let i=0;i<unused;i++)this.scheduleStrike({at:this.time+0.07*(i+1),x:target.x,z:target.z,radius:relay?0.72:0.46,damage:skills.chain_arc.baseDamage*this.powerBucket(st)*(relay?0.68:0.52),faction:src.faction,ownerId:src.owner?.id??0,source:'chain_arc',sourceSlot:slot,intent:'damage',telegraph:'arc_return_pulse',fieldKind:relay?'arc':undefined,fieldDuration:relay?0.7:0,fieldDps:relay?4*this.powerBucket(st):0});
-    }
-    if(this.mutationIs(st,'arc_closed_loop')&&path.length>1){const first=path[0],last=path[path.length-1],d=Math.hypot(first.x-last.x,first.z-last.z)||1;this.combatShape('arc_closed_loop',{kind:'ray',x:last.x,z:last.z,aimX:(first.x-last.x)/d,aimZ:(first.z-last.z)/d,range:d,halfWidth:0.14});this.damage(first,skills.chain_arc.baseDamage*this.powerBucket(st)*1.55,'chain_arc',false,last.x,last.z,slot);}
-    if(this.mutationIs(st,'arc_hunting_storm')){const extra=this.targetsFor(src).filter(e=>e.hp>0&&!hit.has(e.id)&&path.some(h=>Math.hypot(e.x-h.x,e.z-h.z)<jumpRange*1.2)).slice(0,3);for(const e of extra)this.scheduleStrike({at:this.time+0.18,x:e.x,z:e.z,radius:0.72,damage:skills.chain_arc.baseDamage*this.powerBucket(st)*0.82,faction:src.faction,ownerId:src.owner?.id??0,source:'chain_arc',sourceSlot:slot,intent:'damage',telegraph:'arc_hunting_node',fieldKind:'arc',fieldDuration:1.25,fieldDps:7*this.powerBucket(st)});}
-    if(this.mutationIs(st,'arc_living_circuit')&&src.faction==='hero'){let used=0;for(const c of this.constructs){if(c.faction!=='hero'||used++>=4)continue;const target=this.entityStore.nearest(c.x,c.z,(e)=>{const dx=e.x-c.x,dz=e.z-c.z,r=c.range+e.radius;return dx*dx+dz*dz<=r*r;},c.range+2);if(!target)continue;const dx=target.x-c.x,dz=target.z-c.z,d=Math.hypot(dx,dz)||1;this.combatShape('arc_living_circuit',{kind:'ray',x:c.x,z:c.z,aimX:dx/d,aimZ:dz/d,range:d,halfWidth:0.1});this.damage(target,skills.chain_arc.baseDamage*this.powerBucket(st)*0.65,'chain_arc',false,c.x,c.z,slot);}}
-  }
-
-  private castOrbit(st: SkillRuntime, slot: number, src: CastSource) {
-    // The persistent hero Orbit always keeps activation lineage, including the Outbound mutation:
-    // Outbound adds a pulse but does not erase the continuously simulated blade actors.
-    if(src.faction==='hero'){
-      if(this.physical.orbitActivationId && this.physical.orbitActivationId!==this.physical.currentActivationId){
-        const oldCenter=this.orbitCenter();
-        this.finishAsyncPhysical(this.physical.orbitActivationId,oldCenter.x,oldCenter.z);
-      }
-      if(this.physical.currentActivationId && this.physical.orbitActivationId!==this.physical.currentActivationId)
-        this.registerAsyncPhysical(this.physical.currentActivationId);
-      this.physical.orbitActivationId=this.physical.currentActivationId;
-    }
-    // A rival cannot borrow the hero's global orbit loop; its echo remains an authored pulse.
-    if (src.faction === 'rival' || st.mutation === 'orbit_outbound') {
-      const r = this.skillRadius(st, src.faction === 'rival' ? 2.8 : 4.6, slot),
-        shape:CombatShape={ kind: 'circle', x: src.x, z: src.z, radius: r };
-      this.combatShape('orbit_blades', shape);
-      for (const e of this.targetsFor(src)) {
-        if (!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius)) continue;
-        this.damage(
-          e,
-          skills.orbit_blades.baseDamage *
-            (src.faction === 'rival' ? 1.45 : 2.2) *
-            this.powerBucket(st) *
-            this.slotAmp(slot, e),
-          'orbit_blades',
-          false,
-          src.x,
-          src.z,
-          slot
-        );
-      }
-    }
-  }
-  private castMortar(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut=st.mutation,range=this.skillRange(st,skills.mortar_bloom.baseRange);let p=this.aimPoint(src,range);let r=this.skillRadius(st,skills.mortar_bloom.baseRadius,slot),mult=1;
-    if(this.mutationIs(st,'mortar_spotter')){
-      const marked=this.bestTarget(
-        src,
-        (e)=>{
-          if(e.kind!=='elite'||e.markUntil<=this.time) return false;
-          const dx=e.x-src.x,dz=e.z-src.z;
-          return dx*dx+dz*dz<=(range+3)*(range+3);
-        },
-        (a,b)=>{
-          const adx=a.x-p.x,adz=a.z-p.z,bdx=b.x-p.x,bdz=b.z-p.z;
-          return adx*adx+adz*adz-(bdx*bdx+bdz*bdz);
-        }
-      );
-      if(marked)p={x:marked.x,z:marked.z};
-    }
-    if(mut==='mortar_fuse'){r*=1.35;mult*=1.35;}if(this.mutationIs(st,'mortar_airburst')){r*=1.2;mult*=0.86;}
-    const baseDamage=skills.mortar_bloom.baseDamage*this.powerBucket(st)*this.slotAmp(slot)*mult;
-    let points:{x:number;z:number;delay:number}[]=[];
-    if(this.mutationIs(st,'mortar_carpet')){for(let i=-2;i<=2;i++)points.push({x:p.x+src.aimX*i*1.7,z:p.z+src.aimZ*i*1.7,delay:0.25+(i+2)*0.13});}
-    else if(this.mutationIs(st,'mortar_hunter_pass')){const elite=this.bestTarget(src,(e)=>e.kind==='elite',(a,b)=>{const marked=Number(b.markUntil>this.time)-Number(a.markUntil>this.time);if(marked)return marked;const adx=a.x-src.x,adz=a.z-src.z,bdx=b.x-src.x,bdz=b.z-src.z;return adx*adx+adz*adz-(bdx*bdx+bdz*bdz);});const t=elite??({x:p.x,z:p.z} as Ent);for(let i=0;i<3;i++){const a=i*Math.PI*2/3;points.push({x:t.x+Math.cos(a)*1.35,z:t.z+Math.sin(a)*1.35,delay:0.28+i*0.22});}}
-    else {const n=mut==='mortar_cluster'?3:Math.max(1,Math.min(3,this.projectileCount(st,slot)));for(let i=0;i<n;i++){const a=i?this.rng.range(0,Math.PI*2):0,rr=i?this.rng.range(0.7,1.5):0;points.push({x:p.x+Math.cos(a)*rr,z:p.z+Math.sin(a)*rr,delay:0.38+i*0.12});}}
-    for(const q of points)this.scheduleStrike({
-      at:this.time+q.delay,x:q.x,z:q.z,radius:r,damage:baseDamage,faction:src.faction,
-      ownerId:src.owner?.id??0,source:'mortar_bloom',sourceSlot:slot,intent:'damage',
-      telegraph:'bombardier_marker',
-      fieldKind:this.mutationIs(st,'mortar_gravity_field')?'arc':this.mutationIs(st,'mortar_crater')?'frost':undefined,
-      fieldDuration:this.mutationIs(st,'mortar_gravity_field')?3.4:2.5,
-      fieldDps:this.mutationIs(st,'mortar_gravity_field')?5*this.powerBucket(st):6*this.powerBucket(st),
-      fieldBehavior:this.mutationIs(st,'mortar_gravity_field')?'pull':undefined
-    });
-    this.noteState('field');
-  }
-
-  private castSentry(st: SkillRuntime, slot: number, src: CastSource) {
-    let count=Math.max(1,Math.round(st.count))+this.activationCountBonus+(this.mutationContinuation(st)?.countAdd??0);
-    if(this.supportsAxis(st.id,'multiplicity')) count+=Math.ceil(this.resonance.multiplicity/2);
-    if(!src.owner) count+=Math.min(2,Math.floor(this.doctrines.quantity/2));
-    count=Math.max(1,Math.min(5,count));
-
-    // Base Sentry is now spatial construction, not "pop a turret beside the hero".
-    // Each beat builds a short forward battery. Movement/facing and Catalyst choreography
-    // therefore leave a legible field of recent positions that Grid/Arc can actually use.
-    const perpX=-src.aimZ, perpZ=src.aimX,
-      forward=2.5+(count>3?0.35:0),
-      spacing=1.05;
-    for(let i=0;i<count;i++){
-      const lane=i-(count-1)/2,
-        stagger=(i%2)*0.35,
-        rawX=src.x+src.aimX*(forward+stagger)+perpX*lane*spacing,
-        rawZ=src.z+src.aimZ*(forward+stagger)+perpZ*lane*spacing,
-        p=this.freeOf(rawX,rawZ,0.38),
-        id=this.nextId++;
-      const activationId=src.faction==='hero'?this.physical.currentActivationId:0;
-      this.constructs.push({id,activationId:activationId||undefined,x:p.x,z:p.z,ttl:this.persistentDuration(st,5.25,slot),cooldown:this.mutationIs(st,'sentry_hunter_battery')?0:0.1+i*0.08,range:this.skillRange(st,skills.sentry.baseRange),power:this.powerBucket(st)*this.slotAmp(slot),skill:'sentry',faction:src.faction,ownerId:src.owner?.id??0,sourceSlot:slot,mutation:st.mutation,mutationUpgrade:st.mutationUpgrade,mutationApotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.sentry.rivalConcentration});
-      if(activationId)this.registerAsyncPhysical(activationId);
-      if(this.currentChoreography&&src.faction==='hero')this.currentChoreography.carriers.push({kind:'construct',id});
-      this.events.push({type:'ConstructSpawned',tick:this.tick,skill:'sentry',x:p.x,z:p.z});
-      this.combatShape('sentry_placement',{kind:'circle',x:p.x,z:p.z,radius:0.42},'field');
-    }
-    while(this.constructs.length>18){
-      const removed=this.constructs.shift();
-      if(removed?.activationId)this.finishAsyncPhysical(removed.activationId,removed.x,removed.z);
-    }
-    this.noteState('construct');
-  }
 
 
 
-  private castRepulse(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut = st.mutation,
-      r0 = this.skillRadius(st, skills.repulse_halo.baseRadius, slot),
-      passes = this.mutationIs(st, 'repulse_rings') ? 2 : 1;
-    let aegisGranted = 0;
-    for (let pass = 0; pass < passes; pass++) {
-      const r = r0 * (passes === 2 ? (pass === 0 ? 0.72 : 1.05) : 1),
-        pull = mut === 'repulse_gravity';
-      this.combatShape(
-        'repulse_halo',
-        { kind: 'circle', x: src.x, z: src.z, radius: r },
-        'control'
-      );
-      for (const e of this.targetsFor(src)) {
-        if (e.hp <= 0) continue;
-        const dx = e.x - src.x,
-          dz = e.z - src.z,
-          d = Math.hypot(dx, dz) || 1;
-        if (d > r + e.radius) continue;
-        let dmg =
-          skills.repulse_halo.baseDamage *
-          this.powerBucket(st) *
-          this.slotAmp(slot, e) *
-          (passes === 2 ? 0.7 : 1);
-        if (mut === 'repulse_front') dmg *= d > r * 0.68 ? 2.0 : 0.42;
-        this.damage(e, dmg, 'repulse_halo', false);
-        const force = (0.72 + 0.58 * st.control) * (pull ? -1 : 1);
-        e.x += (dx / d) * force;
-        e.z += (dz / d) * force;
-        e.displacedUntil = this.time + 1.4;
-        this.noteState('displaced');
-        this.currentActivationControl += 1.2 + st.control;
-        if (mut === 'repulse_aegis' && aegisGranted < 24) {
-          const g = Math.min(24 - aegisGranted, 2.2 + 1.3 * st.control);
-          this.grantBarrier(g);
-          aegisGranted += g;
-        }
-        if (this.mutationIs(st, 'repulse_relay'))
-          this.charge = Math.min(6, this.charge + 0.22 + st.control * 0.08);
-      }
-    }
-  }
 
-  private castMassDriver(st: SkillRuntime, slot: number, src: CastSource) {
-    const mut=st.mutation, range=this.skillRange(st,skills.mass_driver.baseRange);
-    let speed=3.8,radius=this.skillRadius(st,0.72,slot),damage=skills.mass_driver.baseDamage*this.powerBucket(st)*this.slotAmp(slot),cover=90;
-    if(mut==='mass_rail'){speed=6.2;radius*=0.72;damage*=1.45;}
-    if(mut==='mass_snowball'){speed=3.25;radius*=1.08;}
-    let cargo=0;
-    if(this.mutationIs(st,'mass_cargo')){for(const c of this.constructs){const dx=c.x-src.x,dz=c.z-src.z,t=dx*src.aimX+dz*src.aimZ,lat=Math.abs(dx*src.aimZ-dz*src.aimX);if(t>0&&t<range&&lat<1.5)cargo++;}for(const q of this.pickups){const dx=q.x-src.x,dz=q.z-src.z,t=dx*src.aimX+dz*src.aimZ,lat=Math.abs(dx*src.aimZ-dz*src.aimX);if(t>0&&t<range&&lat<1.1)cargo++;}damage*=1+Math.min(0.9,cargo*0.14);radius*=1+Math.min(0.35,cargo*0.04);}
-    if(this.mutationIs(st,'mass_terminal')){speed*=1.38;damage*=1.42;radius*=0.9;}
-    if(mut==='mass_recoil'||this.mutationIs(st,'mass_counterthrust')){const kick=this.mutationIs(st,'mass_comet_recoil')?1.8:1.05;this.displaceSource(src,-src.aimX*kick,-src.aimZ*kick);if(!src.owner&&this.mutationIs(st,'mass_comet_recoil'))this.dashIFramesUntil=Math.max(this.dashIFramesUntil,this.time+0.16);}
-    if(this.mutationIs(st,'mass_comet_recoil')){speed*=1.35;damage*=1.28;radius*=1.18;}
-    this.combatShape('mass_driver',{kind:'ray',x:src.x,z:src.z,aimX:src.aimX,aimZ:src.aimZ,range,halfWidth:radius},'control',false);
-    this.spawnProjectile({x:src.x+src.aimX*(radius+0.25),z:src.z+src.aimZ*(radius+0.25),vx:src.aimX*speed,vz:src.aimZ*speed,radius,ttl:range/speed,damage,coverDamage:cover+damage*0.8,faction:src.faction,ownerId:src.owner?.id??0,source:'mass_driver',sourceSlot:slot,mutation:mut,apotheosis:st.mutationApotheosis,rivalConcentration:effectGrammar.mass_driver.rivalConcentration,behavior:'roller',phase:0,hitIds:[],growth:this.mutationIs(st,'mass_avalanche')?0.12:mut==='mass_snowball'?0.06:0});
-  }
+
+
+
+
+
+
+
+
+
+
 
   private damage(
     e: Ent,
