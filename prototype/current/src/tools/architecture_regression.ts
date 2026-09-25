@@ -20,6 +20,7 @@ const activationPipeline=readFileSync('src/core/activationPipelineSystem.ts','ut
 const combatLedger=readFileSync('src/core/combatLedger.ts','utf8');
 const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
 const rewardOfferFactory=readFileSync('src/core/rewardOfferFactory.ts','utf8');
+const progressionOfferSystem=readFileSync('src/core/progressionOfferSystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
 const orbitSystem=readFileSync('src/core/orbitSystem.ts','utf8');
 const fieldSystem=readFileSync('src/core/fieldSystem.ts','utf8');
@@ -276,6 +277,30 @@ assert(delayedUpdate.includes('this.delayedStrikeSystem.update(this.delayedStrik
 for (const token of ['areaPoints=[0,1,2,3]','fieldKind','_impact'])
   assert(!delayedUpdate.includes(token), 'delayed strike runtime leaked back into Simulation: '+token);
 
+assert(progressionOfferSystem.includes('export class ProgressionOfferSystem'),
+  'progression reward selection has no dedicated policy owner');
+assert(simulation.includes('private progressionOffers!: ProgressionOfferSystem'),
+  'Simulation no longer delegates progression offer selection');
+for (const method of [
+  'generateCatalystDiscovery','generateResonanceChoice','generateDiscovery',
+  'generateLevelOffers','generateMutationTargetOffers','generateEliteCache'
+]) {
+  const start=simulation.indexOf('  private '+method+'(');
+  const next=simulation.indexOf('\n  private ', start + 3);
+  const block=simulation.slice(start, next > start ? next : start + 500);
+  assert(block.includes('this.progressionOffers.'),
+    'progression wrapper stopped delegating to ProgressionOfferSystem: '+method);
+}
+for (const token of [
+  'private skillOrderUnowned(','private catalystOrderUnowned(',
+  'this.shuffle([...doctrineOrder])','usefulUnowned =','preferred: DoctrineId[]'
+])
+  assert(!simulation.includes(token),
+    'progression selection policy leaked back into Simulation: '+token);
+assert(simulation.includes('this.progressionOffers.hasUnownedSkills()'),
+  'Phenomenon POI no longer asks progression policy about discoveries');
+assert(simulation.includes('this.progressionOffers.hasEvolvableSkill()'),
+  'mutation-core progression no longer asks progression policy about eligibility');
 assert(rewardOfferFactory.includes('export class RewardOfferFactory'),
   'player-facing reward cards have no dedicated factory');
 assert(simulation.includes('private rewardOfferFactory!: RewardOfferFactory'),
@@ -504,6 +529,7 @@ console.log('architecture-regression OK', {
   combatLedger:true,
   relicRaceSystem:true,
   rewardOfferFactory:true,
+  progressionOfferSystem:true,
   delayedStrikeSystem:true,
   orbitSystem:true,
   fieldSystem:true,
