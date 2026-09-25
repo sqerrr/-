@@ -18,7 +18,7 @@ assert(runtime.mutationRefusalToken, 'one-run mutation refusal token did not sta
 
 runtime.openRewards(rewards);
 assert(runtime.hasChoice, 'opening rewards did not create an active choice');
-assert(runtime.serial === 1, 'reward open did not advance choice serial');
+assert(numeric(runtime.serial) === 1, 'reward open did not advance choice serial');
 assert(runtime.rewardOffers === rewards, 'reward runtime copied/replaced the authored offer array');
 
 assert(runtime.takeReward(99) === null, 'invalid reward index unexpectedly resolved');
@@ -51,9 +51,9 @@ assert(runtime.mutationChoice(0) === 'frost_front' && runtime.mutationChoice(9) 
 assert(runtime.canRefuseMutation(), 'fresh Tier I mutation cannot use refusal token');
 
 runtime.beginMutationTarget();
-assert(runtime.pendingMutationTarget, 'mutation target did not arm pending core consumption');
+assert(Boolean(runtime.pendingMutationTarget), 'mutation target did not arm pending core consumption');
 assert(runtime.consumeMutationTarget(), 'pending mutation target was not consumed');
-assert(!runtime.pendingMutationTarget && !runtime.consumeMutationTarget(),
+assert(!Boolean(runtime.pendingMutationTarget) && !runtime.consumeMutationTarget(),
   'pending mutation target consumed more than once');
 
 const serialBeforeRefusal = runtime.serial;
@@ -61,9 +61,9 @@ assert(runtime.replaceMutationChoice(1, 'frost_whiteout'),
   'mutation refusal replacement was rejected');
 assert(runtime.mutationOffer?.choices[1] === 'frost_whiteout',
   'mutation refusal did not replace requested branch');
-assert(!runtime.mutationRefusalToken && !runtime.mutationOffer?.refusalAvailable,
+assert(!Boolean(runtime.mutationRefusalToken) && !Boolean(runtime.mutationOffer?.refusalAvailable),
   'mutation refusal token/modal availability was not consumed together');
-assert(runtime.serial === serialBeforeRefusal + 1,
+assert(numeric(runtime.serial) === serialBeforeRefusal + 1,
   'mutation refusal did not invalidate UI serial');
 assert(!runtime.canRefuseMutation() && !runtime.replaceMutationChoice(0, 'frost_front'),
   'one-run mutation refusal token could be reused');
