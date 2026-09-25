@@ -1,19 +1,21 @@
 import { skills } from '../content/definitions.js';
 import { PhenomenonCastSystem, type PhenomenonCastPort } from '../core/phenomenonCastSystem.js';
-import { makeEnt, type CastSource, type DelayedStrike, type Ent, type Projectile } from '../core/state.js';
+import { makeEnt, type CastSource, type DelayedStrike, type Ent, type Field, type Projectile } from '../core/state.js';
 import type { CombatShape, MutationId, SkillId, SkillRuntime } from '../core/types.js';
 
 function assert(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error('phenomenon-cast-system-regression: ' + message);
 }
 
-let now=10, cycle=2, closeDamage=0, activationControl=0;
+let now=10, cycle=2, closeDamage=0, activationControl=0, reactions=0, barrier=0;
 const entities:Ent[]=[];
 const projectiles:Omit<Projectile,'id'|'guarded'>[]=[];
 const strikes:Omit<DelayedStrike,'id'>[]=[];
+const fields:Omit<Field,'id'>[]=[];
 const shapes:{source:string;shape:CombatShape;physicalTrace:boolean}[]=[];
 const states:string[]=[];
 const damageSources:string[]=[];
+const rareEvents:string[]=[];
 
 const source:CastSource={
   faction:'hero',owner:null,x:0,z:0,aimX:1,aimZ:0,vx:0,vz:0
@@ -36,6 +38,7 @@ const port:PhenomenonCastPort={
   cycle:()=>cycle,
   skillRadius:(_runtime,base)=>base,
   skillRange:(_runtime,base)=>base,
+  persistentDuration:(_runtime,base)=>base,
   powerBucket:()=>1,
   slotAmp:()=>1,
   memoryFactor:()=>1,
@@ -53,15 +56,35 @@ const port:PhenomenonCastPort={
   },
   targetVisible:()=>true,
   aimPoint:(src,range)=>({x:src.x+src.aimX*range,z:src.z+src.aimZ*range}),
+  rotatedAim:(src,rad)=>{
+    const cos=Math.cos(rad),sin=Math.sin(rad);
+    return {x:src.aimX*cos-src.aimZ*sin,z:src.aimX*sin+src.aimZ*cos};
+  },
+  rayHits:(src,ax,az,range,width,maxHits=99)=>{
+    const m=Math.hypot(ax,az)||1,nx=ax/m,nz=az/m;
+    return entities
+      .filter(e=>e.hp>0)
+      .map(e=>{const dx=e.x-src.x,dz=e.z-src.z;return {e,t:dx*nx+dz*nz,lat:Math.abs(dx*nz-dz*nx)};})
+      .filter(h=>h.t>=-h.e.radius&&h.t<=range+h.e.radius&&h.lat<=width+h.e.radius)
+      .sort((a,b)=>a.t-b.t)
+      .slice(0,maxHits);
+  },
+  firstBlockingObstacleHit:()=>null,
   damage:(target,amount,src)=>{
     target.hp-=amount;
     damageSources.push(src);
   },
   spawnProjectile:(projectile)=>projectiles.push(projectile),
   scheduleStrike:(strike)=>strikes.push(strike),
+  addField:(field)=>fields.push(field),
   addCloseDamage:(amount)=>{closeDamage+=amount;},
   addActivationControl:(amount)=>{activationControl+=amount;},
-  noteState:(state)=>states.push(state)
+  noteState:(state)=>states.push(state),
+  noteReaction:()=>{reactions++;},
+  emitReaction:()=>{reactions++;},
+  emitRareEvent:(title)=>rareEvents.push(title),
+  grantBarrier:(amount)=>{barrier+=amount;},
+  doctrineForce:()=>0
 };
 const system=new PhenomenonCastSystem(port);
 
@@ -120,10 +143,59 @@ const system=new PhenomenonCastSystem(port);
   assert(states.includes('toxin')&&states.includes('displaced'),'Pin Burst state bookkeeping changed');
 }
 
+
+
+// Ember preserves thermal shock, splash and ignite state.
+{
+  entities.length=0;states.length=0;damageSources.length=0;reactions=0;
+  const primary=enemy(5,2,0), splash=enemy(6,2.8,0);
+  primary.chillUntil=now+2;
+  const st=runtime('ember_lance');
+  system.cast('ember_lance',st,0,source);
+  assert(primary.hp<1000 && primary.igniteUntil>now,'Ember ignite payload changed');
+  assert(primary.chillUntil===0,'Ember thermal shock no longer consumes chill');
+  assert(splash.hp<1000,'Ember thermal shock splash changed');
+  assert(reactions>0,'Ember thermal shock reaction bookkeeping changed');
+}
+
+// Frost Snap preserves shatter semantics and control bookkeeping.
+{
+  entities.length=0;states.length=0;rareEvents.length=0;activationControl=0;
+  const target=enemy(7,1,0);
+  target.chillUntil=now+2;
+  const st=runtime('frost_ring'); st.mutation='frost_snap';
+  system.cast('frost_ring',st,0,source);
+  assert(target.hp<1000 && target.chillUntil>now,'Frost post-shatter chill application changed');
+  assert(rareEvents.includes('РАСКОЛ'),'Frost shatter readable event missing');
+  assert(activationControl>0,'Frost control bookkeeping changed');
+}
+
+// Rail Lattice keeps its delayed cross-pattern even without a direct hit.
+{
+  entities.length=0;strikes.length=0;
+  const st=runtime('rail_spear'); st.mutationApotheosis='rail_lattice';
+  system.cast('rail_spear',st,0,source);
+  assert(strikes.length===14,'Rail Lattice delayed node count changed');
+  assert(strikes.every(s=>s.source==='rail_spear'&&s.telegraph==='rail_lattice_node'),
+    'Rail Lattice delayed strike contract changed');
+}
+
+// Toxic Reactive keeps immediate Septic Cut plus the persistent mist actor.
+{
+  entities.length=0;fields.length=0;damageSources.length=0;reactions=0;
+  const target=enemy(8,0.5,0);
+  target.igniteUntil=now+2;
+  const st=runtime('toxic_mist'); st.mutation='toxic_reactive';
+  system.cast('toxic_mist',st,0,source);
+  assert(damageSources.includes('septic_cut'),'Toxic Reactive immediate cut changed');
+  assert(fields.length===1&&fields[0].kind==='toxic','Toxic Mist persistent field contract changed');
+  assert(reactions>0,'Toxic Reactive reaction bookkeeping changed');
+}
+
 assert(!system.cast('cleaver',runtime('cleaver'),0,source),'cast system claimed a not-yet-migrated Phenomenon');
 
 console.log('phenomenon-cast-system-regression OK',{
-  handled:['breach_line','contact_saw','shard_fan','tether_drag','pin_burst'],
+  handled:['breach_line','contact_saw','shard_fan','tether_drag','pin_burst','ember_lance','frost_ring','rail_spear','toxic_mist'],
   projectiles:projectiles.length,
   strikes:strikes.length
 });
