@@ -51,6 +51,9 @@ function until(sim:any,pred:()=>boolean,maxTicks=600){
 const cue=(sim:any,mode:string)=>sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode===mode);
 const casts=(sim:any,id:SkillId)=>sim.events.filter((e:any)=>e.type==='SkillActivated'&&e.skill===id);
 const damage=(sim:any,id:string)=>sim.events.filter((e:any)=>e.type==='DamageResolved'&&e.source===id);
+const activateSlot=(sim:any,slot:number)=>sim.activationPipeline.activate(slot);
+const castCatalystPayload=(sim:any,binding:any,x:number,z:number,aimX?:number,aimZ?:number)=>
+  sim.activationPipeline.castPayload(binding,x,z,aimX,aimZ);
 
 // Shared geometry: actor radius belongs to the same test as the shape visible to the renderer.
 assert(circleIntersectsCircle(0,0,1,1.35,0,.4),'circle overlap ignores target radius');
@@ -66,7 +69,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   sim.catalysts=[null];
   sim.ents=sim.ents.slice(0,1);
   const e=sim.ents[0];e.x=5;e.z=.8;e.radius=.6;
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   assert(damage(sim,'rail_spear').length>0,'Rail still uses a narrower private hitbox than its visible ray');
 }
 
@@ -104,7 +107,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
 // MORTAR SOURCE: scheduled marker is not a terminal. B cannot exist before the real impact.
 {
   const sim=fixture('mortar_bloom','toxic_mist','source');
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   assert(!cue(sim,'source'),'Mortar Source fired at scheduling time');
   assert(casts(sim,'toxic_mist').length===0,'Mortar Source cast B before impact');
   advance(sim,18); // 0.30 s; base first impact is later.
@@ -125,7 +128,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   sim.ents=sim.ents.slice(0,2);
   sim.skillsRuntime.get('mortar_bloom').mutationApotheosis='mortar_gravity_field';
   const moved=sim.ents[1], before={x:moved.x,z:moved.z};
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   assert(dist(moved,before)<1e-6,'Gravity Bomb displaced a target while only the marker existed');
   advance(sim,18);
   assert(dist(moved,before)<1e-6,'Gravity Bomb started pulling before physical impact');
@@ -139,7 +142,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
 // MORTAR CARRIER: the discussed Frost example fires on impact, never on shell scheduling.
 {
   const sim=fixture('mortar_bloom','frost_ring','carrier');
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   assert(casts(sim,'frost_ring').length===0,'Mortar Carrier fired Frost at schedule/spawn time');
   assert(until(sim,()=>!!cue(sim,'carrier'),90),'Mortar impact never produced Carrier');
   const impact=sim.events.find((e:any)=>e.type==='CombatShape'&&e.source==='mortar_bloom_impact'),
@@ -152,7 +155,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
 {
   const sim=fixture('mass_driver','toxic_mist','trail');
   sim.skillsRuntime.get('mass_driver').mutation='mass_recoil';
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   const p=sim.projectiles.find((q:any)=>q.source==='mass_driver'),
     binding=sim.physicalDiagnostics().bindings.find((q:any)=>q.fromSkill==='mass_driver');
   assert(p&&binding,'Mass recoil fixture produced no projectile/binding');
@@ -163,7 +166,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
 // MASS DRIVER TRAIL: placements appear progressively behind the moving body, never pre-sampled down the aim ray.
 {
   const sim=fixture('mass_driver','toxic_mist','trail');
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   assert(casts(sim,'toxic_mist').length===0,'Mass Driver Trail pre-created B at cast time');
   advance(sim,10);
   assert(casts(sim,'toxic_mist').length===0,'Mass Driver Trail appeared before projectile travelled enough distance');
@@ -179,7 +182,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
 // SHARD CARRIER: B fires on swept-circle contact, not at projectile spawn.
 {
   const sim=fixture('shard_fan','frost_ring','carrier');
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   assert(casts(sim,'frost_ring').length===0,'Shard Carrier fired B when shards spawned');
   assert(until(sim,()=>casts(sim,'frost_ring').length>0,90),'Shard contact never fired Carrier');
   const shardHit=damage(sim,'shard_fan')[0], frost=casts(sim,'frost_ring')[0];
@@ -193,7 +196,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   sim.ents=[];
   sim.obstacles=[{id:97901,x:3,z:0,radius:.65,hp:-1,maxHp:-1,destructible:false}];
   sim.buildObstacleGrid();
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   assert(casts(sim,'frost_ring').length===0,'Shard Carrier fired before reaching cover');
   assert(until(sim,()=>casts(sim,'frost_ring').length>0,90),'world collision did not trigger Carrier');
   const frost=casts(sim,'frost_ring')[0];
@@ -203,7 +206,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
 // SENTRY CARRIER: deployment itself is not contact. Rail starts from turret on the first real shot.
 {
   const sim=fixture('sentry','rail_spear','carrier');
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   assert(casts(sim,'rail_spear').length===0,'Sentry Carrier fired Rail at construction time');
   assert(until(sim,()=>casts(sim,'rail_spear').length>0,90),'Sentry shot never fired Carrier');
   const sentryHit=damage(sim,'sentry')[0], rail=casts(sim,'rail_spear')[0];
@@ -217,7 +220,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   const sim=fixture('sentry','rail_spear','carrier');
   sim.ents=sim.ents.slice(0,1);
   const e=sim.ents[0];e.x=3;e.z=0;
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   for(const c of sim.constructs){c.ttl=sim.dt*.5;c.cooldown=0;}
   const before=casts(sim,'rail_spear').length;
   physicalTick(sim);
@@ -238,7 +241,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   const sim=fixture('sentry','rail_spear','carrier');
   sim.ents=[];
   sim.skillsRuntime.get('sentry').duration=1; // ~10.5 s physical turrets.
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   advance(sim,390); // 6.5 s: beyond the removed legacy binding timeout.
   assert(sim.constructs.length>0,'long-lived Sentry fixture expired before timeout audit');
   assert(casts(sim,'rail_spear').length===0,'Sentry Carrier fired without a physical target contact');
@@ -253,7 +256,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   sim.tick=60; // past the initial hit interval
   sim.ents=sim.ents.slice(0,1);
   const e=sim.ents[0], st=sim.skillsRuntime.get('orbit_blades'), center={x:0,z:0}, profile=sim.orbitSystem.profile(st,center);
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   const nextTime=(sim.tick+1)/sim.hz, speed=st.mutation==='orbit_saw'?2.55:3.4,
     gap=nextTime*speed+Math.PI/profile.count;
   e.x=Math.cos(gap)*profile.radius;e.z=Math.sin(gap)*profile.radius;e.orbitHitAt=-99;
@@ -274,7 +277,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   const st=sim.skillsRuntime.get('orbit_blades');st.mutation='orbit_outbound';
   const e=sim.ents[0],profile=sim.orbitSystem.profile(st,{x:0,z:0});
   e.x=20;e.z=20;
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   assert(casts(sim,'frost_ring').length===0,'Outbound pulse masqueraded as a Carrier contact');
   const next=(sim.tick+1)/sim.hz*3.4;
   e.x=Math.cos(next)*profile.radius;e.z=Math.sin(next)*profile.radius;e.orbitHitAt=-99;
@@ -287,7 +290,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   const sim=fixture('mortar_bloom','rail_spear','reverse');
   assert(!sim.catalysts.length || !sim.catalysts[0] || !sim.catalystCompatibleEdges('reverse').some((q:any)=>q.left==='mortar_bloom'&&q.right==='rail_spear'),
     'Mortar falsely advertises Reverse without a physical flight path');
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   advance(sim,120);
   assert(casts(sim,'rail_spear').length===0,'Mortar fabricated origin->impact route for Reverse');
 }
@@ -295,7 +298,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
 // Moving Mass Driver does own a path, so Reverse waits for its real terminal and uses travelled geometry.
 {
   const sim=fixture('mass_driver','rail_spear','reverse');
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   assert(casts(sim,'rail_spear').length===0,'Mass Reverse fired before the moving body reached terminal');
   assert(until(sim,()=>!!cue(sim,'reverse'),360),'Mass Driver Reverse never fired at physical terminal');
   const rail=casts(sim,'rail_spear')[0], c=cue(sim,'reverse');
@@ -312,7 +315,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   const e=sim.ents[0];e.x=2.6;e.z=0;
   sim.skillsRuntime.get('cleaver').mutation='cleaver_hook';
   const contact={x:e.x,z:e.z};
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   const mist=sim.fields.find((q:any)=>q.source==='toxic_mist');
   assert(mist,'Cleaver Source produced no payload');
   assert(dist(mist,contact)<.12,'Source terminal followed the target after pull instead of preserving contact');
@@ -324,7 +327,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
   const sim=fixture('chain_arc','toxic_mist','source');
   sim.skillsRuntime.get('chain_arc').mutation='arc_capacitive';
   const tick=sim.tick;
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   const mistCast=casts(sim,'toxic_mist')[0];
   assert(mistCast&&mistCast.tick===tick,'Chain Arc Source waited for a secondary delayed pulse');
 }
@@ -332,7 +335,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
 // COLLAPSE uses the actual Frost circle now; it is allowed to fire immediately because the area exists immediately.
 {
   const sim=fixture('frost_ring','rail_spear','collapse');
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   const c=cue(sim,'collapse'), rs=casts(sim,'rail_spear');
   assert(c&&rs.length>=2,'immediate physical Frost area did not collapse into Rail spokes');
   for(const r of rs){
@@ -354,7 +357,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
     nextTrailDistance:1.35,firedCount:0,carrierKeys:new Set(),pathCarrierKey:null,done:false
   };
   sim.events.length=0;
-  assert(sim.castCatalystPayload(parent,5,0),'cascade fixture could not cast remote B');
+  assert(castCatalystPayload(sim,parent,5,0),'cascade fixture could not cast remote B');
   const cast=sim.events.find((e:any)=>e.type==='SkillActivated'&&e.skill==='rail_spear'),
     child=sim.physicalDiagnostics().bindings.find((b:any)=>b.fromSlot===1&&b.toSlot===2);
   assert(cast&&child,'remote B did not arm its outgoing Catalyst edge');
@@ -368,22 +371,22 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
 // suppressed even after the cycle number advances while a slow producer is still alive.
 {
   const sim=fixture('mass_driver','toxic_mist','source');
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   assert(casts(sim,'toxic_mist').length===0,'Mass Source unexpectedly fired immediately');
   sim.cycle += 3;
-  sim.activateSlot(1);
+  activateSlot(sim,1);
   assert(casts(sim,'toxic_mist').length===0,'B regained an ordinary beat in a later cycle');
   assert(until(sim,()=>casts(sim,'toxic_mist').length>0,360),'slow Mass terminal never fired event-owned B');
   const after=casts(sim,'toxic_mist').length;
   sim.cycle += 1;
-  sim.activateSlot(1);
+  activateSlot(sim,1);
   assert(casts(sim,'toxic_mist').length===after,'B duplicated after reactive cast on a later chain cycle');
 }
 
 // Completed causal chains retire their activation bookkeeping instead of leaking every beat forever.
 {
   const sim=fixture('rail_spear','toxic_mist','source');
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   sim.flushPhysicalEvents();
   const lifecycle=sim.physicalDiagnostics();
   assert(lifecycle.pendingCount===0,'completed immediate activation retained pending actors');
@@ -394,10 +397,10 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
 // The immediate case follows the same rule.
 {
   const sim=fixture('rail_spear','toxic_mist','source');
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   const before=casts(sim,'toxic_mist').length;
   assert(before>0,'fixture did not produce reactive Source payload');
-  sim.activateSlot(1);
+  activateSlot(sim,1);
   assert(casts(sim,'toxic_mist').length===before,'ordinary B beat duplicated Catalyst payload');
 }
 
@@ -442,7 +445,7 @@ assert(sweepCircleT(0,0,12,0,5,0,.6)!==null,'continuous sweep can tunnel through
           sim.ents[0].z=Math.sin(a)*p.radius;
           sim.ents[0].orbitHitAt=-99;
         }
-        sim.activateSlot(0);
+        activateSlot(sim,0);
         const ok=until(sim,()=>!!cue(sim,cat),600);
         assert(ok,left+' '+String(mutationId)+': '+signal+' never produced '+cat+' choreography');
         assert(casts(sim,right!).length>0,left+' '+String(mutationId)+': '+cat+' cue had no physical B activation');
