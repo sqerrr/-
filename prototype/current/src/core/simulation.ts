@@ -47,6 +47,7 @@ import { PhysicalCatalystSystem } from './physicalCatalystSystem.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { PhenomenonCastSystem } from './phenomenonCastSystem.js';
 import { PhenomenonKillReactionSystem } from './phenomenonKillReactionSystem.js';
+import { PlayerDamageSystem } from './playerDamageSystem.js';
 import { ProjectileSystem } from './projectileSystem.js';
 import { RelicRaceSystem } from './relicRaceSystem.js';
 import { Rng } from './rng.js';
@@ -299,6 +300,7 @@ export class Simulation {
   private relicRace!: RelicRaceSystem;
   private phenomenonCasts!: PhenomenonCastSystem;
   private phenomenonKillReactions!: PhenomenonKillReactionSystem;
+  private playerDamage!: PlayerDamageSystem;
   private statefulPhenomenonCasts!: StatefulPhenomenonCastSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
@@ -751,6 +753,35 @@ export class Simulation {
       damage: (target, amount, source, sourceX, sourceZ) => {
         this.damage(target, amount, source, false, sourceX, sourceZ);
       }
+    });
+    this.playerDamage = new PlayerDamageSystem({
+      time: () => this.time,
+      tick: () => this.tick,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      playerHp: () => this.php,
+      setPlayerHp: (value) => {
+        this.php = value;
+      },
+      barrier: () => this.barrier,
+      setBarrier: (value) => {
+        this.barrier = value;
+      },
+      armor: () => this.armor,
+      guardDoctrine: () => this.doctrines.guard,
+      itemDamageTakenMultiplier: () => this.itemDamageTakenMul,
+      itemRefusalDamageMultiplier: () => this.itemRefusalDamageMul,
+      dashIFramesUntil: () => this.dashIFramesUntil,
+      dashWindowSaved: () => this.dashWindowSaved,
+      setDashWindowSaved: (value) => {
+        this.dashWindowSaved = value;
+      },
+      metrics: () => this.metrics,
+      entities: () => this.ents,
+      eliteEncounter: (entityId) => this.eliteLogById.get(entityId),
+      randomFloat: () => this.rng.float(),
+      rivalAxisCount: (entity, axis) => this.rivalAxisCount(entity, axis),
+      emit: (event) => this.events.push(event)
     });
     this.squadDirector = new SquadDirector({
       world: this.world,
@@ -2314,62 +2345,12 @@ export class Simulation {
     this.bossBehavior.update(e, speed, d, nx, nz);
   }
 
-  private hitPlayer(amount: number, attacker: Ent | null = null, source: DamageSourceId = 'contact') {
-    if (amount <= 0 || this.php <= 0) return;
-    if (this.time < this.dashIFramesUntil) {
-      if (!this.dashWindowSaved) {
-        this.dashWindowSaved = true;
-        this.metrics.dashIFrameSaves++;
-        if (attacker) {
-          const record = this.eliteLogById.get(attacker.id);
-          if (record) record.dashIFrameSaves++;
-        }
-      }
-      return;
-    }
-    const reduction = this.armor / (this.armor + 100),
-      closeThreat = this.ents.some((e) => e.hp > 0 && Math.hypot(e.x - this.px, e.z - this.pz) < 3.6),
-      guardMul = closeThreat ? Math.pow(0.94, this.doctrines.guard) : 1,
-      mitigated = amount * (1 - reduction) * this.itemDamageTakenMul * guardMul;
-    if (attacker) {
-      const record = this.eliteLogById.get(attacker.id);
-      if (record) {
-        record.damageToHero += mitigated;
-        record.damageToHeroBySource[source] = (record.damageToHeroBySource[source] ?? 0) + mitigated;
-        if (skillOrder.includes(source as SkillId)) record.refusalDamageToHero += mitigated;
-        if (record.engagedAt < 0) record.engagedAt = this.time;
-        record.lastExchangeAt = this.time;
-      }
-    }
-    let left = mitigated,
-      barrierDamage = 0,
-      hpDamage = 0;
-    if (this.barrier > 0) {
-      const b = Math.min(this.barrier, left);
-      barrierDamage = b;
-      this.barrier -= b;
-      left -= b;
-    }
-    if (left > 0) {
-      hpDamage = left;
-      this.php = Math.max(0, this.php - left);
-      this.metrics.damageTaken += left;
-    }
-    this.events.push({
-      type: 'PlayerHit',
-      tick: this.tick,
-      amount: mitigated,
-      hpDamage,
-      barrierDamage,
-      x: this.px,
-      z: this.pz,
-      source,
-      attackerId: attacker?.id ?? 0,
-      attackerKind: attacker?.kind,
-      attackerChassis: attacker?.chassis,
-      attackerAffix: attacker?.affix,
-      attackerBoss: attacker?.boss ?? false
-    });
+  private hitPlayer(
+    amount: number,
+    attacker: Ent | null = null,
+    source: DamageSourceId = 'contact'
+  ) {
+    this.playerDamage.hit(amount, attacker, source);
   }
   private grantBarrier(amount: number) {
     if (amount <= 0) return;
@@ -3044,30 +3025,12 @@ export class Simulation {
     attacker: Ent | null = this.castOwner,
     concentration = this.castRivalConcentration
   ) {
-    if (attacker) {
-      amount *= concentration;
-      amount *= this.itemRefusalDamageMul;
-      if ((attacker.relicCritChance ?? 0) > 0 && this.rng.float() < Math.min(0.65, attacker.relicCritChance ?? 0))
-        amount *= 1.6;
-      amount *= Math.pow(1.3, this.rivalAxisCount(attacker, 'precision'));
-      amount *= Math.pow(1.16, this.rivalAxisCount(attacker, 'multiplicity'));
-      const allItemMul = attacker.relicCastMul ?? 1;
-      const groundMul = attacker.groundRelicCastMul ?? 1;
-      if (groundMul > 1) {
-        const withoutGround = amount * (allItemMul / groundMul);
-        const reduction = this.armor / (this.armor + 100);
-        const record = this.eliteLogById.get(attacker.id);
-        if (record)
-          record.itemAmplifiedDamage +=
-            (amount * allItemMul - withoutGround) * (1 - reduction) * this.itemDamageTakenMul;
-      }
-      amount *= allItemMul;
-    }
-    if (this.php <= 0) return false;
-    this.hitPlayer(amount, attacker, source);
-    if (attacker && (attacker.relicSiphon ?? 0) > 0)
-      attacker.hp = Math.min(attacker.maxHp, attacker.hp + amount * (attacker.relicSiphon ?? 0));
-    return this.php <= 0;
+    return this.playerDamage.damageFromRival(
+      amount,
+      source,
+      attacker,
+      concentration
+    );
   }
   private cleanup() {
     this.ents = this.deathResolution.resolve(this.ents);
