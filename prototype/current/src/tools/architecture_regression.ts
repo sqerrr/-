@@ -38,6 +38,7 @@ const eliteProgression=readFileSync('src/core/eliteProgressionSystem.ts','utf8')
 const eliteAffix=readFileSync('src/core/eliteAffixSystem.ts','utf8');
 const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
 const enemyBehavior=readFileSync('src/core/enemyBehaviorSystem.ts','utf8');
+const enemySpawnSystem=readFileSync('src/core/enemySpawnSystem.ts','utf8');
 const enemyDamageModifier=readFileSync('src/core/enemyDamageModifierSystem.ts','utf8');
 const playerDamageSystem=readFileSync('src/core/playerDamageSystem.ts','utf8');
 const playerMovementSystem=readFileSync('src/core/playerMovementSystem.ts','utf8');
@@ -451,6 +452,23 @@ for (const pattern of ['sweep','rupture','charge'])
 assert(simulation.includes('private bossBehavior!: BossBehaviorSystem'), 'Simulation no longer delegates Warden behavior');
 assert(!simulation.includes("e.bossPattern === 'sweep'") && !simulation.includes('telegraph_boss_'),
   'Warden phase/pattern state machine leaked back into Simulation');
+assert(enemySpawnSystem.includes('export class EnemySpawnSystem'),
+  'ordinary enemy construction has no dedicated owner');
+assert(simulation.includes('private enemySpawns!: EnemySpawnSystem'),
+  'Simulation no longer delegates ordinary enemy construction');
+const spawnEnemyBlock=simulation.slice(
+  simulation.indexOf('  private spawnEnemy('),
+  simulation.indexOf('  private eliteDirector()', simulation.indexOf('  private spawnEnemy('))
+);
+assert(spawnEnemyBlock.includes('this.enemySpawns.spawn(kind)') &&
+       spawnEnemyBlock.includes('this.enemySpawns.spawnAt(kind, x, z, buffedFor, cloneParent)'),
+  'normal spawn compatibility entries no longer delegate to EnemySpawnSystem');
+for (const token of [
+  'const baseHp:','normalCount >= 198',"kind === 'bookmark' ? 1.32",
+  "kind === 'palimpsest' ? 1 : 0"
+])
+  assert(!simulation.includes(token),
+    'ordinary enemy construction policy leaked back into Simulation: '+token);
 assert(enemyBehavior.includes('export class EnemyBehaviorSystem'), 'non-elite enemies have no dedicated behavior system');
 for (const kind of ['footnote','bookmark','binder','redactor','indexer','inkblot','marginwalker'])
   assert(enemyBehavior.includes("entity.kind === '"+kind+"'"), 'enemy behavior missing native script: '+kind);
@@ -551,6 +569,7 @@ console.log('architecture-regression OK', {
   eliteAffixSystem:true,
   bossBehaviorSystem:true,
   enemyBehaviorSystem:true,
+  enemySpawnSystem:true,
   enemyDamageModifierSystem:true,
   playerDamageSystem:true,
   playerMovementSystem:true,
