@@ -67,8 +67,9 @@ export class ChoiceRuntime {
   replaceMutationChoice(index: number, mutation: MutationId) {
     const offer = this.mutationOffer;
     if (!offer || !offer.refusalAvailable || !this.mutationRefusalToken) return false;
-    if (index < 0 || index >= offer.choices.length) return false;
 
+    // Keep the existing Simulation contract: callers own index validation, and assignment
+    // semantics remain the same as the former direct choices[index] write.
     offer.choices[index] = mutation;
     this.mutationRefusalToken = false;
     offer.refusalAvailable = false;
