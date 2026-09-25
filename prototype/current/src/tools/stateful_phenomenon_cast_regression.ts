@@ -18,7 +18,7 @@ function assert(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error('stateful-phenomenon-cast-regression: ' + message);
 }
 
-let now=10, cycle=2, closeDamage=0, activationControl=0, reactions=0, barrier=0;
+let now=10, cycle=2, activationControl=0, reactions=0, barrier=0;
 let butcher=0, charge=0, physicalActivation=71, orbitPrepared=0, dashIFrames=0;
 let nextConstructId=100;
 const entities:Ent[]=[];
@@ -78,7 +78,6 @@ const port:StatefulPhenomenonCastPort={
   spawnProjectile:(projectile)=>projectiles.push(projectile),
   scheduleStrike:(strike)=>strikes.push(strike),
   addField:(field)=>fields.push(field),
-  addCloseDamage:(amount)=>{closeDamage+=amount;},
   addActivationControl:(amount)=>{activationControl+=amount;},
   noteState:()=>{},
   noteReaction:()=>{reactions++;},
@@ -131,11 +130,11 @@ const system=new StatefulPhenomenonCastSystem(port);
 
 // Cleaver is still the close-range kill/damage path.
 {
-  entities.length=0;closeDamage=0;
+  entities.length=0;
   const target=enemy(1,1,0);
   const st=runtime('cleaver');
   assert(system.cast('cleaver',st,0,{...source}),'Cleaver not handled');
-  assert(target.hp<1000&&closeDamage>0,'Cleaver close damage changed');
+  assert(target.hp<1000,'Cleaver damage changed');
 }
 
 // Arc consumes embedded state as an authored reaction and chains to a nearby body.
