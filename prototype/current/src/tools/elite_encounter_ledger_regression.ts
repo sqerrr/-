@@ -41,7 +41,7 @@ assert(record.contactTime === 0, 'unengaged elite accumulated contact time');
 record.engagedAt = 5.2;
 record.lastExchangeAt = 5.4;
 ledger.noteContact(elite.id, 6.0, 0.25);
-assert(record.contactTime === 0.25, 'active exchange contact time changed');
+assert(numeric(record.contactTime) === 0.25, 'active exchange contact time changed');
 ledger.noteContact(elite.id, 7.1, 0.25);
 assert(numeric(record.contactTime) === 0.25, 'contact grace widened past 1.6 s');
 
@@ -61,8 +61,8 @@ ledger.noteDash(10.1);
 assert(numeric(record.dashes) === 1, 'stale encounter received dash attribution');
 
 // Physical relic captures and terminal state stay on the same row.
-ledger.noteItem(elite.id, 'glass_quill');
-assert(record.itemsTaken.includes('glass_quill'), 'captured relic attribution changed');
+ledger.noteItem(elite.id, 'plating');
+assert(record.itemsTaken.includes('plating'), 'captured relic attribution changed');
 ledger.finish(elite.id, 12, true);
 assert(record.endedAt === 12 && record.killed, 'encounter finish state changed');
 
