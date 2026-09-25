@@ -40,7 +40,7 @@ const normal = makeEnt({
   contactDps: 0
 });
 normal.orderUntil = 9;
-normal.state = 'charge';
+normal.state = 'dash';
 normal.stateTimer = 2;
 
 const elite = makeEnt({
@@ -55,7 +55,7 @@ const elite = makeEnt({
   contactDps: 0,
   chassis: 'hunter'
 });
-elite.state = 'charge';
+elite.state = 'dash';
 elite.stateTimer = 2;
 elite.adaptStage = 4;
 
@@ -96,18 +96,18 @@ assert(pointCalls.length === 0, 'early recycle consumed placement callbacks');
 
 // Fourth 0.1 s tick crosses the cadence and reacquires each live out-of-range actor.
 system.update();
-assert(normal.x === 14 && normal.z === -19,
+assert(Number(normal.x) === 14 && Number(normal.z) === -19,
   'ordinary enemy recycle ring changed');
 assert(normal.orderUntil === 0 && normal.state === 'normal' && normal.stateTimer === 0,
   'ordinary recycle no longer clears transient movement/order state');
 
-assert(elite.x === 12 && elite.z === -16,
+assert(Number(elite.x) === 12 && Number(elite.z) === -16,
   'regular elite recycle ring changed');
 assert(elite.state === 'normal' && elite.stateTimer === 0 && elite.adaptStage === 0,
   'regular elite recycle no longer resets adaptation/runtime state');
 assert(reacquired.includes(elite.id), 'regular elite reacquire event disappeared');
 
-assert(boss.x === 11 && boss.z === -15,
+assert(Number(boss.x) === 11 && Number(boss.z) === -15,
   'boss recycle ring changed');
 assert(reacquired.includes(boss.id), 'boss reacquire event disappeared');
 assert(dead.x === 50, 'dead entity was recycled');
