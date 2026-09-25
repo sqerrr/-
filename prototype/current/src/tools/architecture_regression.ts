@@ -6,6 +6,7 @@ function assert(ok: unknown, message: string): asserts ok {
 
 const simulation=readFileSync('src/core/simulation.ts','utf8');
 const canonicalState=readFileSync('src/core/canonicalStateSerializer.ts','utf8');
+const snapshotBuilder=readFileSync('src/core/snapshotBuilder.ts','utf8');
 const state=readFileSync('src/core/state.ts','utf8');
 const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const physicalActivation=readFileSync('src/core/physicalActivationSystem.ts','utf8');
@@ -65,6 +66,17 @@ assert(simulation.includes('return this.canonicalSerializer.hash(this.canonicalI
   'Simulation canonicalHash bypasses canonical serializer');
 assert(!simulation.includes("put('player.pos'") && !simulation.includes("put('ent'"),
   'canonical field ordering leaked back into Simulation');
+assert(snapshotBuilder.includes('export class SnapshotBuilder'),
+  'runtime presentation snapshot has no dedicated builder');
+assert(simulation.includes('private snapshotBuilder = new SnapshotBuilder()'),
+  'Simulation no longer delegates runtime snapshot projection');
+const snapshotStart=simulation.indexOf('  snapshot(): Snapshot {');
+const snapshotNext=simulation.indexOf('\n  /**', snapshotStart);
+const snapshotBlock=simulation.slice(snapshotStart, snapshotNext > snapshotStart ? snapshotNext : snapshotStart + 500);
+assert(snapshotBlock.includes('return this.snapshotBuilder.build(this.snapshotInput())'),
+  'Simulation snapshot is no longer a thin builder seam');
+for (const token of ['refusalTitles:','contested: this.ents.some','fields: this.fields.map','projectiles: this.projectiles.map'])
+  assert(!snapshotBlock.includes(token), 'presentation projection leaked back into Simulation.snapshot: '+token);
 assert(state.includes('export type PhysicalEvent =') && state.includes('export type CatalystBinding ='),
   'physical lifecycle state leaked back into Simulation');
 assert(!simulation.includes("type EnemyState = 'normal'"), 'Simulation owns entity-state declarations again');
@@ -594,6 +606,7 @@ assert(!ui.includes('function updateDebugState() {\n  const s = sim.snapshot()')
 console.log('architecture-regression OK', {
   stateModule:true,
   canonicalStateSerializer:true,
+  snapshotBuilder:true,
   typedCombatIds:true,
   separatedEliteAdaptation:true,
   sharedEliteMetadata:true,
