@@ -55,7 +55,7 @@ assert(Math.abs(movement.vx - 3.6) < 1e-9 && Math.abs(movement.vz - 4.8) < 1e-9,
   'walk velocity normalization changed');
 assert(Math.abs(x - 3.6 * dt) < 1e-9 && Math.abs(z - 4.8 * dt) < 1e-9,
   'walk integration changed');
-assert(clampCalls === 1, 'walking no longer clamps exactly once');
+assert(numeric(clampCalls) === 1, 'walking no longer clamps exactly once');
 
 // Dash with no movement input falls back to current aim.
 x = 0;
