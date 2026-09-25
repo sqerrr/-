@@ -64,7 +64,10 @@ assert(simulation.includes('private phenomenonCasts!: PhenomenonCastSystem'),
   'Simulation no longer delegates migrated Phenomenon casts');
 assert(simulation.includes('this.phenomenonCasts.cast(id, st, slot, src)'),
   'dispatchSkill no longer routes through PhenomenonCastSystem');
-for (const method of ['castBreachLine','castContactSaw','castBackhand','castSpreadingFront','castShardFan','castTetherDrag','castPinBurst'])
+for (const method of [
+  'castBreachLine','castContactSaw','castBackhand','castSpreadingFront','castShardFan','castTetherDrag','castPinBurst',
+  'castEmber','castFrost','castRail','castToxic'
+])
   assert(!simulation.includes('private '+method+'('), 'migrated Phenomenon cast leaked back into Simulation: '+method);
 assert(delayedStrikeSystem.includes('export class DelayedStrikeSystem'), 'delayed impacts have no dedicated runtime system');
 assert(simulation.includes('private delayedStrikeSystem!: DelayedStrikeSystem'),
