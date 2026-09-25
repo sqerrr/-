@@ -1,9 +1,7 @@
 import {
   activeSkillOrder,
-  catalystOrder,
   catalysts,
   catalystPairCompatible,
-  doctrineOrder,
   doctrines,
   effectGrammar,
   initialCatalystReserve,
@@ -49,6 +47,7 @@ import { PhenomenonKillReactionSystem } from './phenomenonKillReactionSystem.js'
 import { PlayerDamageSystem } from './playerDamageSystem.js';
 import { PlayerMovementSystem } from './playerMovementSystem.js';
 import { ProjectileSystem } from './projectileSystem.js';
+import { ProgressionOfferSystem } from './progressionOfferSystem.js';
 import { RelicRaceSystem } from './relicRaceSystem.js';
 import { RewardOfferFactory } from './rewardOfferFactory.js';
 import { Rng } from './rng.js';
@@ -298,6 +297,7 @@ export class Simulation {
   private physicalCatalysts!: PhysicalCatalystSystem;
   private relicRace!: RelicRaceSystem;
   private rewardOfferFactory!: RewardOfferFactory;
+  private progressionOffers!: ProgressionOfferSystem;
   private phenomenonCasts!: PhenomenonCastSystem;
   private phenomenonKillReactions!: PhenomenonKillReactionSystem;
   private playerDamage!: PlayerDamageSystem;
@@ -492,6 +492,21 @@ export class Simulation {
       slots: () => this.slots,
       catalystCompatibleEdges: (id) => this.catalystCompatibleEdges(id)
     });
+    this.progressionOffers = new ProgressionOfferSystem(
+      {
+        randomInt: (maxExclusive) => this.rng.int(maxExclusive),
+        randomFloat: () => this.rng.float(),
+        refusalInt: (maxExclusive) => this.refusalRng.int(maxExclusive),
+        slots: () => this.slots,
+        skillReserve: () => this.skillReserve,
+        catalysts: () => this.catalysts,
+        catalystReserve: () => this.catalystReserve,
+        skillState: (id) => this.skillState(id),
+        mutationCores: () => this.mutationCores,
+        catalystCompatibleEdges: (id) => this.catalystCompatibleEdges(id)
+      },
+      this.rewardOfferFactory
+    );
     this.playerMovement = new PlayerMovementSystem({
       time: () => this.time,
       dt: () => this.dt,
@@ -1686,7 +1701,7 @@ export class Simulation {
     }
     if (this.hasChoice) return;
     if (p.kind === 'phenomenon') {
-      if (this.skillOrderUnowned().length) this.generateDiscovery();
+      if (this.progressionOffers.hasUnownedSkills()) this.generateDiscovery();
       else this.generateResonanceChoice();
       return;
     }
@@ -1697,23 +1712,10 @@ export class Simulation {
     this.generateResonanceChoice();
   }
   private generateCatalystDiscovery() {
-    const owned = this.allOwnedCatalysts(),
-      unowned = catalystOrder.filter((id) => !owned.includes(id)),
-      useful = unowned.filter((id) => this.catalystCompatibleEdges(id).length > 0),
-      pool = useful.length ? useful : unowned;
-    if (!pool.length) {
-      this.generateLevelOffers();
-      return;
-    }
-    this.choiceRuntime.openRewards(
-      this.shuffle([...pool])
-        .slice(0, 3)
-        .map((id) => this.rewardOfferFactory.catalystAdd(id))
-    );
+    this.choiceRuntime.openRewards(this.progressionOffers.catalystDiscovery());
   }
   private generateResonanceChoice() {
-    const ids = this.shuffle([...resonanceOrder]).slice(0, 3);
-    this.choiceRuntime.openRewards(ids.map((id) => this.rewardOfferFactory.resonance(id)));
+    this.choiceRuntime.openRewards(this.progressionOffers.resonanceChoice());
   }
   private bossDirector() {
     if (this.encounterDirector.shouldSpawnBoss(this.time, this.runDuration, this.bossSpawned))
@@ -2993,12 +2995,7 @@ export class Simulation {
 
   private checkProgression() {
     if (this.hasChoice) return;
-    const evolvable = this.slots.filter((id): id is SkillId => {
-      if (!id) return false;
-      const st = this.skillState(id);
-      return !st.mutation || (!st.mutationUpgrade && mutationChildren(id, st.mutation).length > 0) || (!!st.mutationUpgrade && !st.mutationApotheosis && mutationChildren(id, st.mutationUpgrade).length > 0);
-    });
-    if (this.mutationCores > 0 && evolvable.length) {
+    if (this.mutationCores > 0 && this.progressionOffers.hasEvolvableSkill()) {
       this.generateMutationTargetOffers();
       return;
     }
@@ -3018,10 +3015,6 @@ export class Simulation {
   }
   private nextXpNeed(level: number) {
     return Math.round(12 + level * 1.5 + Math.pow(level, 1.25) * 0.7);
-  }
-  private skillOrderUnowned() {
-    const owned = this.allOwnedSkills();
-    return activeSkillOrder.filter((id) => !owned.includes(id));
   }
   private shuffle<T>(a: T[]) {
     for (let i = a.length - 1; i > 0; i--) {
@@ -3048,107 +3041,18 @@ export class Simulation {
     return out;
   }
   private generateDiscovery() {
-    const choices = this.shuffle(this.skillOrderUnowned()).slice(0, 3),
-      free = this.slots.some((x) => !x) || this.skillReserve.some((x) => !x);
-    this.choiceRuntime.openRewards(
-      choices.map((id) => free ? this.rewardOfferFactory.skillAdd(id) : this.rewardOfferFactory.skillSwap(id))
-    );
+    this.choiceRuntime.openRewards(this.progressionOffers.discovery());
   }
   /** v0.11: XP answers exactly one question — what kind of build is the hero becoming? */
   private generateLevelOffers() {
-    const ids = this.shuffle([...doctrineOrder]);
-    // Soft steering without a hard recipe: close builds see survival/reach more often,
-    // projectile/construct builds still retain wildcard access to the entire doctrine pool.
-    const close = this.slots.filter((id) => id === 'cleaver' || id === 'orbit_blades').length;
-    const preferred: DoctrineId[] = close >= 2 ? ['size','guard','mobility','force'] : ['might','precision','quantity','duration'];
-    const out: DoctrineId[] = [];
-    if (this.rng.float() < 0.7) {
-      const p = preferred.filter((x) => !out.includes(x));
-      if (p.length) out.push(p[this.rng.int(p.length)]);
-    }
-    while (out.length < 3 && ids.length) {
-      const id = ids.shift()!;
-      if (!out.includes(id)) out.push(id);
-    }
-    this.choiceRuntime.openRewards(
-      out.slice(0,3).map((id) => this.rewardOfferFactory.doctrine(id))
-    );
-  }
-  private catalystOrderUnowned() {
-    const owned = this.allOwnedCatalysts();
-    return catalystOrder.filter((id) => !owned.includes(id));
+    this.choiceRuntime.openRewards(this.progressionOffers.levelOffers());
   }
   private generateMutationTargetOffers() {
-    const active = this.slots.filter((id): id is SkillId => {
-      if (!id) return false;
-      const st = this.skillState(id);
-      if (!st.mutation) return mutationRoots(id).length > 0;
-      if (!st.mutationUpgrade) return mutationChildren(id, st.mutation).length > 0;
-      return !st.mutationApotheosis && mutationChildren(id, st.mutationUpgrade).length > 0;
-    });
-    if (!active.length) return;
-    this.choiceRuntime.openRewards(
-      this.shuffle([...active])
-        .slice(0, 3)
-        .map((id) => {
-          const st = this.skillState(id),
-            tier = !st.mutation ? 1 : !st.mutationUpgrade ? 2 : 3;
-          return {
-            id: `mut-target:${id}:${this.rng.nextU32()}`,
-            kind: 'mutation_target' as const,
-            title: skills[id].name,
-            subtitle: tier === 3 ? `АПОФЕОЗ · ЯДРА: ${this.mutationCores}` : `${tier === 2 ? 'ПРОДОЛЖЕНИЕ' : 'МУТАЦИЯ'} · ЯДРА: ${this.mutationCores}`,
-            description: tier === 3
-              ? `Третий уровень ветви «${mutationDef(id, st.mutationUpgrade!).name}»: качественная трансформация, а не числовой бонус.`
-              : tier === 2
-                ? `Продолжить ветвь «${mutationDef(id, st.mutation!).name}». Корень останется активен.`
-                : `Выбрать одну из трёх ветвей ${skills[id].name}.`,
-            skill: id
-          };
-        })
-    );
+    const offers = this.progressionOffers.mutationTargetOffers();
+    if (offers.length) this.choiceRuntime.openRewards(offers);
   }
   private generateEliteCache() {
-    const owned = this.allOwnedCatalysts(),
-      allUnowned = catalystOrder.filter((id) => !owned.includes(id)),
-      usefulUnowned = allUnowned.filter((id) => this.catalystCompatibleEdges(id).length > 0),
-      unowned = usefulUnowned.length ? usefulUnowned : allUnowned;
-    let offers: RewardOffer[] = [];
-    const hasSpace = this.catalystReserve.some((x) => !x) || this.catalysts.some((x) => !x);
-    if (unowned.length && hasSpace) {
-      offers = this.shuffle([...unowned])
-        .slice(0, 3)
-        .map((id) => {
-          const o = this.rewardOfferFactory.catalystAdd(id);
-          o.kind = 'elite';
-          o.subtitle = 'ТАЙНИК ЭЛИТЫ · новый катализатор';
-          return o;
-        });
-    } else {
-      offers = this.shuffle([...resonanceOrder])
-        .slice(0, 2)
-        .map((id) => {
-          const o = this.rewardOfferFactory.resonance(id);
-          o.kind = 'elite';
-          o.description = o.description + ' Усиливает всю сборку.';
-          return o;
-        });
-      if (this.skillOrderUnowned().length) {
-        const id = this.shuffle(this.skillOrderUnowned())[0];
-        offers.push({
-          id: `elite-discover:${id}:${this.rng.nextU32()}`,
-          kind: 'elite',
-          title: skills[id].name,
-          subtitle: 'ТАЙНИК ЭЛИТЫ · новый феномен',
-          description: `${skills[id].description} Сразу использует текущий уровень ядра.`,
-          skill: id
-        });
-      } else offers.push(this.rewardOfferFactory.global());
-    }
-    const displayed = offers.slice(0, 3);
-    const wanted = this.refusalRng.int(displayed.length);
-    displayed[wanted].marked = true;
-    this.choiceRuntime.openRewards(displayed);
+    this.choiceRuntime.openRewards(this.progressionOffers.eliteCache());
   }
   private placeCatalyst(id: CatalystId) {
     let edge = this.catalysts.findIndex((c, i) => {
