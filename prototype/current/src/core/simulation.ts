@@ -34,6 +34,7 @@ import { EliteEchoSystem } from './eliteEchoSystem.js';
 import { EliteEncounterLedger } from './eliteEncounterLedger.js';
 import { EliteProgressionSystem } from './eliteProgressionSystem.js';
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
+import { EnemySpawnSystem } from './enemySpawnSystem.js';
 import { EnemyDamageModifierSystem } from './enemyDamageModifierSystem.js';
 import { EntityStore } from './entityStore.js';
 import { FieldSystem } from './fieldSystem.js';
@@ -154,16 +155,6 @@ export interface BenchmarkLoadout {
   catalystPotency?: number;
 }
 
-const baseHp: Record<Exclude<EnemyKind, 'elite' | 'hero'>, number> = {
-  footnote: 42,
-  bookmark: 63,
-  binder: 101,
-  redactor: 92,
-  palimpsest: 84,
-  indexer: 97,
-  inkblot: 55,
-  marginwalker: 76
-};
 const eliteHp: Record<EliteChassis, number> = {
   marshal: 980,
   hunter: 840,
@@ -282,6 +273,7 @@ export class Simulation {
   private eliteAffix!: EliteAffixSystem;
   private bossBehavior!: BossBehaviorSystem;
   private enemyBehavior!: EnemyBehaviorSystem;
+  private enemySpawns!: EnemySpawnSystem;
   private enemyDamageModifiers!: EnemyDamageModifierSystem;
   private squadDirector!: SquadDirector;
   private projectileSystem!: ProjectileSystem;
@@ -482,6 +474,28 @@ export class Simulation {
     this.worldRng = new Rng((cfg.seed ^ 0x27d4eb2f) >>> 0);
     this.relicRng = new Rng((cfg.seed ^ 0x6a09e667) >>> 0);
     this.runDuration = cfg.runDuration ?? 480;
+    this.enemySpawns = new EnemySpawnSystem({
+      time: () => this.time,
+      randomRange: (min, max) => this.rng.range(min, max),
+      worldScale: () => this.worldScale(),
+      damageScale: () => this.damageScale(),
+      populationTarget: () => this.populationTarget(),
+      normalCount: () => this.entityStore.countAlive((entity) => entity.kind !== 'elite'),
+      nextEntityId: () => this.nextId++,
+      pointAroundPlayer: (min, max) => this.pointAroundPlayer(min, max),
+      addEntity: (entity) => this.entityStore.add(entity),
+      onSpawn: (entity) => {
+        this.metrics.spawned++;
+        this.events.push({
+          type: 'EntitySpawned',
+          tick: this.tick,
+          entity: entity.id,
+          kind: entity.kind,
+          x: entity.x,
+          z: entity.z
+        });
+      }
+    });
     this.rewardOfferFactory = new RewardOfferFactory({
       randomInt: (maxExclusive) => this.rng.int(maxExclusive),
       randomFloat: () => this.rng.float(),
@@ -1942,8 +1956,7 @@ export class Simulation {
     });
   }
   private spawnEnemy(kind: Exclude<EnemyKind, 'elite' | 'hero'>) {
-    const q = this.pointAroundPlayer(13.5, 19.5);
-    this.spawnEnemyAt(kind, q.x, q.z);
+    return this.enemySpawns.spawn(kind);
   }
   private spawnEnemyAt(
     kind: Exclude<EnemyKind, 'elite' | 'hero'>,
@@ -1952,68 +1965,7 @@ export class Simulation {
     buffedFor = 0,
     cloneParent = 0
   ) {
-    const normalCount = this.entityStore.countAlive((e) => e.kind !== 'elite');
-    if (normalCount >= 198) return;
-    if (buffedFor > 0 && normalCount >= Math.min(180, this.populationTarget() + 18)) return;
-    const scale = this.worldScale(),
-      hp = baseHp[kind] * scale;
-    const speed =
-      kind === 'bookmark'
-        ? 1.32
-        : kind === 'marginwalker'
-          ? 1.64
-          : kind === 'footnote'
-            ? 1.23
-            : kind === 'binder'
-              ? 0.91
-              : kind === 'redactor'
-                ? 0.98
-                : kind === 'indexer'
-                  ? 0.96
-                  : kind === 'inkblot'
-                    ? 1.14
-                    : 1.17;
-    const dps =
-      (kind === 'bookmark'
-        ? 19
-        : kind === 'inkblot'
-          ? 15
-          : kind === 'marginwalker'
-            ? 16
-            : kind === 'binder'
-              ? 12
-              : kind === 'redactor'
-                ? 13
-                : kind === 'indexer'
-                  ? 13
-                  : 14) *
-      this.damageScale() *
-      0.42;
-    const e = makeEnt({
-      id: this.nextId++,
-      kind,
-      cloneParent: cloneParent || undefined,
-      x,
-      z,
-      hp,
-      radius: kind === 'binder' || kind === 'redactor' || kind === 'indexer' ? 0.58 : 0.46,
-      speed,
-      contactDps: dps,
-      cooldown: this.rng.range(0.3, 1.9),
-      revivesLeft: kind === 'palimpsest' ? 1 : 0,
-      buffUntil: buffedFor > 0 ? this.time + buffedFor : 0
-    });
-    this.entityStore.add(e);
-    this.metrics.spawned++;
-    this.events.push({
-      type: 'EntitySpawned',
-      tick: this.tick,
-      entity: e.id,
-      kind,
-      x: e.x,
-      z: e.z
-    });
-    return e;
+    return this.enemySpawns.spawnAt(kind, x, z, buffedFor, cloneParent);
   }
 
   private eliteDirector() {
