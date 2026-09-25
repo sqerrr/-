@@ -79,7 +79,7 @@ now = 13;
 ledger.recordEnemyHit(elite, 'toxin_dot', 20, -1);
 assert(encounter.damageFromHeroByNode['2:toxic_mist'] === 20,
   'delayed damage no longer resolves to its owning Phenomenon slot');
-assert(encounter.lastExchangeAt === 13, 'last exchange timestamp stopped advancing');
+assert(Number(encounter.lastExchangeAt) === 13, 'last exchange timestamp stopped advancing');
 
 ledger.recordEnemyHit(elite, 'backdraft', 7, -1);
 assert(encounter.damageFromHeroByNode['derived:backdraft'] === 7,
