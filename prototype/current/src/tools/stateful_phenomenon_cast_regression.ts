@@ -189,7 +189,10 @@ const system=new StatefulPhenomenonCastSystem(port);
 // Mass Cargo/Recoil remains a Roller projectile and grants the authored recoil i-frame window.
 {
   projectiles.length=0;dashIFrames=0;
-  const st=runtime('mass_driver');st.mutationApotheosis='mass_comet_recoil';
+  const st=runtime('mass_driver');
+  st.mutation='mass_recoil';
+  st.mutationUpgrade='mass_counterthrust';
+  st.mutationApotheosis='mass_comet_recoil';
   const moving={...source};
   const x0=moving.x;
   system.cast('mass_driver',st,0,moving);
