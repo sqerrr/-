@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { Simulation } from '../core/simulation.js';
+import { SimulationHarness } from '../testing/simulationHarness.js';
 
 function assert(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error('animation-contract-regression: ' + message);
@@ -21,24 +22,26 @@ ost.mutation='orbit_many';
 assert(orbit.snapshot().orbit.count>grownSnap.count,'Много ножей does not add visible/real blades');
 
 // Sentry: Quantity and transient count operators must create real constructs, whose branch state survives snapshotting.
-const sentry:any = new Simulation({seed:88002,hz:60,benchmark:true,mode:'clean'});
+const sentryHarness=SimulationHarness.create({seed:88002,hz:60,benchmark:true,mode:'clean'});
+const sentry:any = sentryHarness.sim;
 sentry.configureBenchmarkLoadout({slots:['sentry'],catalysts:[]});
 const sst=sentry.skillsRuntime.get('sentry');
 sst.mutation='sentry_gatling'; sst.mutationUpgrade='sentry_crawler'; sst.mutationApotheosis='sentry_walker';
 sentry.resonance.multiplicity=2; sentry.doctrines.quantity=4; sentry.activationCountBonus=2;
-sentry.castSentry(sst,0,sentry.heroSource());
+sentryHarness.castSkill('sentry',sst,0,sentryHarness.heroSource());
 const sentrySnap=sentry.snapshot();
 assert(sentrySnap.constructs.length===5,`expected capped five sentries, got ${sentrySnap.constructs.length}`);
 assert(sentrySnap.constructs.every((x:any)=>x.mutationApotheosis==='sentry_walker'&&x.faction==='hero'),'construct branch/ownership lost before renderer');
 
 // Chain Arc: the same count language must affect actual chain length, not only UI text.
-const arc:any = new Simulation({seed:88003,hz:60,benchmark:true,mode:'clean'});
+const arcHarness=SimulationHarness.create({seed:88003,hz:60,benchmark:true,mode:'clean'});
+const arc:any = arcHarness.sim;
 arc.configureBenchmarkLoadout({slots:['chain_arc'],catalysts:[]});
 arc.ents=[];
 for(let i=0;i<11;i++) arc.spawnEnemyAt('footnote',2+i*0.9,(i%2)*0.4,0);
 arc.doctrines.quantity=6; arc.resonance.multiplicity=0; arc.activationCountBonus=2;
 arc.events=[];
-arc.castArc(arc.skillsRuntime.get('chain_arc'),0,arc.heroSource());
+arcHarness.castSkill('chain_arc',arc.skillsRuntime.get('chain_arc'),0,arcHarness.heroSource());
 const arcSegments=arc.events.filter((e:any)=>e.type==='CombatShape'&&e.source==='chain_arc').length;
 assert(arcSegments>=8,`Quantity/operator bonuses did not become real arc segments: ${arcSegments}`);
 

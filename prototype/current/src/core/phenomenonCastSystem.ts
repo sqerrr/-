@@ -55,7 +55,7 @@ export interface PhenomenonCastPort {
     sourceX?: number,
     sourceZ?: number,
     sourceSlot?: number
-  ): void;
+  ): boolean | void;
   spawnProjectile(projectile: Omit<Projectile, 'id' | 'guarded'>): void;
   scheduleStrike(strike: Omit<DelayedStrike, 'id'>): void;
   addField(field: Omit<Field, 'id'>): void;
