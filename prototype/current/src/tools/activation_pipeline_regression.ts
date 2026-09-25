@@ -35,9 +35,9 @@ physical.clearEvents();
 const beforePhysical = sim.metrics.activations;
 assert(physical.activateSlot(0), 'producer slot did not activate');
 
-const activatedSkills = sim.events
-  .filter((event): event is Extract<typeof event, { type: 'SkillActivated' }> => event.type === 'SkillActivated')
-  .map((event) => event.skill);
+const activatedSkills = sim.events.flatMap((event) =>
+  event.type === 'SkillActivated' ? [event.skill] : []
+);
 
 assert(activatedSkills.includes('rail_spear'), 'producer cast disappeared from activation pipeline');
 assert(activatedSkills.includes('chain_arc'), 'physical Source did not resolve B as a nested payload');
