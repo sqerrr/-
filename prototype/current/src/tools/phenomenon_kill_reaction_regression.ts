@@ -73,7 +73,7 @@ system.onKill(dead, 'rail_spear');
 assert(damageCalls.length === 0, 'non-Ember kill triggered Backdraft');
 
 system.onKill(dead, 'ember_lance');
-assert(damageCalls.length === 1 && damageCalls[0].id === near.id,
+assert(Number(damageCalls.length) === 1 && damageCalls[0].id === near.id,
   'Backdraft target radius/dead-target filtering changed');
 assert(Math.abs(near.x - 1.55) < 1e-9 && near.z === 0,
   'Backdraft pull distance/direction changed');
