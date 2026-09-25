@@ -10,8 +10,6 @@ import {
   initialCatalysts,
   initialSkillReserve,
   initialSlots,
-  rarityMultiplier,
-  rarityOrder,
   mutationDef,
   mutationRoots,
   mutationChildren,
@@ -52,6 +50,7 @@ import { PlayerDamageSystem } from './playerDamageSystem.js';
 import { PlayerMovementSystem } from './playerMovementSystem.js';
 import { ProjectileSystem } from './projectileSystem.js';
 import { RelicRaceSystem } from './relicRaceSystem.js';
+import { RewardOfferFactory } from './rewardOfferFactory.js';
 import { Rng } from './rng.js';
 import { SquadDirector } from './squadDirector.js';
 import { StatefulPhenomenonCastSystem } from './statefulPhenomenonCastSystem.js';
@@ -76,7 +75,7 @@ import {
   type Projectile,
   type Relic
 } from './state.js';
-import { items, itemOrder, itemCategoryName, itemRivalEffect } from '../content/items.js';
+import { items, itemRivalEffect } from '../content/items.js';
 import type {
   ItemId,
   BossPatternId,
@@ -99,7 +98,6 @@ import type {
   MutationId,
   PoiKind,
   PoiState,
-  Rarity,
   RefusedCard,
   ResonanceId,
   ResonanceRuntime,
@@ -299,6 +297,7 @@ export class Simulation {
   private activationPipeline!: ActivationPipelineSystem;
   private physicalCatalysts!: PhysicalCatalystSystem;
   private relicRace!: RelicRaceSystem;
+  private rewardOfferFactory!: RewardOfferFactory;
   private phenomenonCasts!: PhenomenonCastSystem;
   private phenomenonKillReactions!: PhenomenonKillReactionSystem;
   private playerDamage!: PlayerDamageSystem;
@@ -483,6 +482,16 @@ export class Simulation {
     this.worldRng = new Rng((cfg.seed ^ 0x27d4eb2f) >>> 0);
     this.relicRng = new Rng((cfg.seed ^ 0x6a09e667) >>> 0);
     this.runDuration = cfg.runDuration ?? 480;
+    this.rewardOfferFactory = new RewardOfferFactory({
+      randomInt: (maxExclusive) => this.rng.int(maxExclusive),
+      randomFloat: () => this.rng.float(),
+      nextU32: () => this.rng.nextU32(),
+      fortune: () => this.fortune,
+      resonanceLevel: (id) => this.resonance[id],
+      doctrineLevel: (id) => this.doctrines[id],
+      slots: () => this.slots,
+      catalystCompatibleEdges: (id) => this.catalystCompatibleEdges(id)
+    });
     this.playerMovement = new PlayerMovementSystem({
       time: () => this.time,
       dt: () => this.dt,
@@ -1699,12 +1708,12 @@ export class Simulation {
     this.choiceRuntime.openRewards(
       this.shuffle([...pool])
         .slice(0, 3)
-        .map((id) => this.makeCatalystAdd(id))
+        .map((id) => this.rewardOfferFactory.catalystAdd(id))
     );
   }
   private generateResonanceChoice() {
     const ids = this.shuffle([...resonanceOrder]).slice(0, 3);
-    this.choiceRuntime.openRewards(ids.map((id) => this.makeResonanceOffer(id)));
+    this.choiceRuntime.openRewards(ids.map((id) => this.rewardOfferFactory.resonance(id)));
   }
   private bossDirector() {
     if (this.encounterDirector.shouldSpawnBoss(this.time, this.runDuration, this.bossSpawned))
@@ -3021,186 +3030,6 @@ export class Simulation {
     }
     return a;
   }
-  private rollRarity(min: Rarity = 'common') {
-    const F = this.fortune,
-      weights = [
-        52 / (1 + 0.5 * F),
-        28,
-        13 * (1 + 0.6 * F),
-        5.5 * (1 + 1.1 * F),
-        1.5 * (1 + 1.8 * F)
-      ],
-      minIdx = rarityOrder.indexOf(min);
-    for (let i = 0; i < minIdx; i++) weights[i] = 0;
-    const total = weights.reduce((a, b) => a + b, 0);
-    let r = this.rng.float() * total;
-    for (let i = 0; i < weights.length; i++) {
-      r -= weights[i];
-      if (r <= 0) return rarityOrder[i];
-    }
-    return rarityOrder[4];
-  }
-  private fmtSkillStat(st: SkillRuntime, stat: string, val?: number) {
-    const v = val ?? (st as unknown as Record<string, number>)[stat] ?? 0;
-    if (
-      stat === 'power' ||
-      stat === 'coverage' ||
-      stat === 'range' ||
-      stat === 'duration' ||
-      stat === 'eliteDamage' ||
-      stat === 'control' ||
-      stat === 'statusPotency'
-    )
-      return `+${Math.round(v * 100)}%`;
-    if (stat === 'crit') return `${Math.round(v * 100)}%`;
-    if (stat === 'count') return String(Math.round(v));
-    return String(v);
-  }
-  private axisLabel(id: SkillId, stat: string) {
-    const custom: Partial<Record<SkillId, Partial<Record<string, string>>>> = {
-      ember_lance: {
-        power: 'Жар копья',
-        range: 'Длина полёта',
-        count: 'Число копий',
-        statusPotency: 'Горение',
-        crit: 'Пробой'
-      },
-      frost_ring: {
-        coverage: 'Радиус фронта',
-        statusPotency: 'Глубина холода',
-        duration: 'Иней после волны',
-        power: 'Удар фронта',
-        control: 'Сдерживание'
-      },
-      cleaver: {
-        power: 'Вес удара',
-        coverage: 'Дуга и reach',
-        control: 'Сдвиг толпы',
-        crit: 'Режущая кромка',
-        statusPotency: 'Глубина раны'
-      },
-      chain_arc: {
-        power: 'Напряжение',
-        count: 'Число переходов',
-        range: 'Дальность реле',
-        statusPotency: 'Заряд',
-        crit: 'Перегрузка'
-      },
-      orbit_blades: {
-        power: 'Масса лезвий',
-        count: 'Число лезвий',
-        coverage: 'Радиус орбиты',
-        crit: 'Кромка',
-        eliteDamage: 'Давление на элиту'
-      },
-      mortar_bloom: {
-        power: 'Сила взрыва',
-        coverage: 'Радиус взрыва',
-        count: 'Снаряды залпа',
-        range: 'Дальность наводки',
-        crit: 'Точный разрыв'
-      },
-      sentry: {
-        power: 'Калибр турели',
-        range: 'Сектор огня',
-        duration: 'Время в поле',
-        count: 'Число турелей',
-        eliteDamage: 'Тяжёлая цель'
-      },
-      toxic_mist: {
-        power: 'Концентрация',
-        duration: 'Стойкость облака',
-        coverage: 'Площадь облака',
-        statusPotency: 'Насыщение токсином',
-        control: 'Вязкость'
-      }
-    };
-    return custom[id]?.[stat] ?? this.statLabel(stat);
-  }
-  private statLabel(stat: string) {
-    return (
-      (
-        {
-          power: 'Сила',
-          coverage: 'Охват',
-          range: 'Дальность',
-          duration: 'Длительность',
-          crit: 'Крит. шанс',
-          eliteDamage: 'Урон по элитам',
-          count: 'Количество',
-          control: 'Контроль',
-          statusPotency: 'Сила статуса'
-        } as Record<string, string>
-      )[stat] ?? stat
-    );
-  }
-  private makeResonanceOffer(id?: ResonanceId): RewardOffer {
-    const rid = id ?? resonanceOrder[this.rng.int(resonanceOrder.length)],
-      d = resonance[rid],
-      before = this.resonance[rid],
-      after = before + 1;
-    return {
-      id: `axis:${rid}:${this.rng.nextU32()}`,
-      kind: 'resonance',
-      title: d.name,
-      subtitle: `УСИЛЕНИЕ ЯДРА ${before} → ${after}`,
-      description: d.description,
-      resonance: rid,
-      stat: rid,
-      amount: 1,
-      before: String(before),
-      after: String(after)
-    };
-  }
-  private makeGlobalOffer(): RewardOffer {
-    const stats = ['hp', 'pickup', 'fortune', 'armor'],
-      stat = stats[this.rng.int(stats.length)],
-      rarity = this.rollRarity(),
-      m = rarityMultiplier[rarity];
-    if (stat === 'hp')
-      return {
-        id: `g:h:${this.rng.nextU32()}`,
-        kind: 'global',
-        title: 'Закалка',
-        subtitle: `+${Math.round(18 * m)} к максимуму здоровья`,
-        description: 'Универсальная выживаемость; не привязана к конкретному феномену.',
-        stat,
-        amount: 18 * m,
-        rarity
-      };
-    if (stat === 'pickup')
-      return {
-        id: `g:pick:${this.rng.nextU32()}`,
-        kind: 'global',
-        title: 'Притяжение осколков',
-        subtitle: `+${Math.round(15 * m)}% радиуса сбора`,
-        description: 'Опыт и подбираемые объекты раньше начинают лететь к игроку.',
-        stat,
-        amount: 0.15 * m,
-        rarity
-      };
-    if (stat === 'fortune')
-      return {
-        id: `g:f:${this.rng.nextU32()}`,
-        kind: 'global',
-        title: 'Удача',
-        subtitle: `+${Math.round(8 * m)}% к удаче`,
-        description: 'Редкие находки выпадают чаще.',
-        stat,
-        amount: 0.08 * m,
-        rarity
-      };
-    return {
-      id: `g:a:${this.rng.nextU32()}`,
-      kind: 'global',
-      title: 'Архивная броня',
-      subtitle: `+${Math.round(10 * m)} брони`,
-      description: 'Снижает входящий урон; каждый следующий пункт брони даёт чуть меньший прирост защиты.',
-      stat: 'armor',
-      amount: 10 * m,
-      rarity
-    };
-  }
   private allOwnedSkills() {
     return [...new Set([...this.slots, ...this.skillReserve].filter(Boolean) as SkillId[])];
   }
@@ -3218,51 +3047,12 @@ export class Simulation {
     }
     return out;
   }
-  private makeCatalystAdd(id: CatalystId): RewardOffer {
-    const edges = this.catalystCompatibleEdges(id),
-      examples = edges
-        .slice(0, 2)
-        .map((edge) => {
-          const left = this.slots[edge]!,
-            right = this.slots[edge + 1]!;
-          return `${skills[left].shortName} → ${skills[right].shortName}`;
-        });
-    return {
-      id: `addcat:${id}:${this.rng.nextU32()}`,
-      kind: 'catalyst_add',
-      title: catalysts[id].name,
-      subtitle: 'КАТАЛИЗАТОР · связь феноменов',
-      description:
-        catalysts[id].desc +
-        (examples.length
-          ? ` Сейчас подходит: ${examples.join(' · ')}.`
-          : ' Поставьте его между совместимой парой феноменов.'),
-      catalyst: id
-    };
-  }
   private generateDiscovery() {
     const choices = this.shuffle(this.skillOrderUnowned()).slice(0, 3),
       free = this.slots.some((x) => !x) || this.skillReserve.some((x) => !x);
     this.choiceRuntime.openRewards(
-      choices.map((id) => free ? this.makeSkillAdd(id) : this.makeSkillSwap(id))
+      choices.map((id) => free ? this.rewardOfferFactory.skillAdd(id) : this.rewardOfferFactory.skillSwap(id))
     );
-  }
-  private makeDoctrineOffer(id?: DoctrineId): RewardOffer {
-    const did = id ?? doctrineOrder[this.rng.int(doctrineOrder.length)],
-      d = doctrines[did],
-      before = this.doctrines[did],
-      after = before + 1;
-    return {
-      id: `doctrine:${did}:${this.rng.nextU32()}`,
-      kind: 'doctrine',
-      title: d.name,
-      subtitle: `СПЕЦИАЛИЗАЦИЯ ${before} → ${after}`,
-      description: d.description,
-      doctrine: did,
-      amount: 1,
-      before: String(before),
-      after: String(after)
-    };
   }
   /** v0.11: XP answers exactly one question — what kind of build is the hero becoming? */
   private generateLevelOffers() {
@@ -3281,51 +3071,12 @@ export class Simulation {
       if (!out.includes(id)) out.push(id);
     }
     this.choiceRuntime.openRewards(
-      out.slice(0,3).map((id) => this.makeDoctrineOffer(id))
+      out.slice(0,3).map((id) => this.rewardOfferFactory.doctrine(id))
     );
   }
   private catalystOrderUnowned() {
     const owned = this.allOwnedCatalysts();
     return catalystOrder.filter((id) => !owned.includes(id));
-  }
-  private rollItemId(): ItemId | null {
-    const ids = itemOrder;
-    return ids.length ? ids[this.rng.int(ids.length)] : null;
-  }
-  private makeItemOffer(id: ItemId): RewardOffer {
-    const def = items[id];
-    return {
-      id: `item:${id}:${this.rng.nextU32()}`,
-      kind: 'item_grant',
-      title: def.name,
-      subtitle: `${itemCategoryName[def.category].toUpperCase()} · находка`,
-      description: def.description,
-      item: id
-    };
-  }
-  private makeSkillAdd(id: SkillId): RewardOffer {
-    return {
-      id: `discover:${id}:${this.rng.nextU32()}`,
-      kind: 'skill_add',
-      title: skills[id].name,
-      subtitle: 'НАХОДКА · новый феномен',
-      description: `${skills[id].description} Сильная сторона: ${skills[id].identity ?? '—'} Слабость: ${skills[id].weakness ?? '—'}`,
-      skill: id
-    };
-  }
-  /** D27: with every place taken, a find arrives as an exchange rather than not at all. */
-  private makeSkillSwap(id: SkillId): RewardOffer {
-    const slot = this.rng.int(this.slots.length);
-    const leaving = this.slots[slot];
-    return {
-      id: `swap:${id}:${this.rng.nextU32()}`,
-      kind: 'skill_swap',
-      title: skills[id].name,
-      subtitle: `ЗАМЕНА · вместо «${leaving ? skills[leaving].name : '—'}»`,
-      description: `${skills[id].description} Снятый феномен уходит в резерв, а не пропадает.`,
-      skill: id,
-      swapSlot: slot
-    };
   }
   private generateMutationTargetOffers() {
     const active = this.slots.filter((id): id is SkillId => {
@@ -3368,7 +3119,7 @@ export class Simulation {
       offers = this.shuffle([...unowned])
         .slice(0, 3)
         .map((id) => {
-          const o = this.makeCatalystAdd(id);
+          const o = this.rewardOfferFactory.catalystAdd(id);
           o.kind = 'elite';
           o.subtitle = 'ТАЙНИК ЭЛИТЫ · новый катализатор';
           return o;
@@ -3377,7 +3128,7 @@ export class Simulation {
       offers = this.shuffle([...resonanceOrder])
         .slice(0, 2)
         .map((id) => {
-          const o = this.makeResonanceOffer(id);
+          const o = this.rewardOfferFactory.resonance(id);
           o.kind = 'elite';
           o.description = o.description + ' Усиливает всю сборку.';
           return o;
@@ -3392,7 +3143,7 @@ export class Simulation {
           description: `${skills[id].description} Сразу использует текущий уровень ядра.`,
           skill: id
         });
-      } else offers.push(this.makeGlobalOffer());
+      } else offers.push(this.rewardOfferFactory.global());
     }
     const displayed = offers.slice(0, 3);
     const wanted = this.refusalRng.int(displayed.length);
