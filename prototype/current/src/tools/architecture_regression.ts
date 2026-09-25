@@ -14,6 +14,7 @@ const phenomenonCastSystem=readFileSync('src/core/phenomenonCastSystem.ts','utf8
 const statefulPhenomenonCastSystem=readFileSync('src/core/statefulPhenomenonCastSystem.ts','utf8');
 const choreographyTraceSystem=readFileSync('src/core/choreographyTraceSystem.ts','utf8');
 const activationRuntime=readFileSync('src/core/activationRuntime.ts','utf8');
+const activationPipeline=readFileSync('src/core/activationPipelineSystem.ts','utf8');
 const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
 const orbitSystem=readFileSync('src/core/orbitSystem.ts','utf8');
@@ -91,10 +92,20 @@ for (const field of [
   'activationCountBonus','activationDerived','lastContext','previousHits'
 ])
   assert(!simulation.includes('private '+field), 'activation state leaked back into Simulation: '+field);
-assert(simulation.includes('this.activation.begin(slot)'),
+assert(activationPipeline.includes('export class ActivationPipelineSystem'),
+  'Phenomenon activation ordering has no dedicated coordinator');
+assert(simulation.includes('private activationPipeline!: ActivationPipelineSystem'),
+  'Simulation no longer delegates Phenomenon activation ordering');
+assert(simulation.includes('this.activationPipeline.activate(this.beat)'),
+  'chain clock no longer routes through ActivationPipelineSystem');
+assert(simulation.includes('this.activationPipeline.castPayload(binding, x, z, aimX, aimZ)'),
+  'physical Catalyst payload no longer routes through ActivationPipelineSystem');
+assert(activationPipeline.includes('this.activation.begin(slot)'),
   'top-level slot activation no longer opens an ActivationRuntime frame');
-assert(simulation.includes('this.activation.suspend()') && simulation.includes('this.activation.restore(activationFrame)'),
+assert(activationPipeline.includes('this.activation.suspend()') && activationPipeline.includes('this.activation.restore(activationFrame)'),
   'nested Catalyst payload no longer preserves the parent activation frame');
+for (const method of ['activateSlot','castCatalystPayload','beginPhysicalActivation'])
+  assert(!simulation.includes('private '+method+'('), 'activation orchestration leaked back into Simulation: '+method);
 for (const method of [
   'castBreachLine','castContactSaw','castBackhand','castSpreadingFront','castShardFan','castTetherDrag','castPinBurst',
   'castEmber','castFrost','castRail','castToxic',
@@ -300,6 +311,7 @@ console.log('architecture-regression OK', {
   statefulPhenomenonCastSystem:true,
   choreographyTraceSystem:true,
   activationRuntime:true,
+  activationPipelineSystem:true,
   relicRaceSystem:true,
   delayedStrikeSystem:true,
   orbitSystem:true,
