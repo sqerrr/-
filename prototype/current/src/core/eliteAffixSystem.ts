@@ -21,6 +21,7 @@ export interface EliteAffixPort {
   emitOrder(entity: Ent, order: EliteOrderId, count?: number): void;
   emitTemporalTell(entity: Ent): void;
   emitShieldTell(entity: Ent, aimX: number, aimZ: number): void;
+  emitRareEvent(title: string, detail: string, x: number, z: number): void;
   hitPlayer(amount: number, attacker: Ent, source: DamageSourceId): void;
   damageScale(): number;
 }
@@ -158,6 +159,53 @@ export class EliteAffixSystem {
     }
 
     return { skipBehavior: false, speedMultiplier };
+  }
+
+  modifyIncomingDamage(
+    entity: Ent,
+    damage: number,
+    directional: boolean,
+    sourceX: number,
+    sourceZ: number
+  ) {
+    if (entity.kind !== 'elite' || entity.affix !== 'shielded' || !directional) return damage;
+
+    const state = entity.shieldState ?? 'guard';
+    if (state === 'broken') return damage * 1.3;
+
+    const incoming = Math.atan2(sourceZ - entity.z, sourceX - entity.x);
+    const diff = Math.abs(this.angleDiff(incoming, entity.shieldAngle));
+    return damage * (
+      diff < 0.95
+        ? (state === 'commit' ? 0.58 : 0.42)
+        : (state === 'commit' ? 1.35 : 1.2)
+    );
+  }
+
+  afterCloseDamage(entity: Ent, damage: number, forceDoctrine: number) {
+    if (
+      entity.kind !== 'elite' ||
+      entity.affix !== 'shielded' ||
+      forceDoctrine <= 0
+    ) return;
+
+    entity.shieldStability = Math.max(
+      0,
+      (entity.shieldStability ?? 100) - damage * (0.018 + forceDoctrine * 0.008)
+    );
+
+    if ((entity.shieldStability ?? 0) > 0 || (entity.shieldState ?? 'guard') === 'broken')
+      return;
+
+    entity.shieldState = 'broken';
+    entity.shieldCommitUntil = this.port.time() + 1.65;
+    entity.exposedUntil = Math.max(entity.exposedUntil, this.port.time() + 1.65);
+    this.port.emitRareEvent(
+      'ЩИТ СЛОМАН',
+      'Окно уязвимости элиты',
+      entity.x,
+      entity.z
+    );
   }
 
   private updateRegeneration(entity: Ent, time: number, dt: number) {
