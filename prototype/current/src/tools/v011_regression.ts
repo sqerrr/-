@@ -4,12 +4,20 @@ import { OrbitSystem } from '../core/orbitSystem.js';
 import { PhenomenonCastSystem } from '../core/phenomenonCastSystem.js';
 import { ProjectileSystem } from '../core/projectileSystem.js';
 import { Simulation } from '../core/simulation.js';
+import { StatefulPhenomenonCastSystem } from '../core/statefulPhenomenonCastSystem.js';
 
 function assert(c: unknown, m: string): asserts c { if (!c) throw new Error('v0.11 regression: ' + m); }
 
 // Every advertised Apotheosis must have production runtime code. This catches the exact failure
 // mode where a beautiful Tier III description is added to data but never changes gameplay.
-const classSource = [Simulation.toString(), ProjectileSystem.toString(), ConstructSystem.toString(), OrbitSystem.toString(), PhenomenonCastSystem.toString()].join('\n');
+const classSource = [
+  Simulation.toString(),
+  ProjectileSystem.toString(),
+  ConstructSystem.toString(),
+  OrbitSystem.toString(),
+  PhenomenonCastSystem.toString(),
+  StatefulPhenomenonCastSystem.toString()
+].join('\n');
 const apotheoses = activeSkillOrder.flatMap((id) => skills[id].mutations.filter((m) => m.apotheosis).map((m) => ({skill:id,id:m.id})));
 assert(apotheoses.length === activeSkillOrder.length * 3, `expected three Apotheoses per active skill, got ${apotheoses.length}`);
 for (const a of apotheoses) assert(classSource.includes(`'${a.id}'`) || classSource.includes(`\"${a.id}\"`), `${a.skill}/${a.id} is catalogue-only: no runtime branch`);
