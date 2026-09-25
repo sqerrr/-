@@ -54,7 +54,7 @@ const refusal: RefusedCard = {
   title: 'Тесак',
   icon: '⌁',
   skill: 'cleaver',
-  heldBy: elite.id
+  heldBy: 7
 };
 
 const elite = makeEnt({
