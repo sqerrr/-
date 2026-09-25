@@ -54,7 +54,7 @@ function elite(chassis: EliteChassis, id: number): Ent {
 
   damage = system.beforeDamage(entity, 100, 'cleaver', false);
   assert(Math.abs(damage - 134) < 1e-9, 'Bulwark alternating-source vulnerability changed');
-  assert(entity.prismMemory === 'cleaver', 'Bulwark did not rotate prism memory');
+  assert(String(entity.prismMemory) === 'cleaver', 'Bulwark did not rotate prism memory');
   assert(entity.exposedUntil === now + 0.45, 'Bulwark exposure timing changed');
 }
 
