@@ -30,6 +30,7 @@ const squadDirector=readFileSync('src/core/squadDirector.ts','utf8');
 const eliteBehavior=readFileSync('src/core/eliteBehaviorSystem.ts','utf8');
 const eliteDamageResponse=readFileSync('src/core/eliteDamageResponseSystem.ts','utf8');
 const eliteEcho=readFileSync('src/core/eliteEchoSystem.ts','utf8');
+const eliteEncounterLedger=readFileSync('src/core/eliteEncounterLedger.ts','utf8');
 const eliteProgression=readFileSync('src/core/eliteProgressionSystem.ts','utf8');
 const eliteAffix=readFileSync('src/core/eliteAffixSystem.ts','utf8');
 const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
@@ -162,6 +163,20 @@ for (const token of [
 ])
   assert(!enemyDamageBlock.includes(token),
     'incoming modifier policy leaked back into Simulation.damage: '+token);
+assert(eliteEncounterLedger.includes('export class EliteEncounterLedger'),
+  'elite encounter diagnostics have no dedicated storage owner');
+assert(simulation.includes('private eliteEncountersLedger = new EliteEncounterLedger()'),
+  'Simulation no longer delegates elite encounter storage');
+assert(!simulation.includes('private eliteLog:') && !simulation.includes('private eliteLogById'),
+  'raw elite encounter array/index leaked back into Simulation');
+assert(simulation.includes('this.eliteEncountersLedger.noteDash(this.time)'),
+  'dash attribution no longer routes through EliteEncounterLedger');
+assert(simulation.includes('this.eliteEncountersLedger.noteRivalCast(entity.id, skill)'),
+  'rival cast attribution no longer routes through EliteEncounterLedger');
+assert(simulation.includes('this.eliteEncountersLedger.finish(entity.id, this.time, true)'),
+  'elite death attribution no longer routes through EliteEncounterLedger');
+assert(simulation.includes('this.eliteEncountersLedger.noteItem(e.id, r.item)'),
+  'elite relic capture attribution no longer routes through EliteEncounterLedger');
 assert(playerDamageSystem.includes('export class PlayerDamageSystem'),
   'resolved player damage has no dedicated owner');
 assert(simulation.includes('private playerDamage!: PlayerDamageSystem'),
@@ -425,6 +440,7 @@ console.log('architecture-regression OK', {
   eliteBehaviorSystem:true,
   eliteDamageResponseSystem:true,
   eliteEchoSystem:true,
+  eliteEncounterLedger:true,
   eliteProgressionSystem:true,
   eliteAffixSystem:true,
   bossBehaviorSystem:true,
