@@ -4,6 +4,8 @@ function assert(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error('activation-runtime-regression: ' + message);
 }
 
+const numeric = (value: number): number => value;
+
 const activation = new ActivationRuntime();
 
 // A fresh beat owns one isolated score frame while the previous chain context survives.
@@ -39,9 +41,9 @@ activation.withDerived({ slot: 2, scale: 0.75 }, () => {
     'derived scope was not applied');
   activation.recordHit(12, 7);
 });
-assert(activation.slot === 1 && activation.scale === 1 && !activation.derived,
+assert(numeric(activation.slot) === 1 && numeric(activation.scale) === 1 && !activation.derived,
   'derived scope did not restore routing modifiers');
-assert(activation.damage === 45 && activation.hits.has(12),
+assert(numeric(activation.damage) === 45 && activation.hits.has(12),
   'derived work stopped contributing to its outer activation');
 
 // Physical Catalyst payloads instead receive a detached score frame and restore the exact parent.
@@ -53,9 +55,9 @@ assert(activation.derived && activation.hits.size === 1 && activation.damage ===
   'nested physical payload did not get an isolated frame');
 activation.restore(parent);
 assert(
-  activation.slot === 1 &&
-  activation.damage === 45 &&
-  activation.control === 2.5 &&
+  numeric(activation.slot) === 1 &&
+  numeric(activation.damage) === 45 &&
+  numeric(activation.control) === 2.5 &&
   activation.hits.has(10) &&
   !activation.hits.has(99),
   'parent activation frame was corrupted by nested payload'
@@ -63,16 +65,16 @@ assert(
 
 // End only clears transient routing; the completed score remains readable until the next begin.
 activation.end();
-assert(activation.slot === -1 && activation.scale === 1 && activation.countBonus === 0 && !activation.derived,
+assert(numeric(activation.slot) === -1 && numeric(activation.scale) === 1 && numeric(activation.countBonus) === 0 && !activation.derived,
   'activation end did not clear transient routing');
-assert(activation.damage === 45, 'activation end erased completed score too early');
+assert(numeric(activation.damage) === 45, 'activation end erased completed score too early');
 
 activation.clearContext(8, 9);
 assert(
   activation.context.skill === null &&
   activation.context.hitIds.length === 0 &&
-  activation.context.x === 8 &&
-  activation.context.z === 9,
+  numeric(activation.context.x) === 8 &&
+  numeric(activation.context.z) === 9,
   'chain context reset changed'
 );
 
