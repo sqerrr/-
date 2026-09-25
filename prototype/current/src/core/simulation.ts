@@ -12,14 +12,17 @@ import {
   mutationRoots,
   mutationChildren,
   resonance,
-  resonanceOrder,
   skills,
   statBase
 } from '../content/definitions.js';
-import { fnv1a } from './hash.js';
 import { ActivationPipelineSystem } from './activationPipelineSystem.js';
 import { ActivationRuntime } from './activationRuntime.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
+import {
+  CANONICAL_SCHEMA_VERSION as CANONICAL_RUN_SCHEMA_VERSION,
+  CanonicalStateSerializer,
+  type CanonicalStateInput
+} from './canonicalStateSerializer.js';
 import { ConstructSystem } from './constructSystem.js';
 import { ChoreographyTraceSystem } from './choreographyTraceSystem.js';
 import { ChoiceRuntime } from './choiceRuntime.js';
@@ -241,6 +244,7 @@ export class Simulation {
   private deathResolution!: DeathResolutionSystem;
   private delayedStrikeSystem!: DelayedStrikeSystem;
   private physicalActivations!: PhysicalActivationSystem;
+  private canonicalSerializer = new CanonicalStateSerializer();
   private activationPipeline!: ActivationPipelineSystem;
   private physicalCatalysts!: PhysicalCatalystSystem;
   private relicRace!: RelicRaceSystem;
@@ -3345,144 +3349,82 @@ export class Simulation {
     };
   }
   /**
-   * Version of the canonical-state layout below.
+   * Compatibility alias for the external deterministic-state contract.
    *
-   * Bump this whenever a field is added, removed, renamed or reordered. The version is
-   * folded into the hash, so a stale baseline fails loudly instead of silently matching
-   * a different layout. Never change the layout without bumping.
+   * The serializer owns ordering/normalization. Keep this alias so tooling that keys baselines
+   * by Simulation.CANONICAL_SCHEMA_VERSION does not need to know the implementation owner.
    */
-  static readonly CANONICAL_SCHEMA_VERSION = 6;
+  static readonly CANONICAL_SCHEMA_VERSION = CANONICAL_RUN_SCHEMA_VERSION;
 
-  /**
-   * Explicit, ordered schema of everything that defines a run.
-   *
-   * Each field is emitted as its own name followed by its value, so the hash input is
-   * self-describing: a renamed or reordered field changes the result on purpose, and a
-   * dropped field cannot be masked by a neighbour of the same type.
-   *
-   * Only include state the simulation actually reads back. Derived values, presentation
-   * state and diagnostics that never feed a later decision do not belong here.
-   */
-  private canonicalState(): (number | string)[] {
-    const parts: (number | string)[] = [];
-    const put = (name: string, ...values: (number | string | boolean | null | undefined)[]) => {
-      parts.push(name);
-      for (const v of values)
-        parts.push(v === null || v === undefined ? '-' : typeof v === 'boolean' ? (v ? 1 : 0) : v);
+  private canonicalInput(): CanonicalStateInput {
+    return {
+      mode: this.mode,
+      tick: this.tick,
+      rngState: this.rng.state(),
+      player: {
+        x: this.px,
+        z: this.pz,
+        hp: this.php,
+        maxHp: this.maxHp,
+        barrier: this.barrier,
+        armor: this.armor,
+        dashUntil: this.dashUntil,
+        dashIFramesUntil: this.dashIFramesUntil,
+        dashReadyAt: this.dashReadyAt,
+        level: this.level,
+        xp: this.xp,
+        xpNeed: this.xpNeed
+      },
+      chain: {
+        beat: this.beat,
+        cycle: this.cycle,
+        capacitorCharge: this.capacitorCharge,
+        overflowCharge: this.overflowCharge,
+        aegisCharge: this.aegisCharge,
+        orbitChoreoUntil: this.orbitChoreoUntil,
+        orbitChoreoX: this.orbitChoreoX,
+        orbitChoreoZ: this.orbitChoreoZ,
+        orbitChoreoCarrier: this.orbitChoreoCarrier,
+        context: this.activation.context
+      },
+      growth: {
+        tempo: this.tempo,
+        globalPower: this.globalPower,
+        fortune: this.fortune,
+        resonance: this.resonance
+      },
+      economy: {
+        eliteCore: this.eliteCore,
+        rerolls: this.rerolls,
+        mutationRefusalToken: this.mutationRefusalToken
+      },
+      boss: {
+        spawned: this.bossSpawned,
+        defeated: this.bossDefeated
+      },
+      loadout: {
+        slots: this.slots,
+        skillReserve: this.skillReserve,
+        catalysts: this.catalysts,
+        catalystReserve: this.catalystReserve
+      },
+      pois: this.pois,
+      skills: this.skillsRuntime.values(),
+      catalysts: this.catalystRuntime.values(),
+      entities: this.ents,
+      metrics: this.metrics,
+      relicCount: this.relics.length,
+      heldItems: this.heldItems,
+      eliteLegacyItems: this.eliteLegacyItems,
+      eliteEvolutionHistory: this.eliteEvolutionHistory
     };
+  }
 
-    put('schema', Simulation.CANONICAL_SCHEMA_VERSION);
-    put('mode', this.mode);
-    put('tick', this.tick);
-    put('rng', this.rng.state());
-
-    put('player.pos', this.px, this.pz);
-    put('player.hp', this.php, this.maxHp);
-    put('player.mitigation', this.barrier, this.armor);
-    put('player.dash', this.dashUntil, this.dashIFramesUntil, this.dashReadyAt);
-    put('player.xp', this.level, this.xp, this.xpNeed);
-
-    put('chain.beat', this.beat, this.cycle);
-    put('chain.charges', this.capacitorCharge, this.overflowCharge, this.aegisCharge);
-    put('chain.orbitChoreo', this.orbitChoreoUntil, this.orbitChoreoX, this.orbitChoreoZ, this.orbitChoreoCarrier?.kind ?? '-', this.orbitChoreoCarrier && 'id' in this.orbitChoreoCarrier ? this.orbitChoreoCarrier.id : this.orbitChoreoCarrier?.kind === 'orbit' ? this.orbitChoreoCarrier.index : -1);
-    put('chain.context', this.activation.context.skill ?? '-', this.activation.context.x, this.activation.context.z, ...this.activation.context.hitIds);
-    if (this.activation.context.trace) {
-      const t=this.activation.context.trace;
-      put('chain.trace',t.skill,t.origin.x,t.origin.z,t.aimX,t.aimZ,t.terminal?.x??'-',t.terminal?.z??'-');
-      for(const p of t.points) put('chain.trace.point',p.x,p.z);
-      for(const p of t.areaPoints) put('chain.trace.area',p.x,p.z);
-      for(const path of t.paths) put('chain.trace.path',...path.flatMap((p)=>[p.x,p.z]));
-      for(const q of t.carriers) put('chain.trace.carrier',q.kind,'id' in q?q.id:q.index);
-      for(const p of t.scheduled) put('chain.trace.scheduled',p.x,p.z);
-    }
-
-    put('growth.tempo', this.tempo);
-    put('growth.power', this.globalPower);
-    put('growth.fortune', this.fortune);
-    put('growth.axes', ...resonanceOrder.map((id) => this.resonance[id]));
-
-    put('economy.eliteCore', this.eliteCore);
-    put('economy.rerolls', this.rerolls);
-    put('economy.mutationRefusal', this.mutationRefusalToken);
-
-    put('boss.spawned', this.bossSpawned);
-    put('boss.defeated', this.bossDefeated);
-
-    put('loadout.slots', ...this.slots.map((s) => s ?? '-'));
-    put('loadout.skillReserve', ...this.skillReserve.map((s) => s ?? '-'));
-    put('loadout.catalysts', ...this.catalysts.map((s) => s ?? '-'));
-    put('loadout.catalystReserve', ...this.catalystReserve.map((s) => s ?? '-'));
-
-    for (const p of this.pois) put('poi', p.id, p.kind, p.state, p.guardianId, p.x, p.z);
-
-    for (const s of [...this.skillsRuntime.values()].sort((a, b) => a.id.localeCompare(b.id)))
-      put(
-        'skill',
-        s.id,
-        s.level,
-        s.power,
-        s.coverage,
-        s.range,
-        s.duration,
-        s.crit,
-        s.eliteDamage,
-        s.count,
-        s.control,
-        s.statusPotency,
-        s.mutation,
-        s.mutationUpgrade,
-        s.mutationApotheosis
-      );
-
-    for (const c of [...this.catalystRuntime.values()].sort((a, b) => a.id.localeCompare(b.id)))
-      put('catalyst', c.id);
-
-    for (const e of this.ents)
-      put(
-        'ent',
-        e.id,
-        e.kind,
-        e.x,
-        e.z,
-        e.hp,
-        e.chassis,
-        e.affix,
-        e.boss,
-        e.guardianPoi,
-        e.adaptStage,
-        e.adaptCooldown,
-        e.eliteAction ?? '-',
-        e.eliteActionUntil ?? 0,
-        e.bossPhase,
-        e.bossPattern,
-        e.affixTimer,
-        e.affixPulse,
-        e.markUntil,
-        e.igniteUntil,
-        e.chillUntil,
-        e.woundUntil,
-        e.toxinUntil,
-        e.displacedUntil,
-        e.embedded,
-        e.orderUntil,
-        (e.relicItems ?? []).join(','),
-        (e.evolutionItems ?? []).join(',')
-      );
-
-    const m = this.metrics;
-    put('metrics.population', m.spawned, m.killed, m.maxEnemies);
-    put('metrics.elites', m.eliteSpawned, m.eliteKilled);
-    put('metrics.output', m.damage, m.reactions);
-    put('metrics.progression', m.levels, m.mutations);
-    put('metrics.survival', m.damageTaken, m.healingReceived, m.barrierGenerated, m.healsPicked);
-    put('relics', this.relics.length, this.heldItems.length, this.heldItems.join(','));
-    put('eliteLegacyItems', this.eliteLegacyItems.join(','));
-    put('eliteEvolutionHistory', this.eliteEvolutionHistory.join(','));
-
-    return parts;
+  private canonicalState(): (number | string)[] {
+    return this.canonicalSerializer.serialize(this.canonicalInput());
   }
 
   canonicalHash() {
-    return fnv1a(this.canonicalState());
+    return this.canonicalSerializer.hash(this.canonicalInput());
   }
 }
