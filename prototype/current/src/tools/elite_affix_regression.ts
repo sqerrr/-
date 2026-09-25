@@ -113,7 +113,7 @@ function elite(affix:Ent['affix'],id:number){
   assert(nondirectional===100,'shield started modifying non-directional damage');
 
   system.afterCloseDamage(e,200,10);
-  assert(e.shieldState==='broken','Force damage no longer breaks depleted shield stability');
+  assert(String(e.shieldState)==='broken','Force damage no longer breaks depleted shield stability');
   assert((e.shieldCommitUntil??0)===now+1.65,'shield break recovery timing changed');
   assert(e.exposedUntil===now+1.65,'shield break vulnerability timing changed');
   assert(rare.includes('ЩИТ СЛОМАН'),'shield break feedback disappeared');
