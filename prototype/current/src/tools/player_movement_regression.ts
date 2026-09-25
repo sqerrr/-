@@ -66,7 +66,7 @@ now = 1;
 iframeMul = 1.25;
 cooldownMul = 0.8;
 movement.update({ ...idle, dash: true });
-assert(metrics.dashes === 1 && encounterDashes === 1, 'dash start accounting changed');
+assert(numeric(metrics.dashes) === 1 && numeric(encounterDashes) === 1, 'dash start accounting changed');
 assert(movement.vx === 0 && movement.vz === -PlayerMovementSystem.DASH_SPEED,
   'zero-input dash stopped using aim direction');
 assert(Math.abs(movement.dashUntil - (1 + PlayerMovementSystem.DASH_DURATION)) < 1e-9,
@@ -128,7 +128,7 @@ assert(movement.isDashReady(now), 'dash did not become ready at authored readyAt
 assert(Math.abs(movement.dashCharge(now) - 1) < 1e-9,
   'dash charge is not full at readyAt');
 movement.update({ ...idle, moveX: 1, dash: true });
-assert(metrics.dashes === 2 && encounterDashes === 2, 'ready dash did not start a second time');
+assert(numeric(metrics.dashes) === 2 && numeric(encounterDashes) === 2, 'ready dash did not start a second time');
 
 // Static tuning contract remains identical to Simulation-facing constants.
 assert(PlayerMovementSystem.DASH_SPEED === 22, 'dash speed changed');
