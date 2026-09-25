@@ -24,6 +24,7 @@ import {
   type CanonicalStateInput
 } from './canonicalStateSerializer.js';
 import { ConstructSystem } from './constructSystem.js';
+import { SnapshotBuilder, type SnapshotBuilderInput } from './snapshotBuilder.js';
 import { ChoreographyTraceSystem } from './choreographyTraceSystem.js';
 import { ChoiceRuntime } from './choiceRuntime.js';
 import { CombatLedger } from './combatLedger.js';
@@ -97,7 +98,6 @@ import type {
   EliteEncounter,
   EliteRarity,
   EnemyKind,
-  FieldSnapshot,
   GameEvent,
   Metrics,
   MutationId,
@@ -245,6 +245,7 @@ export class Simulation {
   private delayedStrikeSystem!: DelayedStrikeSystem;
   private physicalActivations!: PhysicalActivationSystem;
   private canonicalSerializer = new CanonicalStateSerializer();
+  private snapshotBuilder = new SnapshotBuilder();
   private activationPipeline!: ActivationPipelineSystem;
   private physicalCatalysts!: PhysicalCatalystSystem;
   private relicRace!: RelicRaceSystem;
@@ -3163,7 +3164,33 @@ export class Simulation {
     };
   }
 
-  snapshot(): Snapshot {
+  private snapshotInput(): SnapshotBuilderInput {
+    const orbit = (() => {
+      const runtime = this.skillsRuntime.get('orbit_blades');
+      if (!runtime || !this.isActiveSkill('orbit_blades'))
+        return {
+          active: false,
+          count: 0,
+          radius: 0,
+          centerX: this.px,
+          centerZ: this.pz,
+          mutation: null,
+          apotheosis: null
+        } as Snapshot['orbit'];
+
+      const center = this.orbitCenter();
+      const profile = this.orbitSystem.profile(runtime, center);
+      return {
+        active: true,
+        count: profile.count,
+        radius: profile.radius,
+        centerX: center.x,
+        centerZ: center.z,
+        mutation: runtime.mutation,
+        apotheosis: runtime.mutationApotheosis
+      } as Snapshot['orbit'];
+    })();
+
     return {
       tick: this.tick,
       time: this.time,
@@ -3191,130 +3218,23 @@ export class Simulation {
         dashCharge: this.playerMovement.dashCharge(this.time),
         invulnerable: this.time < this.dashIFramesUntil
       },
-      entities: this.ents.map((e) => ({
-        id: e.id,
-        kind: e.kind,
-        x: e.x,
-        z: e.z,
-        hp: e.hp,
-        maxHp: e.maxHp,
-        radius: e.radius,
-        elite: e.kind === 'elite',
-        boss: e.boss,
-        guardianPoi: e.guardianPoi,
-        chassis: e.chassis,
-        affix: e.affix,
-        facingX: e.facingX,
-        facingZ: e.facingZ,
-        telegraph: e.state === 'telegraph' ? Math.max(0, e.stateTimer / 0.72) : 0,
-        eliteAction: e.eliteAction,
-        eliteActionProgress: e.eliteActionUntil && e.eliteActionUntil > this.time
-          ? Math.max(0, Math.min(1, (e.eliteActionUntil - this.time) / 0.9))
-          : 0,
-        linkedTo: e.linkedTo,
-        revived: e.revived,
-        buffed: e.buffUntil > this.time,
-        shieldAngle: e.shieldAngle,
-        shieldState: e.shieldState ?? 'guard',
-        shieldStability: e.shieldStability ?? 100,
-        echoPhase: this.eliteEchoSystem.get(e.id)?.phase ?? 'none',
-        echoSkill: this.eliteEchoSystem.get(e.id)?.skill,
-        regenerating: e.affix === 'regenerating' && this.time - e.lastDamageAt > 3,
-        orderX: e.orderX,
-        orderZ: e.orderZ,
-        orderActive: e.orderUntil > this.time,
-        squadTask: e.squadUntil && e.squadUntil > this.time ? (e.squadTask ?? 'none') : 'none',
-        adaptationStage: e.adaptStage,
-        eliteRarity: e.rarity,
-        refusalTitles: e.repertoire
-          .map((s: number) => this.refusalStore.find((card) => card.serial === s))
-          .filter((card): card is RefusedCard => !!card)
-          .map((card) => card.title),
-        refusalKinds: e.repertoire
-          .map((s: number) => this.refusalStore.find((card) => card.serial === s))
-          .filter((card): card is RefusedCard => !!card)
-          .map((card) => card.kind as string),
-        refusalIcons: e.repertoire
-          .map((s) => this.refusalStore.find((card) => card.serial === s)?.icon ?? '')
-          .filter((s) => !!s),
-        relicItems: [...(e.relicItems ?? [])],
-        evolutionItems: [...(e.evolutionItems ?? [])],
-        bossPhase: e.bossPhase,
-        bossPattern: e.bossPattern,
-        status: {
-          marked: e.markUntil > this.time,
-          ignited: e.igniteUntil > this.time,
-          chilled: e.chillUntil > this.time,
-          frozen: (e.frozenUntil ?? 0) > this.time,
-          wounded: e.woundUntil > this.time,
-          exposed: e.exposedUntil > this.time,
-          embedded: e.embedded,
-          toxined: e.toxinUntil > this.time
-        }
-      })),
-      pickups: this.pickups.map((p) => ({ ...p })),
-      relics: this.relics.map((r) => ({
-        id: r.id,
-        x: r.x,
-        z: r.z,
-        item: r.item,
-        category: items[r.item].category,
-        contested: this.ents.some(
-          (e) => e.kind === 'elite' && !e.boss && Math.hypot(e.x - r.x, e.z - r.z) < 9
-        )
-      })),
-      heldItems: [...this.heldItems],
-      fields: this.fields.map(
-        (f) =>
-          ({
-            id: f.id,
-            x: f.x,
-            z: f.z,
-            radius: f.radius,
-            ttl: f.ttl,
-            kind: f.kind,
-            faction: f.faction ?? 'hero',
-            source: f.source ?? f.kind,
-            mutation: f.mutation ?? null,
-            behavior: f.behavior
-          }) as FieldSnapshot
-      ),
-      constructs: this.constructs.map((c) => ({
-        id: c.id,
-        x: c.x,
-        z: c.z,
-        ttl: c.ttl,
-        range: c.range,
-        kind: 'sentry',
-        faction: c.faction,
-        mutation: c.mutation,
-        mutationUpgrade: c.mutationUpgrade,
-        mutationApotheosis: c.mutationApotheosis ?? null
-      })),
-      projectiles: this.projectiles.map((p) => ({
-        id: p.id,
-        x: p.x,
-        z: p.z,
-        radius: p.radius,
-        faction: p.faction,
-        source: p.source,
-        guarded: p.guarded,
-        behavior: p.behavior ?? 'normal',
-        phase: p.phase ?? 0,
-        mutation: p.mutation,
-        apotheosis: p.apotheosis ?? null,
-        carousel: !!p.carousel
-      })),
-      orbit: (() => {
-        const st=this.skillsRuntime.get('orbit_blades');
-        if(!st||!this.isActiveSkill('orbit_blades')) return {active:false,count:0,radius:0,centerX:this.px,centerZ:this.pz,mutation:null,apotheosis:null};
-        const center=this.orbitCenter(),p=this.orbitSystem.profile(st,center);
-        return {active:true,count:p.count,radius:p.radius,centerX:center.x,centerZ:center.z,mutation:st.mutation,apotheosis:st.mutationApotheosis};
-      })(),
+      entities: this.ents,
+      refusalStore: this.refusalStore,
+      echoFor: (entityId) => this.eliteEchoSystem.get(entityId),
+      pickups: this.pickups,
+      relics: this.relics,
+      heldItems: this.heldItems,
+      fields: this.fields,
+      constructs: this.constructs,
+      projectiles: this.projectiles,
+      orbit,
       world: {
-        ...this.world,
-        pois: this.pois.map((p) => ({ ...p })),
-        obstacles: this.obstacles.map((o) => ({ ...o })),
+        minX: this.world.minX,
+        maxX: this.world.maxX,
+        minZ: this.world.minZ,
+        maxZ: this.world.maxZ,
+        pois: this.pois,
+        obstacles: this.obstacles,
         bossSpawned: this.bossSpawned,
         bossDefeated: this.bossDefeated
       },
@@ -3322,32 +3242,30 @@ export class Simulation {
         beat: this.beat,
         cycle: this.cycle,
         tempo: this.effectiveTempo(),
-        slots: [...this.slots],
-        catalysts: [...this.catalysts],
-        skillReserve: [...this.skillReserve],
-        catalystReserve: [...this.catalystReserve],
-        catalystRuntime: [...this.catalystRuntime.values()].map((x) => ({ ...x }))
+        slots: this.slots,
+        catalysts: this.catalysts,
+        skillReserve: this.skillReserve,
+        catalystReserve: this.catalystReserve,
+        catalystRuntime: this.catalystRuntime.values()
       },
-      skills: [...this.skillsRuntime.values()].map((s) => ({ ...s })),
-      resonance: { ...this.resonance },
-      doctrines: { ...this.doctrines },
-      metrics: { ...this.metrics },
+      skills: this.skillsRuntime.values(),
+      resonance: this.resonance,
+      doctrines: this.doctrines,
+      metrics: this.metrics,
       eliteCore: this.eliteCore,
       mutationCores: this.mutationCores,
-      rewardOffers: this.rewardOffers ? this.rewardOffers.map((o) => ({ ...o })) : null,
-      refusals: this.refusalStore.map((c) => ({ ...c })),
-      mutationOffer: this.mutationOffer
-        ? {
-            skill: this.mutationOffer.skill,
-            choices: [...this.mutationOffer.choices],
-            refusalAvailable: this.mutationOffer.refusalAvailable,
-            tier: this.mutationOffer.tier
-          }
-        : null,
+      rewardOffers: this.rewardOffers,
+      refusals: this.refusalStore,
+      mutationOffer: this.mutationOffer,
       rerolls: this.rerolls,
       choiceSerial: this.choiceSerial
     };
   }
+
+  snapshot(): Snapshot {
+    return this.snapshotBuilder.build(this.snapshotInput());
+  }
+
   /**
    * Compatibility alias for the external deterministic-state contract.
    *
