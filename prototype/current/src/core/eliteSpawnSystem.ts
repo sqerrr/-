@@ -191,7 +191,7 @@ export class EliteSpawnSystem {
     return entity;
   }
 
-  private spawnBossSupport(
+  spawnBossSupport(
     kind: PoiKind,
     bossX: number,
     bossZ: number,
@@ -232,7 +232,7 @@ export class EliteSpawnSystem {
     return entity;
   }
 
-  private rollRarity(): EliteRarity {
+  rollRarity(): EliteRarity {
     const progress = Math.min(1, this.port.time() / this.port.runDuration());
     const roll = this.port.randomFloat();
 
@@ -241,7 +241,7 @@ export class EliteSpawnSystem {
     return 'common';
   }
 
-  private rollAffix(rarity: EliteRarity): EliteAffix {
+  rollAffix(rarity: EliteRarity): EliteAffix {
     const progress = Math.min(1, this.port.time() / this.port.runDuration());
 
     // The opening teaches chassis language before affix combinations appear.
@@ -275,7 +275,7 @@ export class EliteSpawnSystem {
     return pool[this.port.randomInt(pool.length)];
   }
 
-  private supportIdentity(kind: PoiKind): [EliteChassis, EliteAffix] {
+  supportIdentity(kind: PoiKind): [EliteChassis, EliteAffix] {
     if (kind === 'phenomenon') return ['hunter', 'shielded'];
     if (kind === 'catalyst') return ['architect', 'vanguard'];
     if (kind === 'resonance') return ['bulwark', 'temporal'];
