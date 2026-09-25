@@ -1,5 +1,6 @@
 import {
   catalysts,
+  doctrineOrder,
   doctrines,
   rarityMultiplier,
   rarityOrder,
@@ -138,7 +139,7 @@ export class RewardOfferFactory {
   }
 
   doctrine(id?: DoctrineId): RewardOffer {
-    const did = id ?? doctrineOrderFallback(this.port.randomInt);
+    const did = id ?? doctrineOrder[this.port.randomInt(doctrineOrder.length)];
     const definition = doctrines[did];
     const before = this.port.doctrineLevel(did);
     const after = before + 1;
@@ -209,9 +210,3 @@ export class RewardOfferFactory {
   }
 }
 
-// Kept tiny and module-local so optional doctrine construction preserves the exact historical
-// random-int cadence without making doctrineOrder part of the mutable factory port.
-import { doctrineOrder } from '../content/definitions.js';
-function doctrineOrderFallback(randomInt: (maxExclusive: number) => number): DoctrineId {
-  return doctrineOrder[randomInt(doctrineOrder.length)];
-}
