@@ -24,7 +24,6 @@ export interface FieldSystemPort {
   ): void;
 
   memoryFactor(): number;
-  addFieldDamage(amount: number): void;
   queuePhysicalEvent(event: PhysicalEvent): void;
 }
 
@@ -149,7 +148,6 @@ export class FieldSystem {
               field.z,
               field.sourceSlot ?? -1
             );
-            p.addFieldDamage(field.dps * 0.25);
           }
         }
       }
