@@ -26,7 +26,7 @@ const skillA: SkillRuntime = {
   mutationUpgrade: null,
   mutationApotheosis: null
 };
-const skillB: SkillRuntime = { ...skillA, id: 'arc_bolt', level: 3 };
+const skillB: SkillRuntime = { ...skillA, id: 'chain_arc', level: 3 };
 const catalystA: CatalystRuntime = { id: 'trail' };
 const catalystB: CatalystRuntime = { id: 'source' };
 const entity = makeEnt({
@@ -129,7 +129,7 @@ const input: CanonicalStateInput = {
   boss: { spawned: true, defeated: false },
   loadout: {
     slots: ['cleaver', null],
-    skillReserve: ['arc_bolt'],
+    skillReserve: ['chain_arc'],
     catalysts: ['trail', null],
     catalystReserve: ['source']
   },
@@ -164,7 +164,7 @@ assert(
 const skillRows: string[] = [];
 for (let i = 0; i < parts.length; i++)
   if (parts[i] === 'skill') skillRows.push(String(parts[i + 1]));
-assert(skillRows.join(',') === 'arc_bolt,cleaver', 'skill canonical sort changed');
+assert(skillRows.join(',') === 'chain_arc,cleaver', 'skill canonical sort changed');
 
 const catalystRows: string[] = [];
 for (let i = 0; i < parts.length; i++)
