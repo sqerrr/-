@@ -8,6 +8,7 @@ import type {
   SkillRuntime
 } from '../core/types.js';
 import type {
+  CastSource,
   Construct,
   EliteEchoState,
   Ent,
@@ -43,6 +44,8 @@ interface SimulationInternals {
   updateProjectiles(): void;
   newSkill(id: SkillId): SkillRuntime;
   activateSlot(slot: number): void;
+  dispatchSkill(id: SkillId, runtime: SkillRuntime, slot: number, source: CastSource): void;
+  heroSource(): CastSource;
   flushPhysicalEvents(): void;
   updateEliteAI(entity: Ent, speed: number, distance: number, nx: number, nz: number): void;
   startEliteEcho(entity: Ent, card: RefusedCard): void;
@@ -130,6 +133,14 @@ export class SimulationHarness {
 
   activateSlot(slot: number) {
     this.internals.activateSlot(slot);
+  }
+
+  castSkill(id: SkillId, runtime: SkillRuntime, slot: number, source: CastSource) {
+    this.internals.dispatchSkill(id, runtime, slot, source);
+  }
+
+  heroSource() {
+    return this.internals.heroSource();
   }
 
   flushPhysicalEvents() {
