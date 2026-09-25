@@ -78,21 +78,26 @@ export class PlayerMovementSystem {
 
     let x = p.playerX();
     let z = p.playerZ();
+    let moved = false;
 
     if (p.time() < this.dashUntil) {
       this.vx = this.dashDirX * PlayerMovementSystem.DASH_SPEED;
       this.vz = this.dashDirZ * PlayerMovementSystem.DASH_SPEED;
       x += this.vx * p.dt();
       z += this.vz * p.dt();
+      moved = true;
     } else if (magnitude > 0.001) {
       this.vx = (command.moveX / magnitude) * p.moveSpeed();
       this.vz = (command.moveZ / magnitude) * p.moveSpeed();
       x += this.vx * p.dt();
       z += this.vz * p.dt();
+      moved = true;
     }
 
-    p.setPlayerPosition(x, z);
-    p.clampWorld();
+    if (moved) {
+      p.setPlayerPosition(x, z);
+      p.clampWorld();
+    }
   }
 
   extendIFrames(until: number) {
