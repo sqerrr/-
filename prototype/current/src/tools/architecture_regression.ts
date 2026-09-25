@@ -24,6 +24,7 @@ const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
 const rewardOfferFactory=readFileSync('src/core/rewardOfferFactory.ts','utf8');
 const progressionOfferSystem=readFileSync('src/core/progressionOfferSystem.ts','utf8');
 const poiSystem=readFileSync('src/core/poiSystem.ts','utf8');
+const worldGeometry=readFileSync('src/core/worldGeometrySystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
 const orbitSystem=readFileSync('src/core/orbitSystem.ts','utf8');
 const fieldSystem=readFileSync('src/core/fieldSystem.ts','utf8');
@@ -313,6 +314,16 @@ assert(simulation.includes('private progressionOffers!: ProgressionOfferSystem')
 
 assert(poiSystem.includes('export class PoiSystem'), 'world POIs have no dedicated owner');
 assert(simulation.includes('private poiSystem!: PoiSystem'), 'Simulation no longer delegates POI lifecycle');
+assert(worldGeometry.includes('export class WorldGeometrySystem'),
+  'cover geometry/spatial queries have no dedicated owner');
+assert(simulation.includes('private worldGeometry!: WorldGeometrySystem'),
+  'Simulation no longer delegates world cover geometry');
+assert(simulation.includes('private get obstacles(): Obstacle[] { return this.worldGeometry.all; }'),
+  'Simulation obstacle compatibility view no longer delegates to WorldGeometrySystem');
+assert(!simulation.includes('private obstacleGrid =') && !simulation.includes('private obstacleScratch:'),
+  'cover spatial-index storage leaked back into Simulation');
+for (const token of ['this.worldGeometry.initialize(this.pois)','this.worldGeometry.freeOf(','this.worldGeometry.lineOfSight(','this.worldGeometry.damageObstacle('])
+  assert(simulation.includes(token), 'world geometry seam missing: '+token);
 assert(simulation.includes('private get pois(): Poi[] { return this.poiSystem.all; }'),
   'Simulation POI compatibility view no longer delegates to PoiSystem');
 const poiDirectorBlock=simulation.slice(
@@ -641,6 +652,7 @@ console.log('architecture-regression OK', {
   rewardOfferFactory:true,
   progressionOfferSystem:true,
   poiSystem:true,
+  worldGeometrySystem:true,
   delayedStrikeSystem:true,
   orbitSystem:true,
   fieldSystem:true,
