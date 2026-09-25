@@ -35,6 +35,7 @@ interface SimulationInternals {
   obstacles: Obstacle[];
   relics: Relic[];
   skillsRuntime: Map<SkillId, SkillRuntime>;
+  activation: { countBonus: number };
   eliteEchoSystem: { get(entityId: number): EliteEchoState | undefined };
   playerVX: number;
   playerVZ: number;
@@ -129,6 +130,10 @@ export class SimulationHarness {
       this.internals.skillsRuntime.set(id, runtime);
     }
     return runtime;
+  }
+
+  setActivationCountBonus(value: number) {
+    this.internals.activation.countBonus = value;
   }
 
   activateSlot(slot: number) {

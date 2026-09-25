@@ -22,6 +22,7 @@ import {
   statBase
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
+import { ActivationRuntime } from './activationRuntime.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
 import { ConstructSystem } from './constructSystem.js';
 import { ChoreographyTraceSystem } from './choreographyTraceSystem.js';
@@ -52,7 +53,6 @@ import {
   HERO_HIT_RADIUS,
   makeEnt,
   makeHeroEnt,
-  type ActivationContext,
   type CatalystBinding,
   type CastFaction,
   type CastSource,
@@ -381,15 +381,7 @@ export class Simulation {
   private butcherStacks = 0;
   private killsBySource = new Map<string, number>();
   private hitsBySource = new Map<string, number>();
-  private previousHits = new Set<number>();
-  private currentHits = new Set<number>();
-  private currentActivationDamage = 0;
-  private currentActivationKills = 0;
-  private currentActivationOverkill = 0;
-  private currentActivationControl = 0;
-  private currentProducedState = '';
-  private currentSlot = -1;
-  private activationScale = 1;
+  private activation = new ActivationRuntime();
   private capacitorCharge = 0;
   private capacitorConsumed = false;
   private overflowCharge = 0;
@@ -404,18 +396,6 @@ export class Simulation {
   private orbitChoreoX = 0;
   private orbitChoreoZ = 0;
   private orbitChoreoCarrier: ChoreographyCarrier | null = null;
-  private lastContext: ActivationContext = {
-    skill: null,
-    damage: 0,
-    kills: 0,
-    overkill: 0,
-    control: 0,
-    state: '',
-    hitIds: [],
-    x: 0,
-    z: 0,
-    trace: null
-  };
   private damageBySource = new Map<string, number>();
   // Mirror of damageBySource for blows that landed on the player. Feeds the "what hit me"
   // half of the elite telemetry (D52). Deliberately kept out of the canonical hash.
@@ -425,8 +405,7 @@ export class Simulation {
   private mutationRefusalToken = true;
   private choiceSerial = 0;
   private pendingMutationTarget = false;
-  private activationCountBonus = 0;
-  private activationDerived = false;
+
   private damageSamples: { t: number; source: string; amount: number; derived: boolean }[] = [];
   /**
    * Cards the hero declined, in concession order. Elites draw their repertoire from here,
@@ -879,30 +858,14 @@ export class Simulation {
       applyState: (entity, state, potency) => this.applyState(entity, state, potency),
       healPlayer: (amount) => this.healPlayer(amount),
       grantBarrier: (amount) => this.grantBarrier(amount),
-      damageEcho: (entity, amount, x, z) => {
-        const previousDerived = this.activationDerived;
-        this.activationDerived = true;
-        try {
-          this.damage(entity, amount, 'echo', false, x, z);
-        } finally {
-          this.activationDerived = previousDerived;
-        }
-      },
-      castDerived: (skill, runtime, slot, scale) => {
-        const previousSlot = this.currentSlot;
-        const previousScale = this.activationScale;
-        const previousDerived = this.activationDerived;
-        this.currentSlot = slot;
-        this.activationScale = scale;
-        this.activationDerived = true;
-        try {
-          this.castWithTrace(skill, runtime, slot, this.heroSource());
-        } finally {
-          this.activationDerived = previousDerived;
-          this.activationScale = previousScale;
-          this.currentSlot = previousSlot;
-        }
-      },
+      damageEcho: (entity, amount, x, z) =>
+        this.activation.withDerived({}, () =>
+          this.damage(entity, amount, 'echo', false, x, z)
+        ),
+      castDerived: (skill, runtime, slot, scale) =>
+        this.activation.withDerived({ slot, scale }, () =>
+          this.castWithTrace(skill, runtime, slot, this.heroSource())
+        ),
       noteReaction: () => {
         this.metrics.reactions++;
       },
@@ -1074,9 +1037,7 @@ export class Simulation {
       addCloseDamage: (amount) => {
         this.closeDamage += amount;
       },
-      addActivationControl: (amount) => {
-        this.currentActivationControl += amount;
-      },
+      addActivationControl: (amount) => this.activation.addControl(amount),
       noteState: (state) => this.noteState(state),
       noteReaction: () => {
         this.metrics.reactions++;
@@ -1122,9 +1083,7 @@ export class Simulation {
       addCloseDamage: (amount) => {
         this.closeDamage += amount;
       },
-      addActivationControl: (amount) => {
-        this.currentActivationControl += amount;
-      },
+      addActivationControl: (amount) => this.activation.addControl(amount),
       noteState: (state) => this.noteState(state),
       noteReaction: () => {
         this.metrics.reactions++;
@@ -1138,7 +1097,7 @@ export class Simulation {
 
       resonanceMultiplicity: () => this.resonance.multiplicity,
       doctrineQuantity: () => this.doctrines.quantity,
-      activationCountBonus: () => this.activationCountBonus,
+      activationCountBonus: () => this.activation.countBonus,
       mutationCountAdd: (runtime) => this.mutationContinuation(runtime)?.countAdd ?? 0,
       multiplicityFor: (runtime) =>
         this.supportsAxis(runtime.id, 'multiplicity') ? this.resonance.multiplicity : 0,
@@ -1455,7 +1414,7 @@ export class Simulation {
     if (activationId) this.registerAsyncPhysical(activationId);
     if (
       p.faction === 'hero' &&
-      p.sourceSlot === this.currentSlot &&
+      p.sourceSlot === this.activation.slot &&
       this.choreography.matchesSkill(p.source)
     ) {
       // For an async path Phenomenon, the first real moving body owns the route origin.
@@ -1490,7 +1449,7 @@ export class Simulation {
     const activationId = strike.faction === 'hero' ? (strike.activationId ?? this.physical.currentActivationId) : 0;
     this.delayedStrikes.push({ id: this.nextId++, activationId, ...strike });
     if (activationId) this.registerAsyncPhysical(activationId);
-    if (strike.faction === 'hero' && strike.sourceSlot === this.currentSlot) {
+    if (strike.faction === 'hero' && strike.sourceSlot === this.activation.slot) {
       // This is a PLAN only. It is deliberately excluded from terminal/area/path truth.
       this.choreography.addScheduled(strike.x, strike.z);
     }
@@ -2546,7 +2505,7 @@ export class Simulation {
     return 1 + Math.max(0, this.level - 1) * 0.075;
   }
   private slotAmp(_slot: number, _e?: Ent) {
-    return this.activationScale;
+    return this.activation.scale;
   }
 
   private mutationIs(st: SkillRuntime, id: MutationId) {
@@ -2558,7 +2517,7 @@ export class Simulation {
   private powerBucket(st: SkillRuntime) {
     return this.corePower() * (1 + this.globalPower) * (1 + this.doctrines.might * 0.11) * (this.mutationContinuation(st)?.powerMul ?? 1);
   }
-  private skillRadius(st: SkillRuntime, base: number, _slot = this.currentSlot) {
+  private skillRadius(st: SkillRuntime, base: number, _slot = this.activation.slot) {
     return base * Math.sqrt(1 + Math.max(0, st.coverage)) * (1 + this.doctrines.size * 0.12) * (this.mutationContinuation(st)?.radiusMul ?? 1);
   }
   private skillRange(st: SkillRuntime, base: number) {
@@ -2567,7 +2526,7 @@ export class Simulation {
   private memoryFactor() {
     return 1 + this.resonance.persistence * 0.18;
   }
-  private persistentDuration(st: SkillRuntime, base: number, _slot = this.currentSlot) {
+  private persistentDuration(st: SkillRuntime, base: number, _slot = this.activation.slot) {
     const rival = this.castOwner;
     const heroAxis = !rival && this.supportsAxis(st.id, 'persistence') ? this.resonance.persistence : 0;
     const rivalAxis = rival ? this.rivalAxisCount(rival, 'persistence') : 0;
@@ -2581,7 +2540,7 @@ export class Simulation {
     );
   }
   private projectileCount(st: SkillRuntime, _slot: number) {
-    let c = Math.max(1, Math.round(st.count)) + this.activationCountBonus;
+    let c = Math.max(1, Math.round(st.count)) + this.activation.countBonus;
     const mult = this.supportsAxis(st.id, 'multiplicity') ? this.resonance.multiplicity : 0;
     c += Math.min(3, mult);
     if (!this.castOwner) c += Math.min(3, Math.floor(this.doctrines.quantity / 2));
@@ -2611,7 +2570,6 @@ export class Simulation {
     const lastSlot = this.activeSpan() - 1,
       id = this.slots[slot];
     if (!id) {
-      this.previousHits.clear();
       return;
     }
     const st = this.skillsRuntime.get(id);
@@ -2629,16 +2587,7 @@ export class Simulation {
     )
       return;
 
-    this.currentSlot = slot;
-    this.currentHits.clear();
-    this.currentActivationDamage = 0;
-    this.currentActivationKills = 0;
-    this.currentActivationOverkill = 0;
-    this.currentActivationControl = 0;
-    this.currentProducedState = '';
-    this.activationScale = 1;
-    this.activationCountBonus = 0;
-    this.activationDerived = false;
+    this.activation.begin(slot);
     const activationId = this.beginPhysicalActivation(slot, id);
     this.choreography.begin(id, { x: this.px, z: this.pz }, this.aimX, this.aimZ);
 
@@ -2651,16 +2600,16 @@ export class Simulation {
         catalyst: incoming,
         slot,
         conductivity: this.resonance.conductivity,
-        previous: this.lastContext,
+        previous: this.activation.context,
         aimX: this.aimX,
         aimZ: this.aimZ,
-        activationScale: this.activationScale,
-        activationCountBonus: this.activationCountBonus
+        activationScale: this.activation.scale,
+        activationCountBonus: this.activation.countBonus
       });
     this.aimX = legacyBefore.aimX;
     this.aimZ = legacyBefore.aimZ;
-    this.activationScale = legacyBefore.activationScale;
-    this.activationCountBonus = legacyBefore.activationCountBonus;
+    this.activation.scale = legacyBefore.activationScale;
+    this.activation.countBonus = legacyBefore.activationCountBonus;
 
     this.metrics.activations++;
     // Catalyst 2.x no longer teleports B on this beat. A's live lifecycle owns when/where B fires.
@@ -2675,16 +2624,15 @@ export class Simulation {
       skill: id,
       runtime: st,
       conductivity: this.resonance.conductivity,
-      previous: this.lastContext,
-      currentHits: this.currentHits,
-      currentKills: this.currentActivationKills
+      previous: this.activation.context,
+      currentHits: this.activation.hits,
+      currentKills: this.activation.kills
     });
 
-    this.previousHits = new Set(this.currentHits);
     let cx = this.px,
       cz = this.pz;
-    if (this.currentHits.size) {
-      const ts = [...this.currentHits]
+    if (this.activation.hits.size) {
+      const ts = [...this.activation.hits]
         .map((eid) => this.entityStore.get(eid))
         .filter(Boolean) as Ent[];
       if (ts.length) {
@@ -2694,24 +2642,12 @@ export class Simulation {
     }
 
     const trace = this.choreography.finish(),
-      previous = this.lastContext,
-      physicalOrigin = trace?.origin ?? {x:this.px,z:this.pz};
-    this.physical.setLastPoint(activationId,{...physicalOrigin});
-    this.physicalActivations.armOutgoing(slot,id,activationId,physicalOrigin);
+      physicalOrigin = trace?.origin ?? { x: this.px, z: this.pz };
+    this.physical.setLastPoint(activationId, { ...physicalOrigin });
+    this.physicalActivations.armOutgoing(slot, id, activationId, physicalOrigin);
     this.physicalActivations.publishImmediate(id, slot, activationId, trace);
     this.flushPhysicalEvents();
-    this.lastContext = {
-      skill: id,
-      damage: this.currentActivationDamage,
-      kills: this.currentActivationKills,
-      overkill: this.currentActivationOverkill,
-      control: this.currentActivationControl,
-      state: this.currentProducedState,
-      hitIds: [...this.currentHits],
-      x: cx,
-      z: cz,
-      trace
-    };
+    const previous = this.activation.publishContext(id, cx, cz, trace);
 
     this.legacyCatalysts.afterContextPublished({
       catalyst: incoming,
@@ -2722,26 +2658,9 @@ export class Simulation {
       targetZ: cz
     });
 
-    if (slot === lastSlot) {
-      this.previousHits.clear();
-      this.lastContext = {
-        skill: null,
-        damage: 0,
-        kills: 0,
-        overkill: 0,
-        control: 0,
-        state: '',
-        hitIds: [],
-        x: this.px,
-        z: this.pz,
-        trace: null
-      };
-    }
-    this.currentSlot = -1;
+    if (slot === lastSlot) this.activation.clearContext(this.px, this.pz);
+    this.activation.end();
     this.physical.currentActivationId = 0;
-    this.activationScale = 1;
-    this.activationCountBonus = 0;
-    this.activationDerived = false;
     this.choreography.clear();
   }
 
@@ -2778,30 +2697,10 @@ export class Simulation {
   ) {
     const st = this.skillsRuntime.get(binding.toSkill);
     if (!st) return false;
-    const save = {
-      currentSlot: this.currentSlot,
-      currentActivationId: this.physical.currentActivationId,
-      choreography: this.choreography.suspend(),
-      currentHits: this.currentHits,
-      currentActivationDamage: this.currentActivationDamage,
-      currentActivationKills: this.currentActivationKills,
-      currentActivationOverkill: this.currentActivationOverkill,
-      currentActivationControl: this.currentActivationControl,
-      currentProducedState: this.currentProducedState,
-      activationScale: this.activationScale,
-      activationCountBonus: this.activationCountBonus,
-      activationDerived: this.activationDerived
-    };
-    this.currentSlot = binding.toSlot;
-    this.currentHits = new Set<number>();
-    this.currentActivationDamage = 0;
-    this.currentActivationKills = 0;
-    this.currentActivationOverkill = 0;
-    this.currentActivationControl = 0;
-    this.currentProducedState = '';
-    this.activationScale = 1;
-    this.activationCountBonus = 0;
-    this.activationDerived = true;
+    const activationFrame = this.activation.suspend(),
+      previousActivationId = this.physical.currentActivationId,
+      previousChoreography = this.choreography.suspend();
+    this.activation.begin(binding.toSlot, true);
     const src = this.choreographySource(x, z, aimX, aimZ),
       activationId = this.beginPhysicalActivation(binding.toSlot, binding.toSkill, { x: src.x, z: src.z });
     this.physical.currentActivationId = activationId;
@@ -2820,18 +2719,9 @@ export class Simulation {
     );
     this.physicalActivations.publishImmediate(binding.toSkill, binding.toSlot, activationId, trace);
 
-    this.currentSlot = save.currentSlot;
-    this.physical.currentActivationId = save.currentActivationId;
-    this.choreography.resume(save.choreography);
-    this.currentHits = save.currentHits;
-    this.currentActivationDamage = save.currentActivationDamage;
-    this.currentActivationKills = save.currentActivationKills;
-    this.currentActivationOverkill = save.currentActivationOverkill;
-    this.currentActivationControl = save.currentActivationControl;
-    this.currentProducedState = save.currentProducedState;
-    this.activationScale = save.activationScale;
-    this.activationCountBonus = save.activationCountBonus;
-    this.activationDerived = save.activationDerived;
+    this.activation.restore(activationFrame);
+    this.physical.currentActivationId = previousActivationId;
+    this.choreography.resume(previousChoreography);
     return true;
   }
 
@@ -2988,7 +2878,7 @@ export class Simulation {
     });
   }
   private noteState(state: string) {
-    if (!this.currentProducedState) this.currentProducedState = state;
+    this.activation.noteState(state);
   }
 
   /** The player as a cast source. Default owner for everything the hero triggers. */
@@ -3167,7 +3057,7 @@ export class Simulation {
     directional: boolean,
     sourceX = this.px,
     sourceZ = this.pz,
-    sourceSlot = this.currentSlot
+    sourceSlot = this.activation.slot
   ) {
     // A rival-owned cast resolves against the player, not against the enemy roster.
     // None of the bookkeeping below applies: it is all scored from the hero's point of view.
@@ -3189,7 +3079,7 @@ export class Simulation {
       if (critChance > 0 && this.rng.float() < critChance) actual *= 1.75;
     }
     if (e.kind === 'elite' && !e.boss) {
-      if (e.chassis === 'bulwark' && (skill || this.activationDerived)) {
+      if (e.chassis === 'bulwark' && (skill || this.activation.derived)) {
         const key = skill ? skill.id : 'derived';
         if (!e.prismMemory) {
           e.prismMemory = key;
@@ -3209,7 +3099,7 @@ export class Simulation {
         }
       }
       if (e.chassis === 'harvester') {
-        if (this.activationDerived) {
+        if (this.activation.derived) {
           actual *= 0.38;
           e.adaptStage = Math.min(5, e.adaptStage + 1);
           this.events.push({
@@ -3226,7 +3116,7 @@ export class Simulation {
           actual *= 1.24;
         }
       }
-      if (e.chassis === 'broodmaker' && (skill || this.activationDerived)) {
+      if (e.chassis === 'broodmaker' && (skill || this.activation.derived)) {
         e.affixPulse++;
         const threshold = Math.max(5, 8 - this.resonance.conductivity);
         if (e.affixPulse >= threshold) {
@@ -3261,7 +3151,7 @@ export class Simulation {
           count: recent.length
         });
       }
-      if (e.chassis === 'shepherd' && e.shepherdMode === 'null' && this.activationDerived)
+      if (e.chassis === 'shepherd' && e.shepherdMode === 'null' && this.activation.derived)
         actual *= 0.48;
     }
     if (source !== 'ember_lance' && e.markUntil > this.time) {
@@ -3292,7 +3182,7 @@ export class Simulation {
       t: this.time,
       source,
       amount: actual,
-      derived: this.activationDerived
+      derived: this.activation.derived
     });
     while (this.damageSamples.length && this.damageSamples[0].t < this.time - 12)
       this.damageSamples.shift();
@@ -3331,9 +3221,8 @@ export class Simulation {
       }
     }
     if (source.includes('field') || source === 'toxic_mist') this.fieldDamage += actual;
-    if (skill && this.currentSlot >= 0) {
-      this.currentHits.add(e.id);
-      this.currentActivationDamage += actual;
+    if (skill && this.activation.slot >= 0) {
+      this.activation.recordHit(e.id, actual);
       if (this.choreography.matchesSkill(skill.id))
         this.choreography.addContact(e.x, e.z);
     }
@@ -3353,10 +3242,8 @@ export class Simulation {
     const killed = before > 0 && e.hp <= 0;
     if (this.itemSiphon > 0) this.healPlayer(Math.min(before, actual) * this.itemSiphon);
     if (killed) this.killsBySource.set(source, (this.killsBySource.get(source) ?? 0) + 1);
-    if (killed && skill && this.currentSlot >= 0) {
-      this.currentActivationKills++;
-      this.currentActivationOverkill += Math.max(0, actual - before);
-    }
+    if (killed && skill && this.activation.slot >= 0)
+      this.activation.recordKill(actual - before);
     if (
       killed &&
       source === 'ember_lance' &&
@@ -4111,7 +3998,6 @@ export class Simulation {
     }
     A[a] = bv;
     B[b] = av;
-    this.previousHits.clear();
     return true;
   }
   swapCatalystLocations(za: 'active' | 'reserve', a: number, zb: 'active' | 'reserve', b: number) {
@@ -4119,7 +4005,6 @@ export class Simulation {
       B = zb === 'active' ? this.catalysts : this.catalystReserve;
     if (a < 0 || a >= A.length || b < 0 || b >= B.length || (A === B && a === b)) return false;
     [A[a], B[b]] = [B[b], A[a]];
-    this.previousHits.clear();
     this.capacitorCharge = 0;
     return true;
   }
@@ -4412,9 +4297,9 @@ export class Simulation {
     put('chain.beat', this.beat, this.cycle);
     put('chain.charges', this.capacitorCharge, this.overflowCharge, this.aegisCharge);
     put('chain.orbitChoreo', this.orbitChoreoUntil, this.orbitChoreoX, this.orbitChoreoZ, this.orbitChoreoCarrier?.kind ?? '-', this.orbitChoreoCarrier && 'id' in this.orbitChoreoCarrier ? this.orbitChoreoCarrier.id : this.orbitChoreoCarrier?.kind === 'orbit' ? this.orbitChoreoCarrier.index : -1);
-    put('chain.context', this.lastContext.skill ?? '-', this.lastContext.x, this.lastContext.z, ...this.lastContext.hitIds);
-    if (this.lastContext.trace) {
-      const t=this.lastContext.trace;
+    put('chain.context', this.activation.context.skill ?? '-', this.activation.context.x, this.activation.context.z, ...this.activation.context.hitIds);
+    if (this.activation.context.trace) {
+      const t=this.activation.context.trace;
       put('chain.trace',t.skill,t.origin.x,t.origin.z,t.aimX,t.aimZ,t.terminal?.x??'-',t.terminal?.z??'-');
       for(const p of t.points) put('chain.trace.point',p.x,p.z);
       for(const p of t.areaPoints) put('chain.trace.area',p.x,p.z);

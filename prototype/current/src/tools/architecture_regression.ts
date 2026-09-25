@@ -13,6 +13,7 @@ const projectileSystem=readFileSync('src/core/projectileSystem.ts','utf8');
 const phenomenonCastSystem=readFileSync('src/core/phenomenonCastSystem.ts','utf8');
 const statefulPhenomenonCastSystem=readFileSync('src/core/statefulPhenomenonCastSystem.ts','utf8');
 const choreographyTraceSystem=readFileSync('src/core/choreographyTraceSystem.ts','utf8');
+const activationRuntime=readFileSync('src/core/activationRuntime.ts','utf8');
 const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
 const orbitSystem=readFileSync('src/core/orbitSystem.ts','utf8');
@@ -80,6 +81,20 @@ assert(!simulation.includes('private currentChoreography:'),
   'mutable choreography trace storage leaked back into Simulation');
 for (const method of ['sameChoreographyPoint','tracePoint','traceArea','traceSegment','traceCombatShape','beginChoreographyTrace','finishChoreographyTrace'])
   assert(!simulation.includes('private '+method+'('), 'choreography trace policy leaked back into Simulation: '+method);
+assert(activationRuntime.includes('export class ActivationRuntime'),
+  'Phenomenon activation transaction state has no dedicated owner');
+assert(simulation.includes('private activation = new ActivationRuntime()'),
+  'Simulation no longer delegates activation transaction state');
+for (const field of [
+  'currentHits','currentActivationDamage','currentActivationKills','currentActivationOverkill',
+  'currentActivationControl','currentProducedState','currentSlot','activationScale',
+  'activationCountBonus','activationDerived','lastContext','previousHits'
+])
+  assert(!simulation.includes('private '+field), 'activation state leaked back into Simulation: '+field);
+assert(simulation.includes('this.activation.begin(slot)'),
+  'top-level slot activation no longer opens an ActivationRuntime frame');
+assert(simulation.includes('this.activation.suspend()') && simulation.includes('this.activation.restore(activationFrame)'),
+  'nested Catalyst payload no longer preserves the parent activation frame');
 for (const method of [
   'castBreachLine','castContactSaw','castBackhand','castSpreadingFront','castShardFan','castTetherDrag','castPinBurst',
   'castEmber','castFrost','castRail','castToxic',
@@ -284,6 +299,7 @@ console.log('architecture-regression OK', {
   phenomenonCastSystem:true,
   statefulPhenomenonCastSystem:true,
   choreographyTraceSystem:true,
+  activationRuntime:true,
   relicRaceSystem:true,
   delayedStrikeSystem:true,
   orbitSystem:true,
