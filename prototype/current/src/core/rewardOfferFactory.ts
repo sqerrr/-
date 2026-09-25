@@ -2,6 +2,7 @@ import {
   catalysts,
   doctrineOrder,
   doctrines,
+  mutationDef,
   rarityMultiplier,
   rarityOrder,
   resonance,
@@ -11,6 +12,7 @@ import {
 import type {
   CatalystId,
   DoctrineId,
+  MutationId,
   Rarity,
   ResonanceId,
   RewardOffer,
@@ -182,6 +184,55 @@ export class RewardOfferFactory {
       description: `${skills[id].description} Снятый феномен уходит в резерв, а не пропадает.`,
       skill: id,
       swapSlot: slot
+    };
+  }
+
+  mutationTarget(
+    id: SkillId,
+    tier: 1 | 2 | 3,
+    cores: number,
+    parent: MutationId | null
+  ): RewardOffer {
+    return {
+      id: `mut-target:${id}:${this.port.nextU32()}`,
+      kind: 'mutation_target',
+      title: skills[id].name,
+      subtitle:
+        tier === 3
+          ? `АПОФЕОЗ · ЯДРА: ${cores}`
+          : `${tier === 2 ? 'ПРОДОЛЖЕНИЕ' : 'МУТАЦИЯ'} · ЯДРА: ${cores}`,
+      description:
+        tier === 3 && parent
+          ? `Третий уровень ветви «${mutationDef(id, parent).name}»: качественная трансформация, а не числовой бонус.`
+          : tier === 2 && parent
+            ? `Продолжить ветвь «${mutationDef(id, parent).name}». Корень останется активен.`
+            : `Выбрать одну из трёх ветвей ${skills[id].name}.`,
+      skill: id
+    };
+  }
+
+  eliteCatalyst(id: CatalystId): RewardOffer {
+    const offer = this.catalystAdd(id);
+    offer.kind = 'elite';
+    offer.subtitle = 'ТАЙНИК ЭЛИТЫ · новый катализатор';
+    return offer;
+  }
+
+  eliteResonance(id: ResonanceId): RewardOffer {
+    const offer = this.resonance(id);
+    offer.kind = 'elite';
+    offer.description += ' Усиливает всю сборку.';
+    return offer;
+  }
+
+  eliteSkill(id: SkillId): RewardOffer {
+    return {
+      id: `elite-discover:${id}:${this.port.nextU32()}`,
+      kind: 'elite',
+      title: skills[id].name,
+      subtitle: 'ТАЙНИК ЭЛИТЫ · новый феномен',
+      description: `${skills[id].description} Сразу использует текущий уровень ядра.`,
+      skill: id
     };
   }
 
