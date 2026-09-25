@@ -17,7 +17,6 @@ import {
   mutationChildren,
   resonance,
   resonanceOrder,
-  skillOrder,
   skills,
   statBase
 } from '../content/definitions.js';
