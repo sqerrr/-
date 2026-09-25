@@ -332,14 +332,14 @@ assert(eliteDamageResponse.includes('export class EliteDamageResponseSystem'),
   'reactive elite damage rules have no dedicated owner');
 assert(simulation.includes('private eliteDamageResponse!: EliteDamageResponseSystem'),
   'Simulation no longer delegates reactive elite damage rules');
-assert(simulation.includes('this.eliteDamageResponse.beforeDamage(') &&
+assert(enemyDamageModifier.includes('this.eliteDamage.beforeDamage(') &&
        simulation.includes('this.eliteDamageResponse.noteResolvedDamage('),
   'enemy damage no longer routes through EliteDamageResponseSystem');
 assert(!simulation.includes('private damageSamples:'),
   'Shepherd damage signature storage leaked back into Simulation');
 assert(eliteAffix.includes('modifyIncomingDamage(') && eliteAffix.includes('afterCloseDamage('),
   'shield damage semantics are no longer owned by EliteAffixSystem');
-assert(simulation.includes('this.eliteAffix.modifyIncomingDamage(') &&
+assert(enemyDamageModifier.includes('this.affixDamage.modifyIncomingDamage(') &&
        simulation.includes('this.eliteAffix.afterCloseDamage('),
   'shielded damage no longer routes through EliteAffixSystem');
 
