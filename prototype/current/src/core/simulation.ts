@@ -49,6 +49,7 @@ import { PhenomenonCastSystem } from './phenomenonCastSystem.js';
 import { PhenomenonKillReactionSystem } from './phenomenonKillReactionSystem.js';
 import { ProjectileSystem } from './projectileSystem.js';
 import { RelicRaceSystem } from './relicRaceSystem.js';
+import { RivalDamageModifierSystem } from './rivalDamageModifierSystem.js';
 import { Rng } from './rng.js';
 import { SquadDirector } from './squadDirector.js';
 import { StatefulPhenomenonCastSystem } from './statefulPhenomenonCastSystem.js';
@@ -297,6 +298,7 @@ export class Simulation {
   private activationPipeline!: ActivationPipelineSystem;
   private physicalCatalysts!: PhysicalCatalystSystem;
   private relicRace!: RelicRaceSystem;
+  private rivalDamageModifiers!: RivalDamageModifierSystem;
   private phenomenonCasts!: PhenomenonCastSystem;
   private phenomenonKillReactions!: PhenomenonKillReactionSystem;
   private statefulPhenomenonCasts!: StatefulPhenomenonCastSystem;
@@ -741,6 +743,13 @@ export class Simulation {
       this.eliteDamageResponse,
       this.eliteAffix
     );
+    this.rivalDamageModifiers = new RivalDamageModifierSystem({
+      armor: () => this.armor,
+      itemDamageTakenMultiplier: () => this.itemDamageTakenMul,
+      itemRefusalDamageMultiplier: () => this.itemRefusalDamageMul,
+      randomFloat: () => this.rng.float(),
+      rivalAxisCount: (entity, axis) => this.rivalAxisCount(entity, axis)
+    });
     this.phenomenonKillReactions = new PhenomenonKillReactionSystem({
       entities: () => this.ents,
       globalPower: () => this.globalPower,
@@ -3044,25 +3053,13 @@ export class Simulation {
     attacker: Ent | null = this.castOwner,
     concentration = this.castRivalConcentration
   ) {
-    if (attacker) {
-      amount *= concentration;
-      amount *= this.itemRefusalDamageMul;
-      if ((attacker.relicCritChance ?? 0) > 0 && this.rng.float() < Math.min(0.65, attacker.relicCritChance ?? 0))
-        amount *= 1.6;
-      amount *= Math.pow(1.3, this.rivalAxisCount(attacker, 'precision'));
-      amount *= Math.pow(1.16, this.rivalAxisCount(attacker, 'multiplicity'));
-      const allItemMul = attacker.relicCastMul ?? 1;
-      const groundMul = attacker.groundRelicCastMul ?? 1;
-      if (groundMul > 1) {
-        const withoutGround = amount * (allItemMul / groundMul);
-        const reduction = this.armor / (this.armor + 100);
-        const record = this.eliteLogById.get(attacker.id);
-        if (record)
-          record.itemAmplifiedDamage +=
-            (amount * allItemMul - withoutGround) * (1 - reduction) * this.itemDamageTakenMul;
-      }
-      amount *= allItemMul;
-    }
+    const resolved = this.rivalDamageModifiers.resolve(attacker, amount, concentration);
+    amount = resolved.amount;
+    if (attacker)
+      this.combatLedger.recordEliteItemAmplification(
+        attacker.id,
+        resolved.itemAmplifiedDamage
+      );
     if (this.php <= 0) return false;
     this.hitPlayer(amount, attacker, source);
     if (attacker && (attacker.relicSiphon ?? 0) > 0)

@@ -18,6 +18,7 @@ const activationRuntime=readFileSync('src/core/activationRuntime.ts','utf8');
 const activationPipeline=readFileSync('src/core/activationPipelineSystem.ts','utf8');
 const combatLedger=readFileSync('src/core/combatLedger.ts','utf8');
 const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
+const rivalDamageModifier=readFileSync('src/core/rivalDamageModifierSystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
 const orbitSystem=readFileSync('src/core/orbitSystem.ts','utf8');
 const fieldSystem=readFileSync('src/core/fieldSystem.ts','utf8');
@@ -144,6 +145,24 @@ assert(!phenomenonCastSystem.includes('addCloseDamage') &&
   'retired close-damage telemetry port returned');
 assert(!fieldSystem.includes('addFieldDamage'),
   'retired field-damage telemetry port returned');
+assert(rivalDamageModifier.includes('export class RivalDamageModifierSystem'),
+  'rival-owned damage modifiers have no dedicated pipeline');
+assert(simulation.includes('private rivalDamageModifiers!: RivalDamageModifierSystem'),
+  'Simulation no longer delegates rival-owned damage modifiers');
+const damageHeroBlock=simulation.slice(
+  simulation.indexOf('  private damageHero('),
+  simulation.indexOf('  private cleanup()', simulation.indexOf('  private damageHero('))
+);
+assert(damageHeroBlock.includes('this.rivalDamageModifiers.resolve('),
+  'rival-owned damage no longer routes through RivalDamageModifierSystem');
+for (const token of [
+  'itemRefusalDamageMul','relicCritChance','rivalAxisCount(',
+  'relicCastMul','groundRelicCastMul'
+])
+  assert(!damageHeroBlock.includes(token),
+    'rival modifier policy leaked back into Simulation.damageHero: '+token);
+assert(damageHeroBlock.includes('this.combatLedger.recordEliteItemAmplification('),
+  'rival captured-item attribution bypasses CombatLedger');
 assert(enemyDamageModifier.includes('export class EnemyDamageModifierSystem'),
   'incoming enemy damage modifiers have no dedicated pipeline');
 assert(simulation.includes('private enemyDamageModifiers!: EnemyDamageModifierSystem'),
@@ -401,6 +420,7 @@ console.log('architecture-regression OK', {
   bossBehaviorSystem:true,
   enemyBehaviorSystem:true,
   enemyDamageModifierSystem:true,
+  rivalDamageModifierSystem:true,
   statusSystem:true,
   entityComponents:true,
   typedTestHarness:true

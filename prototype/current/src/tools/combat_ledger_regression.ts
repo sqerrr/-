@@ -85,6 +85,11 @@ ledger.recordEnemyHit(elite, 'backdraft', 7, -1);
 assert(encounter.damageFromHeroByNode['derived:backdraft'] === 7,
   'unknown derived damage attribution changed');
 
+ledger.recordEliteItemAmplification(elite.id, 12.5);
+ledger.recordEliteItemAmplification(999, 30);
+assert(encounter.itemAmplifiedDamage === 12.5,
+  'rival item-amplification attribution changed');
+
 const telemetry = ledger.telemetry();
 assert(telemetry.damageBySource.rail_spear === 30, 'damage-by-source aggregation changed');
 assert(telemetry.hitsBySource.rail_spear === 2, 'hit-by-source aggregation changed');

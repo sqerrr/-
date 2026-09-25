@@ -71,6 +71,12 @@ export class CombatLedger {
     this.killsBySource.set(source, (this.killsBySource.get(source) ?? 0) + 1);
   }
 
+  recordEliteItemAmplification(entityId: number, amount: number) {
+    if (amount <= 0) return;
+    const record = this.port.eliteEncounter(entityId);
+    if (record) record.itemAmplifiedDamage += amount;
+  }
+
   telemetry() {
     return {
       damageBySource: Object.fromEntries(this.damageBySource),
