@@ -32,6 +32,7 @@ import { DelayedStrikeSystem } from './delayedStrikeSystem.js';
 import { EncounterDirector } from './encounterDirector.js';
 import { EliteAffixSystem } from './eliteAffixSystem.js';
 import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
+import { EliteDamageResponseSystem } from './eliteDamageResponseSystem.js';
 import { EliteEchoSystem } from './eliteEchoSystem.js';
 import { EliteProgressionSystem } from './eliteProgressionSystem.js';
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
@@ -273,6 +274,7 @@ export class Simulation {
   private rng: Rng;
   private encounterDirector!: EncounterDirector;
   private eliteBehavior!: EliteBehaviorSystem;
+  private eliteDamageResponse!: EliteDamageResponseSystem;
   private eliteEchoSystem!: EliteEchoSystem;
   private eliteProgression!: EliteProgressionSystem;
   private eliteAffix!: EliteAffixSystem;
@@ -407,7 +409,6 @@ export class Simulation {
   private choiceSerial = 0;
   private pendingMutationTarget = false;
 
-  private damageSamples: { t: number; source: string; amount: number; derived: boolean }[] = [];
   /**
    * Cards the hero declined, in concession order. Elites draw their repertoire from here,
    * and D11 returns a dead elite's cards to the same store rather than destroying them.
@@ -699,8 +700,26 @@ export class Simulation {
           intent: 'control',
           shape: { kind: 'sector', x: entity.x, z: entity.z, radius: 3.4, aimX, aimZ, halfAngle: 0.72 }
         }),
+      emitRareEvent: (title, detail, x, z) =>
+        this.events.push({ type: 'RareEvent', tick: this.tick, title, detail, x, z }),
       hitPlayer: (amount, attacker, source) => this.hitPlayer(amount, attacker, source),
       damageScale: () => this.damageScale()
+    });
+    this.eliteDamageResponse = new EliteDamageResponseSystem({
+      time: () => this.time,
+      conductivity: () => this.resonance.conductivity,
+      corePower: () => this.corePower(),
+      spawnReplicant: (entity) => this.spawnReplicant(entity),
+      emitOrder: (entity, order, count) =>
+        this.events.push({
+          type: 'EliteOrder',
+          tick: this.tick,
+          entity: entity.id,
+          order,
+          x: entity.x,
+          z: entity.z,
+          ...(count === undefined ? {} : { count })
+        })
     });
     this.squadDirector = new SquadDirector({
       world: this.world,
@@ -2964,82 +2983,12 @@ export class Simulation {
       const critChance = skill.crit + precision + this.itemCrit + this.doctrines.precision * 0.03;
       if (critChance > 0 && this.rng.float() < critChance) actual *= 1.75;
     }
-    if (e.kind === 'elite' && !e.boss) {
-      if (e.chassis === 'bulwark' && (skill || this.activation.derived)) {
-        const key = skill ? skill.id : 'derived';
-        if (!e.prismMemory) {
-          e.prismMemory = key;
-          this.events.push({
-            type: 'EliteOrder',
-            tick: this.tick,
-            entity: e.id,
-            order: 'prism',
-            x: e.x,
-            z: e.z
-          });
-        } else if (e.prismMemory === key) actual *= 0.28;
-        else {
-          e.prismMemory = key;
-          actual *= 1.34;
-          e.exposedUntil = this.time + 0.45;
-        }
-      }
-      if (e.chassis === 'harvester') {
-        if (this.activation.derived) {
-          actual *= 0.38;
-          e.adaptStage = Math.min(5, e.adaptStage + 1);
-          this.events.push({
-            type: 'EliteOrder',
-            tick: this.tick,
-            entity: e.id,
-            order: 'null',
-            x: e.x,
-            z: e.z,
-            count: e.adaptStage
-          });
-        } else if (skill && e.adaptStage > 0) {
-          e.adaptStage--;
-          actual *= 1.24;
-        }
-      }
-      if (e.chassis === 'broodmaker' && (skill || this.activation.derived)) {
-        e.affixPulse++;
-        const threshold = Math.max(5, 8 - this.resonance.conductivity);
-        if (e.affixPulse >= threshold) {
-          e.affixPulse = 0;
-          this.spawnReplicant(e);
-        }
-      }
-      if (e.chassis === 'shepherd' && !e.shepherdMode && e.hp - actual <= e.maxHp * 0.68) {
-        const recent = this.damageSamples.filter((q) => q.t >= this.time - 5),
-          sum = recent.reduce((a, q) => a + q.amount, 0),
-          derived = recent.reduce((a, q) => a + (q.derived ? q.amount : 0), 0),
-          rate = recent.length / 5,
-          avg = recent.length ? sum / recent.length : 0;
-        e.shepherdMode =
-          derived / Math.max(1, sum) > 0.42
-            ? 'null'
-            : rate > 9
-              ? 'condensed'
-              : avg > 95 * this.corePower()
-                ? 'fractured'
-                : 'migratory';
-        if (e.shepherdMode === 'fractured') {
-          for (let i = 0; i < 3; i++) this.spawnReplicant(e);
-        }
-        this.events.push({
-          type: 'EliteOrder',
-          tick: this.tick,
-          entity: e.id,
-          order: 'metamorph',
-          x: e.x,
-          z: e.z,
-          count: recent.length
-        });
-      }
-      if (e.chassis === 'shepherd' && e.shepherdMode === 'null' && this.activation.derived)
-        actual *= 0.48;
-    }
+    actual = this.eliteDamageResponse.beforeDamage(
+      e,
+      actual,
+      skill?.id ?? null,
+      this.activation.derived
+    );
     if (source !== 'ember_lance' && e.markUntil > this.time) {
       actual *= 1.35;
       e.markUntil = 0;
@@ -3049,14 +2998,13 @@ export class Simulation {
       const binder = this.entityStore.getAlive(e.linkedTo);
       if (binder?.kind === 'binder') actual *= 0.65;
     }
-    if (e.kind === 'elite' && e.affix === 'shielded' && directional) {
-      const state=e.shieldState??'guard';
-      if(state==='broken') actual*=1.3;
-      else {
-        const incoming=Math.atan2(sourceZ-e.z,sourceX-e.x),diff=Math.abs(this.angleDiff(incoming,e.shieldAngle));
-        actual*=diff<0.95?(state==='commit'?0.58:0.42):(state==='commit'?1.35:1.2);
-      }
-    }
+    actual = this.eliteAffix.modifyIncomingDamage(
+      e,
+      actual,
+      directional,
+      sourceX,
+      sourceZ
+    );
     const before = e.hp;
     e.hp -= actual;
     e.lastDamageAt = this.time;
@@ -3064,14 +3012,7 @@ export class Simulation {
     this.metrics.damage += actual;
     this.damageBySource.set(source, (this.damageBySource.get(source) ?? 0) + actual);
     this.hitsBySource.set(source, (this.hitsBySource.get(source) ?? 0) + 1);
-    this.damageSamples.push({
-      t: this.time,
-      source,
-      amount: actual,
-      derived: this.activation.derived
-    });
-    while (this.damageSamples.length && this.damageSamples[0].t < this.time - 12)
-      this.damageSamples.shift();
+    this.eliteDamageResponse.noteResolvedDamage(source, actual, this.activation.derived);
     if (e.kind === 'elite') {
       this.metrics.eliteDamage += actual;
       const record = this.eliteLogById.get(e.id);
@@ -3096,15 +3037,7 @@ export class Simulation {
       this.closeDamage += actual;
       if (this.doctrines.guard > 0 && Math.hypot(e.x - this.px, e.z - this.pz) < 4.2)
         this.grantBarrier(Math.min(3.5, actual * (0.0025 + this.doctrines.guard * 0.0014)));
-      if (e.kind === 'elite' && e.affix === 'shielded' && this.doctrines.force > 0) {
-        e.shieldStability = Math.max(0, (e.shieldStability ?? 100) - actual * (0.018 + this.doctrines.force * 0.008));
-        if ((e.shieldStability ?? 0) <= 0 && (e.shieldState ?? 'guard') !== 'broken') {
-          e.shieldState = 'broken';
-          e.shieldCommitUntil = this.time + 1.65;
-          e.exposedUntil = Math.max(e.exposedUntil, this.time + 1.65);
-          this.events.push({ type:'RareEvent', tick:this.tick, title:'ЩИТ СЛОМАН', detail:'Окно уязвимости элиты', x:e.x, z:e.z });
-        }
-      }
+      this.eliteAffix.afterCloseDamage(e, actual, this.doctrines.force);
     }
     if (source.includes('field') || source === 'toxic_mist') this.fieldDamage += actual;
     if (skill && this.activation.slot >= 0) {
@@ -3182,13 +3115,6 @@ export class Simulation {
     this.damageToHeroBySource.set(source, (this.damageToHeroBySource.get(source) ?? 0) + amount);
     return this.php <= 0;
   }
-  private angleDiff(a: number, b: number) {
-    let d = a - b;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    return d;
-  }
-
   private cleanup() {
     this.ents = this.deathResolution.resolve(this.ents);
     for (const entity of this.ents) if (entity.kind !== 'binder') entity.linkedTo = 0;
