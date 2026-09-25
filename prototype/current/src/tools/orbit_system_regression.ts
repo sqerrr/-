@@ -6,7 +6,7 @@ function assert(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error('orbit-system-regression: ' + message);
 }
 
-let now=0, activationId=77, closeDamage=0, barrier=0, aegis=0;
+let now=0, activationId=77, barrier=0, aegis=0;
 const entities:Ent[]=[];
 const contacts:PhysicalEvent[]=[];
 const projectiles:Omit<Projectile,'id'|'guarded'>[]=[];
@@ -44,7 +44,6 @@ const port:OrbitSystemPort={
   retireOrbitActivation:()=>{retired.push(activationId);activationId=0;},
   queuePhysicalEvent:(event)=>contacts.push(event),
   damageTarget:(target,amount)=>{target.hp-=amount;},
-  addCloseDamage:(amount)=>{closeDamage+=amount;},
   grantBarrier:(amount)=>{barrier+=amount;},
   aegisCharge:()=>aegis,
   clearAegisCharge:()=>{aegis=0;},
@@ -56,14 +55,14 @@ const system=new OrbitSystem(port);
 
 // One geometry contract drives visible blade positions and damage hitboxes.
 {
-  entities.length=0;contacts.length=0;closeDamage=0;now=0;
+  entities.length=0;contacts.length=0;now=0;
   const geometry=system.geometry(runtime,{x:0,z:0});
   assert(geometry.profile.count===3 && geometry.blades.length===3,'base orbit blade count changed');
   const blade=geometry.blades[0];
   const e=makeEnt({id:1,kind:'footnote',x:blade.x,z:blade.z,hp:100,radius:.3,speed:0,contactDps:0});
   entities.push(e);
   system.update(runtime,true,0,()=>({x:0,z:0}));
-  assert(e.hp<100 && closeDamage>0,'visible blade position no longer matches damage geometry');
+  assert(e.hp<100,'visible blade position no longer matches damage geometry');
   assert(contacts.some(q=>q.kind==='contact'&&q.carrierKind==='orbit'&&q.carrierId===blade.index),
     'Orbit contact lost physical carrier lineage');
 }
