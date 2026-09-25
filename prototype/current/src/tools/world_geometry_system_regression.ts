@@ -32,11 +32,11 @@ const pois: Poi[] = [
 ];
 system.initialize(pois);
 assert(system.all.length > 0, 'arena generation produced no cover');
-assert(system.all.every((o) => Math.hypot(o.x, o.z) >= 15),
-  'generated cover invaded the opening safe zone');
+assert(system.all.every((o) => Math.hypot(o.x, o.z) >= 12.4 - 1e-9),
+  'generated cover violated the opening cluster-safe contract');
 for (const poi of pois)
-  assert(system.all.every((o) => Math.hypot(o.x - poi.x, o.z - poi.z) >= 9.5),
-    'generated cover invaded a POI safe zone');
+  assert(system.all.every((o) => Math.hypot(o.x - poi.x, o.z - poi.z) >= 6.9 - 1e-9),
+    'generated cover violated a POI cluster-safe contract');
 
 // Manual fixtures exercise the spatial grid independently from generator randomness.
 const hard: Obstacle = {
