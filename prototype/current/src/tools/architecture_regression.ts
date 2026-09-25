@@ -5,6 +5,7 @@ function assert(ok: unknown, message: string): asserts ok {
 }
 
 const simulation=readFileSync('src/core/simulation.ts','utf8');
+const canonicalState=readFileSync('src/core/canonicalStateSerializer.ts','utf8');
 const state=readFileSync('src/core/state.ts','utf8');
 const physical=readFileSync('src/core/physicalLifecycle.ts','utf8');
 const physicalActivation=readFileSync('src/core/physicalActivationSystem.ts','utf8');
@@ -52,6 +53,18 @@ const ui=readFileSync('src/platform/main.ts','utf8');
 const eliteUi=readFileSync('src/content/eliteUi.ts','utf8');
 
 assert(state.includes('export type Ent ='), 'internal entity model is no longer extracted');
+assert(canonicalState.includes('export class CanonicalStateSerializer'),
+  'deterministic run-state schema has no dedicated serializer');
+assert(canonicalState.includes('export const CANONICAL_SCHEMA_VERSION = 6'),
+  'canonical schema version changed during serializer extraction');
+assert(simulation.includes('private canonicalSerializer = new CanonicalStateSerializer()'),
+  'Simulation no longer delegates canonical-state serialization');
+assert(simulation.includes('return this.canonicalSerializer.serialize(this.canonicalInput())'),
+  'Simulation canonicalState is no longer a thin serializer seam');
+assert(simulation.includes('return this.canonicalSerializer.hash(this.canonicalInput())'),
+  'Simulation canonicalHash bypasses canonical serializer');
+assert(!simulation.includes("put('player.pos'") && !simulation.includes("put('ent'"),
+  'canonical field ordering leaked back into Simulation');
 assert(state.includes('export type PhysicalEvent =') && state.includes('export type CatalystBinding ='),
   'physical lifecycle state leaked back into Simulation');
 assert(!simulation.includes("type EnemyState = 'normal'"), 'Simulation owns entity-state declarations again');
@@ -580,6 +593,7 @@ assert(!ui.includes('function updateDebugState() {\n  const s = sim.snapshot()')
 
 console.log('architecture-regression OK', {
   stateModule:true,
+  canonicalStateSerializer:true,
   typedCombatIds:true,
   separatedEliteAdaptation:true,
   sharedEliteMetadata:true,
