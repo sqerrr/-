@@ -12,6 +12,7 @@ const orders:{order:EliteOrderId;count?:number}[]=[];
 const hits:DamageSourceId[]=[];
 const tells:string[]=[];
 const spawned:string[]=[];
+const rare:string[]=[];
 let randomCalls=0;
 
 const port:EliteAffixPort={
@@ -25,6 +26,7 @@ const port:EliteAffixPort={
   emitOrder:(_entity,order,count)=>orders.push({order,count}),
   emitTemporalTell:()=>tells.push('temporal'),
   emitShieldTell:()=>tells.push('shield'),
+  emitRareEvent:(title)=>rare.push(title),
   hitPlayer:(_amount,_attacker,source)=>hits.push(source),
   damageScale:()=>2
 };
@@ -98,4 +100,26 @@ function elite(affix:Ent['affix'],id:number){
   assert(Math.abs(commit.speedMultiplier-1.18)<1e-9,'shield commit speed multiplier changed');
 }
 
-console.log('elite-affix-regression OK',{orders,spawned,randomCalls,tells,hits});
+// Shielded damage semantics live with the affix: frontal guard, rear exposure and Force break.
+{
+  entities.length=0; rare.length=0;
+  const e=elite('shielded',6);
+  e.shieldState='guard'; e.shieldAngle=0; e.shieldStability=10;
+  const front=system.modifyIncomingDamage(e,100,true,5,0);
+  const rear=system.modifyIncomingDamage(e,100,true,-5,0);
+  const nondirectional=system.modifyIncomingDamage(e,100,false,5,0);
+  assert(Math.abs(front-42)<1e-9,'shield frontal guard multiplier changed');
+  assert(Math.abs(rear-120)<1e-9,'shield rear multiplier changed');
+  assert(nondirectional===100,'shield started modifying non-directional damage');
+
+  system.afterCloseDamage(e,200,10);
+  assert(e.shieldState==='broken','Force damage no longer breaks depleted shield stability');
+  assert((e.shieldCommitUntil??0)===now+1.65,'shield break recovery timing changed');
+  assert(e.exposedUntil===now+1.65,'shield break vulnerability timing changed');
+  assert(rare.includes('ЩИТ СЛОМАН'),'shield break feedback disappeared');
+
+  const broken=system.modifyIncomingDamage(e,100,true,5,0);
+  assert(Math.abs(broken-130)<1e-9,'broken-shield vulnerability multiplier changed');
+}
+
+console.log('elite-affix-regression OK',{orders,spawned,randomCalls,tells,hits,rare});
