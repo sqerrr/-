@@ -97,7 +97,6 @@ import type {
   GameEvent,
   Metrics,
   MutationId,
-  MutationOffer,
   PoiKind,
   PoiState,
   Rarity,
