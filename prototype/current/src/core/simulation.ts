@@ -26,6 +26,7 @@ import { ActivationRuntime } from './activationRuntime.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
 import { ConstructSystem } from './constructSystem.js';
 import { ChoreographyTraceSystem } from './choreographyTraceSystem.js';
+import { ChoiceRuntime } from './choiceRuntime.js';
 import { CombatLedger } from './combatLedger.js';
 import { DeathResolutionSystem } from './deathResolutionSystem.js';
 import { DelayedStrikeSystem } from './delayedStrikeSystem.js';
@@ -401,11 +402,19 @@ export class Simulation {
   private orbitChoreoX = 0;
   private orbitChoreoZ = 0;
   private orbitChoreoCarrier: ChoreographyCarrier | null = null;
-  private rewardOffers: RewardOffer[] | null = null;
-  private mutationOffer: MutationOffer | null = null;
-  private mutationRefusalToken = true;
-  private choiceSerial = 0;
-  private pendingMutationTarget = false;
+  private choiceRuntime = new ChoiceRuntime();
+  // Compatibility accessors keep deterministic tooling/private fixtures stable while the
+  // transient choice window is owned by ChoiceRuntime.
+  private get rewardOffers() { return this.choiceRuntime.rewardOffers; }
+  private set rewardOffers(value) { this.choiceRuntime.rewardOffers = value; }
+  private get mutationOffer() { return this.choiceRuntime.mutationOffer; }
+  private set mutationOffer(value) { this.choiceRuntime.mutationOffer = value; }
+  private get mutationRefusalToken() { return this.choiceRuntime.mutationRefusalToken; }
+  private set mutationRefusalToken(value: boolean) { this.choiceRuntime.mutationRefusalToken = value; }
+  private get choiceSerial() { return this.choiceRuntime.serial; }
+  private set choiceSerial(value: number) { this.choiceRuntime.serial = value; }
+  private get pendingMutationTarget() { return this.choiceRuntime.pendingMutationTarget; }
+  private set pendingMutationTarget(value: boolean) { this.choiceRuntime.pendingMutationTarget = value; }
 
   /**
    * Cards the hero declined, in concession order. Elites draw their repertoire from here,
@@ -1342,7 +1351,7 @@ export class Simulation {
     return this.tick / this.hz;
   }
   get hasChoice() {
-    return !!this.rewardOffers || !!this.mutationOffer;
+    return this.choiceRuntime.hasChoice;
   }
 
   private initObstacles() {
@@ -1688,15 +1697,15 @@ export class Simulation {
       this.generateLevelOffers();
       return;
     }
-    this.rewardOffers = this.shuffle([...pool])
-      .slice(0, 3)
-      .map((id) => this.makeCatalystAdd(id));
-    this.choiceSerial++;
+    this.choiceRuntime.openRewards(
+      this.shuffle([...pool])
+        .slice(0, 3)
+        .map((id) => this.makeCatalystAdd(id))
+    );
   }
   private generateResonanceChoice() {
     const ids = this.shuffle([...resonanceOrder]).slice(0, 3);
-    this.rewardOffers = ids.map((id) => this.makeResonanceOffer(id));
-    this.choiceSerial++;
+    this.choiceRuntime.openRewards(ids.map((id) => this.makeResonanceOffer(id)));
   }
   private bossDirector() {
     if (this.encounterDirector.shouldSpawnBoss(this.time, this.runDuration, this.bossSpawned))
@@ -3235,8 +3244,9 @@ export class Simulation {
   private generateDiscovery() {
     const choices = this.shuffle(this.skillOrderUnowned()).slice(0, 3),
       free = this.slots.some((x) => !x) || this.skillReserve.some((x) => !x);
-    this.rewardOffers = choices.map((id) => free ? this.makeSkillAdd(id) : this.makeSkillSwap(id));
-    this.choiceSerial++;
+    this.choiceRuntime.openRewards(
+      choices.map((id) => free ? this.makeSkillAdd(id) : this.makeSkillSwap(id))
+    );
   }
   private makeDoctrineOffer(id?: DoctrineId): RewardOffer {
     const did = id ?? doctrineOrder[this.rng.int(doctrineOrder.length)],
@@ -3271,8 +3281,9 @@ export class Simulation {
       const id = ids.shift()!;
       if (!out.includes(id)) out.push(id);
     }
-    this.rewardOffers = out.slice(0,3).map((id) => this.makeDoctrineOffer(id));
-    this.choiceSerial++;
+    this.choiceRuntime.openRewards(
+      out.slice(0,3).map((id) => this.makeDoctrineOffer(id))
+    );
   }
   private catalystOrderUnowned() {
     const owned = this.allOwnedCatalysts();
@@ -3326,25 +3337,26 @@ export class Simulation {
       return !st.mutationApotheosis && mutationChildren(id, st.mutationUpgrade).length > 0;
     });
     if (!active.length) return;
-    this.rewardOffers = this.shuffle([...active])
-      .slice(0, 3)
-      .map((id) => {
-        const st = this.skillState(id),
-          tier = !st.mutation ? 1 : !st.mutationUpgrade ? 2 : 3;
-        return {
-          id: `mut-target:${id}:${this.rng.nextU32()}`,
-          kind: 'mutation_target' as const,
-          title: skills[id].name,
-          subtitle: tier === 3 ? `АПОФЕОЗ · ЯДРА: ${this.mutationCores}` : `${tier === 2 ? 'ПРОДОЛЖЕНИЕ' : 'МУТАЦИЯ'} · ЯДРА: ${this.mutationCores}`,
-          description: tier === 3
-            ? `Третий уровень ветви «${mutationDef(id, st.mutationUpgrade!).name}»: качественная трансформация, а не числовой бонус.`
-            : tier === 2
-              ? `Продолжить ветвь «${mutationDef(id, st.mutation!).name}». Корень останется активен.`
-              : `Выбрать одну из трёх ветвей ${skills[id].name}.`,
-          skill: id
-        };
-      });
-    this.choiceSerial++;
+    this.choiceRuntime.openRewards(
+      this.shuffle([...active])
+        .slice(0, 3)
+        .map((id) => {
+          const st = this.skillState(id),
+            tier = !st.mutation ? 1 : !st.mutationUpgrade ? 2 : 3;
+          return {
+            id: `mut-target:${id}:${this.rng.nextU32()}`,
+            kind: 'mutation_target' as const,
+            title: skills[id].name,
+            subtitle: tier === 3 ? `АПОФЕОЗ · ЯДРА: ${this.mutationCores}` : `${tier === 2 ? 'ПРОДОЛЖЕНИЕ' : 'МУТАЦИЯ'} · ЯДРА: ${this.mutationCores}`,
+            description: tier === 3
+              ? `Третий уровень ветви «${mutationDef(id, st.mutationUpgrade!).name}»: качественная трансформация, а не числовой бонус.`
+              : tier === 2
+                ? `Продолжить ветвь «${mutationDef(id, st.mutation!).name}». Корень останется активен.`
+                : `Выбрать одну из трёх ветвей ${skills[id].name}.`,
+            skill: id
+          };
+        })
+    );
   }
   private generateEliteCache() {
     const owned = this.allOwnedCatalysts(),
@@ -3383,10 +3395,10 @@ export class Simulation {
         });
       } else offers.push(this.makeGlobalOffer());
     }
-    this.rewardOffers = offers.slice(0, 3);
-    const wanted = this.refusalRng.int(this.rewardOffers.length);
-    this.rewardOffers[wanted].marked = true;
-    this.choiceSerial++;
+    const displayed = offers.slice(0, 3);
+    const wanted = this.refusalRng.int(displayed.length);
+    displayed[wanted].marked = true;
+    this.choiceRuntime.openRewards(displayed);
   }
   private placeCatalyst(id: CatalystId) {
     let edge = this.catalysts.findIndex((c, i) => {
@@ -3439,12 +3451,11 @@ export class Simulation {
     return true;
   }
   chooseReward(index: number) {
-    const offers = this.rewardOffers;
-    const offer = offers?.[index];
-    if (!offers || !offer) return false;
-    this.rewardOffers = null;
+    const chosen = this.choiceRuntime.takeReward(index);
+    if (!chosen) return false;
+    const { offers, offer } = chosen;
     if (offer.kind === 'mutation_target' && offer.skill) {
-      this.pendingMutationTarget = true;
+      this.choiceRuntime.beginMutationTarget();
       this.generateMutationOffer(offer.skill);
       return true;
     }
@@ -3556,18 +3567,17 @@ export class Simulation {
     const choices = parent
       ? mutationChildren(id, parent).map((m) => m.id)
       : mutationRoots(id).map((m) => m.id);
-    this.mutationOffer = {
+    this.choiceRuntime.openMutation({
       skill: id,
       choices: tier === 1 ? this.shuffle([...choices]).slice(0, Simulation.MUTATION_BRANCHES) : choices,
-      refusalAvailable: tier === 1 && this.mutationRefusalToken,
+      refusalAvailable: tier === 1 && this.choiceRuntime.mutationRefusalToken,
       tier
-    };
-    this.choiceSerial++;
+    });
   }
   chooseMutation(index: number) {
     const m = this.mutationOffer;
     if (!m) return false;
-    const id = m.choices[index];
+    const id = this.choiceRuntime.mutationChoice(index);
     if (!id) return false;
     const st = this.skillState(m.skill);
     const def = mutationDef(m.skill, id);
@@ -3582,24 +3592,19 @@ export class Simulation {
       st.mutationApotheosis = id;
       this.events.push({ type: 'RareEvent', tick: this.tick, title: 'АПОФЕОЗ', detail: `${skills[m.skill].name}: ${def.name}` });
     } else return false;
-    if (this.pendingMutationTarget && this.mutationCores > 0) this.mutationCores--;
-    this.pendingMutationTarget = false;
+    if (this.choiceRuntime.consumeMutationTarget() && this.mutationCores > 0) this.mutationCores--;
     this.metrics.mutations++;
     this.events.push({ type: 'MutationChosen', tick: this.tick, skill: m.skill, mutation: id });
-    this.mutationOffer = null;
+    this.choiceRuntime.closeMutation();
     return true;
   }
   refuseMutation(index: number) {
     const m = this.mutationOffer;
-    if (!m || !m.refusalAvailable || !this.mutationRefusalToken) return false;
+    if (!m || !this.choiceRuntime.canRefuseMutation()) return false;
     const cur = new Set(m.choices),
       cand = mutationRoots(m.skill).map((x) => x.id).filter((id) => !cur.has(id));
     if (!cand.length) return false;
-    m.choices[index] = cand[this.rng.int(cand.length)];
-    this.mutationRefusalToken = false;
-    m.refusalAvailable = false;
-    this.choiceSerial++;
-    return true;
+    return this.choiceRuntime.replaceMutationChoice(index, cand[this.rng.int(cand.length)]);
   }
   rerollRewards() {
     if (
@@ -3622,8 +3627,7 @@ export class Simulation {
       )
     )
       return false;
-    const passed = this.rewardOffers;
-    this.rewardOffers = null;
+    const passed = this.choiceRuntime.clearRewards()!;
     this.xp += this.xpNeed * 0.3;
     this.events.push({ type: 'RewardChosen', tick: this.tick, title: 'Пропуск награды' });
     this.concedeRefusal(passed);
