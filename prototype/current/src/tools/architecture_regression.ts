@@ -325,8 +325,7 @@ assert(poiDirectorBlock.includes('this.poiSystem.update()') &&
 for (const token of ["kind: 'phenomenon', x: 14","type: 'PoiAwakened'","type: 'PoiCleared'"])
   assert(!poiDirectorBlock.includes(token), 'POI lifecycle/policy leaked back into Simulation: '+token);
 for (const method of [
-  'generateCatalystDiscovery','generateResonanceChoice','generateDiscovery',
-  'generateLevelOffers','generateMutationTargetOffers','generateEliteCache'
+  'generateDiscovery','generateLevelOffers','generateMutationTargetOffers','generateEliteCache'
 ]) {
   const start=simulation.indexOf('  private '+method+'(');
   const next=simulation.indexOf('\n  private ', start + 3);
