@@ -114,6 +114,10 @@ export class WorldGeometrySystem {
     }
   }
 
+  nearShared(x: number, z: number, radius: number) {
+    return this.near(x, z, radius, this.scratch);
+  }
+
   near(x: number, z: number, radius: number, out: Obstacle[] = []) {
     out.length = 0;
     const cell = WorldGeometrySystem.OBSTACLE_CELL;
