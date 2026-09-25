@@ -11,6 +11,7 @@ const physicalActivation=readFileSync('src/core/physicalActivationSystem.ts','ut
 const physicalCatalyst=readFileSync('src/core/physicalCatalystSystem.ts','utf8');
 const projectileSystem=readFileSync('src/core/projectileSystem.ts','utf8');
 const phenomenonCastSystem=readFileSync('src/core/phenomenonCastSystem.ts','utf8');
+const phenomenonKillReaction=readFileSync('src/core/phenomenonKillReactionSystem.ts','utf8');
 const statefulPhenomenonCastSystem=readFileSync('src/core/statefulPhenomenonCastSystem.ts','utf8');
 const choreographyTraceSystem=readFileSync('src/core/choreographyTraceSystem.ts','utf8');
 const activationRuntime=readFileSync('src/core/activationRuntime.ts','utf8');
@@ -71,6 +72,19 @@ assert(simulation.includes('private phenomenonCasts!: PhenomenonCastSystem'),
   'Simulation no longer delegates migrated Phenomenon casts');
 assert(simulation.includes('this.phenomenonCasts.cast(id, st, slot, src)'),
   'dispatchSkill no longer routes through PhenomenonCastSystem');
+assert(phenomenonKillReaction.includes('export class PhenomenonKillReactionSystem'),
+  'Phenomenon-specific kill reactions have no dedicated owner');
+assert(simulation.includes('private phenomenonKillReactions!: PhenomenonKillReactionSystem'),
+  'Simulation no longer delegates Phenomenon kill reactions');
+const genericDamageBlock=simulation.slice(
+  simulation.indexOf('  private damage('),
+  simulation.indexOf('  private damageHero(', simulation.indexOf('  private damage('))
+);
+assert(genericDamageBlock.includes('this.phenomenonKillReactions.onKill(e, source)'),
+  'resolved kills no longer route through PhenomenonKillReactionSystem');
+assert(!genericDamageBlock.includes('ember_backdraft') &&
+       !genericDamageBlock.includes("source === 'ember_lance'"),
+  'specific Phenomenon kill policy leaked back into Simulation.damage');
 assert(statefulPhenomenonCastSystem.includes('export class StatefulPhenomenonCastSystem'),
   'stateful Phenomenon behavior has no dedicated cast family');
 assert(simulation.includes('private statefulPhenomenonCasts!: StatefulPhenomenonCastSystem'),
@@ -363,6 +377,7 @@ console.log('architecture-regression OK', {
   physicalActivationSystem:true,
   projectileSystem:true,
   phenomenonCastSystem:true,
+  phenomenonKillReactionSystem:true,
   statefulPhenomenonCastSystem:true,
   choreographyTraceSystem:true,
   activationRuntime:true,
