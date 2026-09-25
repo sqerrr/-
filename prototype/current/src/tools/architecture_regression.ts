@@ -170,8 +170,9 @@ assert(simulation.includes('private eliteEncountersLedger = new EliteEncounterLe
   'Simulation no longer delegates elite encounter storage');
 assert(!simulation.includes('private eliteLog:') && !simulation.includes('private eliteLogById'),
   'raw elite encounter array/index leaked back into Simulation');
-assert(simulation.includes('this.eliteEncountersLedger.noteDash(this.time)'),
-  'dash attribution no longer routes through EliteEncounterLedger');
+assert(simulation.includes('noteEncounterDash: (time) => this.eliteEncountersLedger.noteDash(time)') &&
+       playerMovementSystem.includes('p.noteEncounterDash(p.time())'),
+  'dash attribution no longer routes PlayerMovementSystem -> EliteEncounterLedger');
 assert(simulation.includes('this.eliteEncountersLedger.noteRivalCast(entity.id, skill)'),
   'rival cast attribution no longer routes through EliteEncounterLedger');
 assert(simulation.includes('this.eliteEncountersLedger.finish(entity.id, this.time, true)'),
