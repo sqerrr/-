@@ -37,6 +37,7 @@ import { EliteDamageResponseSystem } from './eliteDamageResponseSystem.js';
 import { EliteEchoSystem } from './eliteEchoSystem.js';
 import { EliteProgressionSystem } from './eliteProgressionSystem.js';
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
+import { EnemyDamageModifierSystem } from './enemyDamageModifierSystem.js';
 import { EntityStore } from './entityStore.js';
 import { FieldSystem } from './fieldSystem.js';
 import { LegacyCatalystSystem } from './legacyCatalystSystem.js';
@@ -281,6 +282,7 @@ export class Simulation {
   private eliteAffix!: EliteAffixSystem;
   private bossBehavior!: BossBehaviorSystem;
   private enemyBehavior!: EnemyBehaviorSystem;
+  private enemyDamageModifiers!: EnemyDamageModifierSystem;
   private squadDirector!: SquadDirector;
   private projectileSystem!: ProjectileSystem;
   private fieldSystem!: FieldSystem;
@@ -720,6 +722,23 @@ export class Simulation {
           ...(count === undefined ? {} : { count })
         })
     });
+    this.enemyDamageModifiers = new EnemyDamageModifierSystem(
+      {
+        time: () => this.time,
+        itemDamageMultiplier: () => this.itemDamageMul,
+        itemEliteDamageMultiplier: () => this.itemEliteDamageMul,
+        itemCritBonus: () => this.itemCrit,
+        doctrinePrecision: () => this.doctrines.precision,
+        resonancePrecision: () => this.resonance.precision,
+        supportsPrecision: (skill) => this.supportsAxis(skill, 'precision'),
+        randomFloat: () => this.rng.float(),
+        skillRuntime: (source) => this.skillsRuntime.get(source as SkillId),
+        getAliveEntity: (id) => this.entityStore.getAlive(id),
+        derived: () => this.activation.derived
+      },
+      this.eliteDamageResponse,
+      this.eliteAffix
+    );
     this.squadDirector = new SquadDirector({
       world: this.world,
       time: () => this.time,
@@ -2956,42 +2975,17 @@ export class Simulation {
     if (e === this.hero) return this.damageHero(amount, source as DamageSourceId);
     // Everything reaching this line is the hero striking an enemy: rival casts resolve
     // against the synthetic hero above and elite contact goes straight to hitPlayer.
-    amount *= this.itemDamageMul;
-    if (e.kind === 'elite') amount *= this.itemEliteDamageMul;
     if (e.hp <= 0) return false;
-    let actual = amount;
-    if (e.kind === 'elite') actual *= e.relicDamageTakenMul ?? 1;
-    const skill = this.skillsRuntime.get(source as SkillId);
-    if (skill) {
-      if (e.kind === 'elite') actual *= 1 + skill.eliteDamage;
-      const precision = this.supportsAxis(skill.id, 'precision')
-        ? this.resonance.precision * 0.045
-        : 0;
-      const critChance = skill.crit + precision + this.itemCrit + this.doctrines.precision * 0.03;
-      if (critChance > 0 && this.rng.float() < critChance) actual *= 1.75;
-    }
-    actual = this.eliteDamageResponse.beforeDamage(
+    const resolved = this.enemyDamageModifiers.resolve(
       e,
-      actual,
-      skill?.id ?? null,
-      this.activation.derived
-    );
-    if (source !== 'ember_lance' && e.markUntil > this.time) {
-      actual *= 1.35;
-      e.markUntil = 0;
-    }
-    if (e.exposedUntil > this.time) actual *= 1.3;
-    if (e.kind !== 'binder' && e.linkedTo) {
-      const binder = this.entityStore.getAlive(e.linkedTo);
-      if (binder?.kind === 'binder') actual *= 0.65;
-    }
-    actual = this.eliteAffix.modifyIncomingDamage(
-      e,
-      actual,
+      amount,
+      source,
       directional,
       sourceX,
       sourceZ
     );
+    const actual = resolved.actual;
+    const skill = resolved.skill;
     const before = e.hp;
     e.hp -= actual;
     e.lastDamageAt = this.time;
@@ -3019,7 +3013,7 @@ export class Simulation {
       sourceX,
       sourceZ,
       elite: e.kind === 'elite',
-      crit: !!skill && actual > amount * 1.55
+      crit: resolved.crit
     });
     const killed = before > 0 && e.hp <= 0;
     if (this.itemSiphon > 0) this.healPlayer(Math.min(before, actual) * this.itemSiphon);
