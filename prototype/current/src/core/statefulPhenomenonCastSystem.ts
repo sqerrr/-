@@ -115,7 +115,7 @@ export class StatefulPhenomenonCastSystem {
       if (mut === 'cleaver_guillotine' && e.hp / e.maxHp < 0.25) damage *= 2;
       if (p.mutationIs(st, 'cleaver_deep')) damage *= 1.22;
 
-      const killed = p.damage(e, damage, 'cleaver', true, src.x, src.z, slot);
+      const killed = !!p.damage(e, damage, 'cleaver', true, src.x, src.z, slot);
       p.addCloseDamage(damage);
       if (killed) kills++;
 
