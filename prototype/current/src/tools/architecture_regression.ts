@@ -40,6 +40,7 @@ const eliteAffix=readFileSync('src/core/eliteAffixSystem.ts','utf8');
 const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
 const enemyBehavior=readFileSync('src/core/enemyBehaviorSystem.ts','utf8');
 const enemySpawnSystem=readFileSync('src/core/enemySpawnSystem.ts','utf8');
+const enemyRecycleSystem=readFileSync('src/core/enemyRecycleSystem.ts','utf8');
 const enemyDamageModifier=readFileSync('src/core/enemyDamageModifierSystem.ts','utf8');
 const playerDamageSystem=readFileSync('src/core/playerDamageSystem.ts','utf8');
 const playerMovementSystem=readFileSync('src/core/playerMovementSystem.ts','utf8');
@@ -482,6 +483,22 @@ for (const pattern of ['sweep','rupture','charge'])
 assert(simulation.includes('private bossBehavior!: BossBehaviorSystem'), 'Simulation no longer delegates Warden behavior');
 assert(!simulation.includes("e.bossPattern === 'sweep'") && !simulation.includes('telegraph_boss_'),
   'Warden phase/pattern state machine leaked back into Simulation');
+assert(enemyRecycleSystem.includes('export class EnemyRecycleSystem'),
+  'enemy reacquisition has no dedicated owner');
+assert(simulation.includes('private enemyRecycler!: EnemyRecycleSystem'),
+  'Simulation no longer delegates enemy reacquisition');
+const recycleBlock=simulation.slice(
+  simulation.indexOf('  private recycleFarEnemies()'),
+  simulation.indexOf('\n  step(cmd: Command', simulation.indexOf('  private recycleFarEnemies()'))
+);
+assert(recycleBlock.includes('this.enemyRecycler.update()'),
+  'recycleFarEnemies compatibility seam no longer delegates');
+for (const token of [
+  'private recycleAcc =','d > 29','e.boss ? 38 : 33',
+  'pointAroundPlayer(e.boss ? 11 : 12'
+])
+  assert(!simulation.includes(token),
+    'enemy recycle policy leaked back into Simulation: '+token);
 assert(enemySpawnSystem.includes('export class EnemySpawnSystem'),
   'ordinary enemy construction has no dedicated owner');
 assert(simulation.includes('private enemySpawns!: EnemySpawnSystem'),
@@ -601,6 +618,7 @@ console.log('architecture-regression OK', {
   bossBehaviorSystem:true,
   enemyBehaviorSystem:true,
   enemySpawnSystem:true,
+  enemyRecycleSystem:true,
   enemyDamageModifierSystem:true,
   playerDamageSystem:true,
   playerMovementSystem:true,
