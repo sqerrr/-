@@ -13,6 +13,7 @@ function assert(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error('catalyst-choreography-regression: ' + message);
 }
 const dist=(a:{x:number;z:number},b:{x:number;z:number})=>Math.hypot(a.x-b.x,a.z-b.z);
+const activateSlot=(sim:any,slot:number)=>sim.activationPipeline.activate(slot);
 
 function fixture(left:SkillId,right:SkillId,catalyst:CatalystId){
   const sim:any=new Simulation({seed:96000+left.length*37+right.length*11+catalyst.length,hz:60,benchmark:true,mode:'clean'});
@@ -52,7 +53,7 @@ function until(sim:any,pred:()=>boolean,maxTicks=480){
 }
 function runPair(left:SkillId,right:SkillId,cat:CatalystId){
   const sim=fixture(left,right,cat);
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   const ok=until(sim,()=>sim.events.some((e:any)=>e.type==='CatalystChoreography'&&e.mode===cat),480);
   const cues=sim.events.filter((e:any)=>e.type==='CatalystChoreography'&&e.mode===cat);
   const casts=sim.events.filter((e:any)=>e.type==='SkillActivated'&&e.skill===right);
@@ -133,7 +134,7 @@ assert(phenomenonChoreography.mortar_bloom.emits.includes('carrier'),'Mortar imp
   const sim=fixture('rail_spear','sentry','trail');
   const st=sim.skillsRuntime.get('sentry');
   st.mutationApotheosis='sentry_gravity_grid';
-  sim.activateSlot(0);
+  activateSlot(sim,0);
   assert(until(sim,()=>sim.constructs.filter((q:any)=>q.skill==='sentry').length>=3,120),'Trail Grid never deployed');
   const turrets=sim.constructs.filter((q:any)=>q.skill==='sentry');
   const sorted=[...turrets].sort((a:any,b:any)=>a.x-b.x||a.z-b.z);
@@ -159,17 +160,16 @@ assert(phenomenonChoreography.mortar_bloom.emits.includes('carrier'),'Mortar imp
 
 {
   const sim=fixture('sentry','rail_spear','source');
-  sim.catalysts=[null];sim.activateSlot(0);
+  sim.catalysts=[null];activateSlot(sim,0);
   const turrets=sim.constructs.filter((q:any)=>q.skill==='sentry');
   assert(turrets.length>0,'base Sentry deployed nothing');
   assert(turrets.every((q:any)=>q.x>1.2),'base Sentry reverted to hero-local spawn');
 }
 
 const simulation=readFileSync('src/core/simulation.ts','utf8');
-const activateStart=simulation.indexOf('  private activateSlot('),
-  activateEnd=simulation.indexOf('  private isPhysicalCatalyst(',activateStart),
-  activateBlock=simulation.slice(activateStart,activateEnd);
-assert(!activateBlock.includes('executeChoreography('),'activateSlot resurrected old next-beat Catalyst execution');
+const activationPipeline=readFileSync('src/core/activationPipelineSystem.ts','utf8');
+assert(!activationPipeline.includes('executeChoreography('),'activation pipeline resurrected old next-beat Catalyst execution');
+assert(!simulation.includes('private activateSlot('),'Simulation regained Catalyst/activation orchestration');
 assert(simulation.includes('registerAsyncPhysical')&&simulation.includes('finishAsyncPhysical'),
   'async physical lifecycle tracking disappeared');
 assert(!simulation.includes('this.tracePoint(p.x, p.z, true)'),'scheduled telegraph became physical terminal again');
