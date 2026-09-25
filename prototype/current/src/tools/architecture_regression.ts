@@ -12,6 +12,7 @@ const physicalCatalyst=readFileSync('src/core/physicalCatalystSystem.ts','utf8')
 const projectileSystem=readFileSync('src/core/projectileSystem.ts','utf8');
 const phenomenonCastSystem=readFileSync('src/core/phenomenonCastSystem.ts','utf8');
 const statefulPhenomenonCastSystem=readFileSync('src/core/statefulPhenomenonCastSystem.ts','utf8');
+const choreographyTraceSystem=readFileSync('src/core/choreographyTraceSystem.ts','utf8');
 const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
 const orbitSystem=readFileSync('src/core/orbitSystem.ts','utf8');
@@ -71,6 +72,14 @@ assert(simulation.includes('private statefulPhenomenonCasts!: StatefulPhenomenon
   'Simulation no longer delegates stateful Phenomenon casts');
 assert(simulation.includes('this.statefulPhenomenonCasts.cast(id, st, slot, src)'),
   'dispatchSkill no longer routes through the stateful Phenomenon family');
+assert(choreographyTraceSystem.includes('export class ChoreographyTraceSystem'),
+  'activation choreography has no dedicated trace owner');
+assert(simulation.includes('private choreography = new ChoreographyTraceSystem()'),
+  'Simulation no longer delegates choreography trace state');
+assert(!simulation.includes('private currentChoreography:'),
+  'mutable choreography trace storage leaked back into Simulation');
+for (const method of ['sameChoreographyPoint','tracePoint','traceArea','traceSegment','traceCombatShape','beginChoreographyTrace','finishChoreographyTrace'])
+  assert(!simulation.includes('private '+method+'('), 'choreography trace policy leaked back into Simulation: '+method);
 for (const method of [
   'castBreachLine','castContactSaw','castBackhand','castSpreadingFront','castShardFan','castTetherDrag','castPinBurst',
   'castEmber','castFrost','castRail','castToxic',
@@ -274,6 +283,7 @@ console.log('architecture-regression OK', {
   projectileSystem:true,
   phenomenonCastSystem:true,
   statefulPhenomenonCastSystem:true,
+  choreographyTraceSystem:true,
   relicRaceSystem:true,
   delayedStrikeSystem:true,
   orbitSystem:true,

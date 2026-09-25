@@ -24,6 +24,7 @@ import {
 import { fnv1a } from './hash.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
 import { ConstructSystem } from './constructSystem.js';
+import { ChoreographyTraceSystem } from './choreographyTraceSystem.js';
 import { DeathResolutionSystem } from './deathResolutionSystem.js';
 import { DelayedStrikeSystem } from './delayedStrikeSystem.js';
 import { EncounterDirector } from './encounterDirector.js';
@@ -57,7 +58,6 @@ import {
   type CastSource,
   type ChoreographyCarrier,
   type ChoreographyPoint,
-  type ChoreographyTrace,
   type Construct,
   type DelayedStrike,
   type Ent,
@@ -396,7 +396,7 @@ export class Simulation {
   private overflowConsumed = false;
   private aegisCharge = 0;
   private backflowBonus = new Map<number, number>();
-  private currentChoreography: ChoreographyTrace | null = null;
+  private choreography = new ChoreographyTraceSystem();
   // Catalyst 2.1 lifecycle owns activation ids, causal queues and retirement bookkeeping.
   private physical = new PhysicalLifecycle();
   private statusSystem = new StatusSystem();
@@ -1181,11 +1181,8 @@ export class Simulation {
         const id = this.nextId++;
         this.constructs.push({ id, ...construct });
         if (construct.activationId) this.registerAsyncPhysical(construct.activationId);
-        if (
-          this.currentChoreography &&
-          construct.faction === 'hero'
-        )
-          this.currentChoreography.carriers.push({ kind: 'construct', id });
+        if (construct.faction === 'hero')
+          this.choreography.addCarrier({ kind: 'construct', id });
         this.events.push({
           type: 'ConstructSpawned',
           tick: this.tick,
@@ -1457,21 +1454,20 @@ export class Simulation {
     this.projectiles.push({ id, guarded: false, ...p, activationId });
     if (activationId) this.registerAsyncPhysical(activationId);
     if (
-      this.currentChoreography &&
       p.faction === 'hero' &&
       p.sourceSlot === this.currentSlot &&
-      p.source === this.currentChoreography.skill
+      this.choreography.matchesSkill(p.source)
     ) {
       // For an async path Phenomenon, the first real moving body owns the route origin.
       // This matters when the cast itself displaced its source (Mass recoil) or spawns offset shards.
       if (
-        this.currentChoreography.carriers.length===0 &&
-        (p.source==='mass_driver'||p.source==='shard_fan')
+        this.choreography.carrierCount() === 0 &&
+        (p.source === 'mass_driver' || p.source === 'shard_fan')
       ) {
-        this.currentChoreography.origin={x:p.x,z:p.z};
-        if(activationId)this.physical.setLastPoint(activationId,{x:p.x,z:p.z});
+        this.choreography.setOrigin(p.x, p.z);
+        if (activationId) this.physical.setLastPoint(activationId, { x: p.x, z: p.z });
       }
-      this.currentChoreography.carriers.push({ kind: 'projectile', id });
+      this.choreography.addCarrier({ kind: 'projectile', id });
     }
     return id;
   }
@@ -1494,13 +1490,9 @@ export class Simulation {
     const activationId = strike.faction === 'hero' ? (strike.activationId ?? this.physical.currentActivationId) : 0;
     this.delayedStrikes.push({ id: this.nextId++, activationId, ...strike });
     if (activationId) this.registerAsyncPhysical(activationId);
-    if (
-      this.currentChoreography &&
-      strike.faction === 'hero' &&
-      strike.sourceSlot === this.currentSlot
-    ) {
+    if (strike.faction === 'hero' && strike.sourceSlot === this.currentSlot) {
       // This is a PLAN only. It is deliberately excluded from terminal/area/path truth.
-      this.currentChoreography.scheduled.push({ x: strike.x, z: strike.z });
+      this.choreography.addScheduled(strike.x, strike.z);
     }
     this.events.push({
       type: 'CombatShape',
@@ -2648,7 +2640,7 @@ export class Simulation {
     this.activationCountBonus = 0;
     this.activationDerived = false;
     const activationId = this.beginPhysicalActivation(slot, id);
-    this.beginChoreographyTrace(id);
+    this.choreography.begin(id, { x: this.px, z: this.pz }, this.aimX, this.aimZ);
 
     const incoming = this.incomingCatalyst(slot);
 
@@ -2701,7 +2693,7 @@ export class Simulation {
       }
     }
 
-    const trace = this.finishChoreographyTrace(),
+    const trace = this.choreography.finish(),
       previous = this.lastContext,
       physicalOrigin = trace?.origin ?? {x:this.px,z:this.pz};
     this.physical.setLastPoint(activationId,{...physicalOrigin});
@@ -2750,7 +2742,7 @@ export class Simulation {
     this.activationScale = 1;
     this.activationCountBonus = 0;
     this.activationDerived = false;
-    this.currentChoreography = null;
+    this.choreography.clear();
   }
 
 
@@ -2789,7 +2781,7 @@ export class Simulation {
     const save = {
       currentSlot: this.currentSlot,
       currentActivationId: this.physical.currentActivationId,
-      currentChoreography: this.currentChoreography,
+      choreography: this.choreography.suspend(),
       currentHits: this.currentHits,
       currentActivationDamage: this.currentActivationDamage,
       currentActivationKills: this.currentActivationKills,
@@ -2814,10 +2806,10 @@ export class Simulation {
       activationId = this.beginPhysicalActivation(binding.toSlot, binding.toSkill, { x: src.x, z: src.z });
     this.physical.currentActivationId = activationId;
     if(binding.toSkill==='orbit_blades') this.setOrbitChoreography(src.x,src.z);
-    this.beginChoreographyTrace(binding.toSkill);
+    this.choreography.begin(binding.toSkill, { x: src.x, z: src.z }, src.aimX, src.aimZ);
     this.metrics.activations++;
     this.castWithTrace(binding.toSkill, st, binding.toSlot, src);
-    const trace = this.finishChoreographyTrace(),
+    const trace = this.choreography.finish(),
       physicalOrigin = trace?.origin ?? {x:src.x,z:src.z};
     this.physical.setLastPoint(activationId,{...physicalOrigin});
     this.physicalActivations.armOutgoing(
@@ -2830,7 +2822,7 @@ export class Simulation {
 
     this.currentSlot = save.currentSlot;
     this.physical.currentActivationId = save.currentActivationId;
-    this.currentChoreography = save.currentChoreography;
+    this.choreography.resume(save.choreography);
     this.currentHits = save.currentHits;
     this.currentActivationDamage = save.currentActivationDamage;
     this.currentActivationKills = save.currentActivationKills;
@@ -2854,87 +2846,6 @@ export class Simulation {
       (binding, event) => this.physicalCatalysts.handle(binding, event),
       (activationId) => this.constructs.some((construct) => construct.activationId === activationId)
     );
-  }
-
-  private sameChoreographyPoint(a: ChoreographyPoint, b: ChoreographyPoint, eps = 0.12) {
-    return Math.hypot(a.x - b.x, a.z - b.z) <= eps;
-  }
-
-  private tracePoint(x: number, z: number, terminal = false) {
-    const t = this.currentChoreography;
-    if (!t) return;
-    const p = { x, z };
-    if (!t.points.some((q) => this.sameChoreographyPoint(q, p))) t.points.push(p);
-    if (terminal) t.terminal = p;
-  }
-
-  private traceArea(x: number, z: number, radius: number) {
-    const t = this.currentChoreography;
-    if (!t) return;
-    this.tracePoint(x, z);
-    const r = Math.max(0.35, radius),
-      shape:CombatShape={kind:'circle',x,z,radius:r};
-    if(!t.areas.some((q)=>q.kind==='circle'&&Math.hypot(q.x-x,q.z-z)<0.08&&Math.abs(q.radius-r)<0.08))
-      t.areas.push(shape);
-    for (let i = 0; i < 4; i++) {
-      const a = (i * Math.PI) / 2;
-      const p = { x: x + Math.cos(a) * r, z: z + Math.sin(a) * r };
-      if (!t.areaPoints.some((q) => this.sameChoreographyPoint(q, p))) t.areaPoints.push(p);
-    }
-  }
-
-  private traceSegment(a: ChoreographyPoint, b: ChoreographyPoint) {
-    const t = this.currentChoreography;
-    if (!t) return;
-    const last = t.paths[t.paths.length - 1];
-    if (last && this.sameChoreographyPoint(last[last.length - 1], a, 0.2)) last.push({ ...b });
-    else t.paths.push([{ ...a }, { ...b }]);
-    t.terminal = { ...b };
-  }
-
-  private traceCombatShape(shape: CombatShape) {
-    if (!this.currentChoreography) return;
-    if (shape.kind === 'circle') {
-      this.traceArea(shape.x, shape.z, shape.radius);
-      return;
-    }
-    if (shape.kind === 'ray') {
-      const end = { x: shape.x + shape.aimX * shape.range, z: shape.z + shape.aimZ * shape.range };
-      this.traceSegment({ x: shape.x, z: shape.z }, end);
-      return;
-    }
-    if(!this.currentChoreography.areas.some((q)=>
-      q.kind==='sector'&&Math.hypot(q.x-shape.x,q.z-shape.z)<0.08&&Math.abs(q.radius-shape.radius)<0.08
-    )) this.currentChoreography.areas.push({...shape});
-    const tip = {
-      x: shape.x + shape.aimX * shape.radius,
-      z: shape.z + shape.aimZ * shape.radius
-    };
-    this.traceSegment({ x: shape.x, z: shape.z }, tip);
-    const base = Math.atan2(shape.aimZ, shape.aimX);
-    for (const off of [-shape.halfAngle, shape.halfAngle]) {
-      const a = base + off;
-      const p = { x: shape.x + Math.cos(a) * shape.radius, z: shape.z + Math.sin(a) * shape.radius };
-      if (!this.currentChoreography.areaPoints.some((q) => this.sameChoreographyPoint(q, p)))
-        this.currentChoreography.areaPoints.push(p);
-    }
-  }
-
-  private beginChoreographyTrace(id: SkillId) {
-    this.currentChoreography = {
-      skill: id,
-      origin: { x: this.px, z: this.pz },
-      aimX: this.aimX,
-      aimZ: this.aimZ,
-      terminal: null,
-      points: [],
-      areaPoints: [],
-      areas: [],
-      contacts: [],
-      paths: [],
-      carriers: [],
-      scheduled: []
-    };
   }
 
   private orbitCenter() {
@@ -2965,53 +2876,14 @@ export class Simulation {
   }
 
   private noteOrbitTrace() {
-    const t = this.currentChoreography,
-      st = this.skillsRuntime.get('orbit_blades');
-    if (!t || !st) return;
+    const st = this.skillsRuntime.get('orbit_blades');
+    if (!this.choreography.active || !st) return;
     const center = this.orbitCenter(),
       geometry = this.orbitSystem.geometry(st, center);
     for (const blade of geometry.blades) {
-      this.traceArea(blade.x, blade.z, geometry.bladeRadius);
-      t.carriers.push({ kind: 'orbit', index: blade.index });
+      this.choreography.area(blade.x, blade.z, geometry.bladeRadius);
+      this.choreography.addCarrier({ kind: 'orbit', index: blade.index });
     }
-  }
-
-  private finishChoreographyTrace() {
-    const t = this.currentChoreography;
-    if (!t) return null;
-    const resolvedHits = t.contacts;
-    for (const p of resolvedHits) this.tracePoint(p.x, p.z);
-
-    // Contacts are captured at damage time, before pull/knockback can move the target. Terminal
-    // semantics are skill-authored: a Rail/Cleaver finishes at its farthest useful contact,
-    // Chain Arc at its final hop, while Tether owns its authored anchor independently of targets.
-    if (resolvedHits.length && (t.skill === 'rail_spear' || t.skill === 'cleaver')) {
-      t.terminal = { ...resolvedHits.reduce((best,p) =>
-        Math.hypot(p.x-t.origin.x,p.z-t.origin.z) > Math.hypot(best.x-t.origin.x,best.z-t.origin.z) ? p : best
-      ) };
-    } else if (resolvedHits.length && t.skill === 'chain_arc') {
-      t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
-    } else if (resolvedHits.length && t.skill !== 'tether_drag') {
-      t.terminal = { ...resolvedHits[resolvedHits.length - 1] };
-    } else if (!t.terminal && t.points.length) t.terminal = { ...t.points[t.points.length - 1] };
-    if (t.skill === 'mortar_bloom' || t.skill === 'mass_driver' || t.skill === 'shard_fan') {
-      t.terminal = null;
-      t.paths = [];
-    }
-    const out: ChoreographyTrace = {
-      ...t,
-      origin: { ...t.origin },
-      terminal: t.terminal ? { ...t.terminal } : null,
-      points: t.points.map((p) => ({ ...p })),
-      areaPoints: t.areaPoints.map((p) => ({ ...p })),
-      areas: t.areas.map((q) => ({ ...q })),
-      contacts: t.contacts.map((p) => ({ ...p })),
-      paths: t.paths.map((path) => path.map((p) => ({ ...p }))),
-      carriers: t.carriers.map((q) => ({ ...q })),
-      scheduled: t.scheduled.map((p) => ({ ...p }))
-    };
-    this.currentChoreography = null;
-    return out;
   }
 
   private resolveChoreographyCarrier(ref: ChoreographyCarrier): ChoreographyPoint | null {
@@ -3075,16 +2947,7 @@ export class Simulation {
 
   private castWithTrace(id: SkillId, st: SkillRuntime, slot: number, src: CastSource) {
     const firstNewId = this.nextId;
-    if (
-      this.currentChoreography &&
-      this.currentChoreography.points.length === 0 &&
-      this.currentChoreography.paths.length === 0 &&
-      this.currentChoreography.scheduled.length === 0
-    ) {
-      this.currentChoreography.origin = { x: src.x, z: src.z };
-      this.currentChoreography.aimX = src.aimX;
-      this.currentChoreography.aimZ = src.aimZ;
-    }
+    this.choreography.ensureSource({ x: src.x, z: src.z }, src.aimX, src.aimZ);
     this.events.push({
       type: 'SkillActivated',
       tick: this.tick,
@@ -3095,30 +2958,26 @@ export class Simulation {
       aimX: src.aimX,
       aimZ: src.aimZ
     });
-    this.tracePoint(src.x, src.z);
+    this.choreography.point(src.x, src.z);
     this.dispatchSkill(id, st, slot, src);
-    const t = this.currentChoreography;
-    if (!t) return;
-    for (const p of this.projectiles)
-      if (p.id >= firstNewId && p.sourceSlot === slot && p.faction === 'hero')
-        t.carriers.push({ kind: 'projectile', id: p.id });
-    for (const q of this.constructs)
-      if (q.id >= firstNewId && q.sourceSlot === slot && q.faction === 'hero') {
-        q.activationId = this.physical.currentActivationId;
-        t.carriers.push({ kind: 'construct', id: q.id });
-        this.tracePoint(q.x, q.z);
-        this.traceArea(q.x, q.z, 0.7);
+    for (const projectile of this.projectiles)
+      if (projectile.id >= firstNewId && projectile.sourceSlot === slot && projectile.faction === 'hero')
+        this.choreography.addCarrier({ kind: 'projectile', id: projectile.id });
+    for (const construct of this.constructs)
+      if (construct.id >= firstNewId && construct.sourceSlot === slot && construct.faction === 'hero') {
+        construct.activationId = this.physical.currentActivationId;
+        this.choreography.addCarrier({ kind: 'construct', id: construct.id });
+        this.choreography.point(construct.x, construct.z);
+        this.choreography.area(construct.x, construct.z, 0.7);
       }
-    for (const f of this.fields)
-      if (f.id >= firstNewId && f.sourceSlot === slot && f.faction !== 'rival') {
-        f.activationId = this.physical.currentActivationId;
-        f.insideIds ??= [];
-        this.traceArea(f.x, f.z, f.radius);
+    for (const field of this.fields)
+      if (field.id >= firstNewId && field.sourceSlot === slot && field.faction !== 'rival') {
+        field.activationId = this.physical.currentActivationId;
+        field.insideIds ??= [];
+        this.choreography.area(field.x, field.z, field.radius);
       }
     if (id === 'orbit_blades') this.noteOrbitTrace();
   }
-
-
 
   private applyState(e: Ent, state: string, potency = 1) {
     this.statusSystem.apply(e, state, {
@@ -3277,7 +3136,7 @@ export class Simulation {
   ) {
     // Render geometry and simulation truth are separate contracts. A moving projectile may
     // draw its intended lane now, but its Catalyst path is published only as the body moves.
-    if (physicalTrace) this.traceCombatShape(shape);
+    if (physicalTrace) this.choreography.combatShape(shape);
     this.events.push({ type: 'CombatShape', tick: this.tick, source, intent, shape });
   }
 
@@ -3475,12 +3334,8 @@ export class Simulation {
     if (skill && this.currentSlot >= 0) {
       this.currentHits.add(e.id);
       this.currentActivationDamage += actual;
-      if (this.currentChoreography?.skill === skill.id) {
-        const p={x:e.x,z:e.z},
-          last=this.currentChoreography.contacts[this.currentChoreography.contacts.length-1];
-        if(!last || !this.sameChoreographyPoint(last,p,0.02))
-          this.currentChoreography.contacts.push(p);
-      }
+      if (this.choreography.matchesSkill(skill.id))
+        this.choreography.addContact(e.x, e.z);
     }
     this.events.push({
       type: 'DamageResolved',
