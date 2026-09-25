@@ -19,6 +19,7 @@ const activationRuntime=readFileSync('src/core/activationRuntime.ts','utf8');
 const activationPipeline=readFileSync('src/core/activationPipelineSystem.ts','utf8');
 const combatLedger=readFileSync('src/core/combatLedger.ts','utf8');
 const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
+const rewardOfferFactory=readFileSync('src/core/rewardOfferFactory.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
 const orbitSystem=readFileSync('src/core/orbitSystem.ts','utf8');
 const fieldSystem=readFileSync('src/core/fieldSystem.ts','utf8');
@@ -275,6 +276,27 @@ assert(delayedUpdate.includes('this.delayedStrikeSystem.update(this.delayedStrik
 for (const token of ['areaPoints=[0,1,2,3]','fieldKind','_impact'])
   assert(!delayedUpdate.includes(token), 'delayed strike runtime leaked back into Simulation: '+token);
 
+assert(rewardOfferFactory.includes('export class RewardOfferFactory'),
+  'player-facing reward cards have no dedicated factory');
+assert(simulation.includes('private rewardOfferFactory!: RewardOfferFactory'),
+  'Simulation no longer delegates reward card construction');
+for (const call of [
+  'this.rewardOfferFactory.catalystAdd(id)',
+  'this.rewardOfferFactory.resonance(id)',
+  'this.rewardOfferFactory.skillAdd(id)',
+  'this.rewardOfferFactory.skillSwap(id)',
+  'this.rewardOfferFactory.doctrine(id)',
+  'this.rewardOfferFactory.global()'
+])
+  assert(simulation.includes(call),
+    'reward construction no longer routes through RewardOfferFactory: '+call);
+for (const method of [
+  'fmtSkillStat','axisLabel','statLabel','rollRarity','rollItemId',
+  'makeResonanceOffer','makeGlobalOffer','makeCatalystAdd',
+  'makeDoctrineOffer','makeItemOffer','makeSkillAdd','makeSkillSwap'
+])
+  assert(!simulation.includes('private '+method+'('),
+    'reward presentation/dead formatter leaked back into Simulation: '+method);
 assert(relicRace.includes('export class RelicRaceSystem'), 'contested relics have no dedicated runtime owner');
 assert(simulation.includes('private relicRace!: RelicRaceSystem'), 'Simulation no longer delegates relic race runtime');
 const relicUpdate=simulation.slice(
@@ -481,6 +503,7 @@ console.log('architecture-regression OK', {
   activationPipelineSystem:true,
   combatLedger:true,
   relicRaceSystem:true,
+  rewardOfferFactory:true,
   delayedStrikeSystem:true,
   orbitSystem:true,
   fieldSystem:true,
