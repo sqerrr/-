@@ -33,6 +33,7 @@ import { EliteDamageResponseSystem } from './eliteDamageResponseSystem.js';
 import { EliteEchoSystem } from './eliteEchoSystem.js';
 import { EliteEncounterLedger } from './eliteEncounterLedger.js';
 import { EliteProgressionSystem } from './eliteProgressionSystem.js';
+import { EliteSpawnSystem } from './eliteSpawnSystem.js';
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
 import { EnemySpawnSystem } from './enemySpawnSystem.js';
 import { EnemyDamageModifierSystem } from './enemyDamageModifierSystem.js';
@@ -108,21 +109,6 @@ import type {
   Snapshot
 } from './types.js';
 
-// Tier tables. D49 fixes the target fight lengths (8-12 / 15-25 / 30-45 s); each tier is a
-// step up in durability, payout and repertoire.
-/**
- * First calibration against measured contact time. elite_report put the medians at 1 / 2 / 3.3 s
- * against D49 windows centred on 10 / 20 / 37.5 - every tier short by the same factor of ten,
- * with the relative shape already right. So the tiers keep their ratio and the table is lifted
- * bodily. Kept apart from eliteHp so per-chassis identity stays readable next to the tier step.
- */
-const ELITE_RARITY_HP: Record<EliteRarity, number> = { common: 2.5, uplifted: 5, legendary: 9.4 };
-const ELITE_RARITY_SIZE: Record<EliteRarity, number> = {
-  common: 1,
-  uplifted: 1.1,
-  legendary: 1.25
-};
-
 export interface SimConfig {
   seed: number;
   hz: 30 | 60;
@@ -155,39 +141,6 @@ export interface BenchmarkLoadout {
   catalystPotency?: number;
 }
 
-const eliteHp: Record<EliteChassis, number> = {
-  marshal: 980,
-  hunter: 840,
-  bulwark: 1320,
-  architect: 1080,
-  harvester: 1160,
-  shepherd: 930,
-  broodmaker: 1120,
-  archivist: 1020,
-  warden: 5600
-};
-const eliteSpeed: Record<EliteChassis, number> = {
-  marshal: 1.02,
-  hunter: 1.76,
-  bulwark: 0.74,
-  architect: 0.92,
-  harvester: 0.9,
-  shepherd: 1.08,
-  broodmaker: 0.88,
-  archivist: 1.02,
-  warden: 0.84
-};
-const eliteDps: Record<EliteChassis, number> = {
-  marshal: 26,
-  hunter: 34,
-  bulwark: 31,
-  architect: 24,
-  harvester: 28,
-  shepherd: 26,
-  broodmaker: 27,
-  archivist: 27,
-  warden: 42
-};
 export class Simulation {
   readonly hz: number;
   readonly dt: number;
@@ -270,6 +223,7 @@ export class Simulation {
   private eliteDamageResponse!: EliteDamageResponseSystem;
   private eliteEchoSystem!: EliteEchoSystem;
   private eliteProgression!: EliteProgressionSystem;
+  private eliteSpawns!: EliteSpawnSystem;
   private eliteAffix!: EliteAffixSystem;
   private bossBehavior!: BossBehaviorSystem;
   private enemyBehavior!: EnemyBehaviorSystem;
@@ -493,6 +447,59 @@ export class Simulation {
           kind: entity.kind,
           x: entity.x,
           z: entity.z
+        });
+      }
+    });
+    this.eliteSpawns = new EliteSpawnSystem({
+      time: () => this.time,
+      runDuration: () => this.runDuration,
+      mode: () => this.mode,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      worldBounds: () => this.world,
+      randomInt: (maxExclusive) => this.rng.int(maxExclusive),
+      randomFloat: () => this.rng.float(),
+      randomRange: (min, max) => this.rng.range(min, max),
+      worldScale: () => this.worldScale(),
+      damageScale: () => this.damageScale(),
+      nextEntityId: () => this.nextId++,
+      pointAroundPlayer: (min, max) => this.pointAroundPlayer(min, max),
+      claimRepertoire: (entity) => this.claimRepertoire(entity),
+      inheritLegacy: (entity, all) => this.inheritEliteLegacy(entity, all),
+      inheritEvolution: (entity) => this.inheritEliteEvolution(entity),
+      grantNativeGrowth: (entity) => this.grantNativeEliteGrowth(entity),
+      ecosystemMass: () => this.eliteLegacyItems.length + this.eliteEvolutionHistory.length,
+      pois: () => this.pois,
+      activePoiGuardians: () =>
+        this.entityStore.countAlive(
+          (entity) => entity.kind === 'elite' && !entity.boss && entity.guardianPoi > 0
+        ),
+      commitElite: (entity, options) => {
+        if (options.trackEncounter) this.noteEliteSpawn(entity);
+        this.entityStore.add(entity);
+        this.metrics.spawned++;
+        this.metrics.eliteSpawned++;
+        this.events.push({
+          type: 'EntitySpawned',
+          tick: this.tick,
+          entity: entity.id,
+          kind: 'elite',
+          x: entity.x,
+          z: entity.z,
+          chassis: entity.chassis,
+          affix: entity.affix,
+          ...(options.bossEvent ? { boss: true } : {})
+        });
+      },
+      emitBossSpawned: (entity, supports, uncleared) => {
+        this.events.push({
+          type: 'BossSpawned',
+          tick: this.tick,
+          entity: entity.id,
+          x: entity.x,
+          z: entity.z,
+          supports,
+          uncleared
         });
       }
     });
@@ -1736,112 +1743,16 @@ export class Simulation {
       this.spawnBoss();
   }
   private bossSupportForPoi(kind: PoiKind): [EliteChassis, EliteAffix] {
-    if (kind === 'phenomenon') return ['hunter', 'shielded'];
-    if (kind === 'catalyst') return ['architect', 'vanguard'];
-    if (kind === 'resonance') return ['bulwark', 'temporal'];
-    return ['harvester', 'brood'];
+    return this.eliteSpawns.supportIdentity(kind);
   }
   private spawnBossSupport(kind: PoiKind, bossX: number, bossZ: number, index: number) {
-    const [chassis, affix] = this.bossSupportForPoi(kind),
-      a = 0.8 + index * Math.PI * 0.88,
-      r = 3.2 + index * 0.55,
-      x = Math.max(this.world.minX + 1, Math.min(this.world.maxX - 1, bossX + Math.cos(a) * r)),
-      z = Math.max(this.world.minZ + 1, Math.min(this.world.maxZ - 1, bossZ + Math.sin(a) * r));
-    const hp = eliteHp[chassis] * this.worldScale() * 0.66,
-      e = makeEnt({
-        id: this.nextId++,
-        kind: 'elite',
-        x,
-        z,
-        hp,
-        radius: chassis === 'bulwark' ? 1.02 : 0.9,
-        speed: eliteSpeed[chassis],
-        contactDps: eliteDps[chassis] * this.damageScale(),
-        cooldown: this.rng.range(1.3, 2.5),
-        chassis,
-        affix,
-        adaptAt: hp * 0.55,
-        guardianPoi: -1
-      });
-    this.entityStore.add(e);
-    this.metrics.spawned++;
-    this.metrics.eliteSpawned++;
-    this.events.push({
-      type: 'EntitySpawned',
-      tick: this.tick,
-      entity: e.id,
-      kind: 'elite',
-      x,
-      z,
-      chassis,
-      affix
-    });
+    return this.eliteSpawns.spawnBossSupport(kind, bossX, bossZ, index);
   }
   private spawnBoss() {
     this.bossSpawned = true;
-    const x = this.px < 0 ? 34 : -34,
-      z = this.pz < 0 ? 24 : -24,
-      ecosystemMass = this.eliteLegacyItems.length + this.eliteEvolutionHistory.length,
-      hp = eliteHp.warden * this.worldScale() * (4.15 + Math.min(1.55, ecosystemMass * 0.035));
-    const e = makeEnt({
-      id: this.nextId++,
-      kind: 'elite',
-      x,
-      z,
-      hp,
-      radius: 1.42,
-      speed: eliteSpeed.warden,
-      contactDps: eliteDps.warden * this.damageScale() * 1.22,
-      cooldown: 1.8,
-      chassis: 'warden',
-      boss: true,
-      bossPhase: 1,
-      rarity: 'legendary'
-    });
-    // The finale is the enemy ecosystem's payoff: a late legendary repertoire plus every
-    // distinct relic effect elites managed to capture during the run.
-    this.claimRepertoire(e);
-    this.inheritEliteLegacy(e, true);
-    this.inheritEliteEvolution(e);
-    this.entityStore.add(e);
-    this.metrics.spawned++;
-    this.metrics.eliteSpawned++;
-    this.events.push({
-      type: 'EntitySpawned',
-      tick: this.tick,
-      entity: e.id,
-      kind: 'elite',
-      x,
-      z,
-      chassis: 'warden',
-      affix: 'none',
-      boss: true
-    });
-    // Exploration must affect the finale without hiding power in a scalar debuff. If the player ignored the archive, visible POI guardians join the boss.
-    const unresolved = this.pois.filter((p) => p.state !== 'cleared'),
-      cleared = this.pois.length - unresolved.length,
-      desiredSupports = cleared >= 4 ? 0 : cleared >= 2 ? 1 : 2;
-    const activePoiGuardians = this.entityStore.countAlive(
-      (o) => o.kind === 'elite' && !o.boss && o.guardianPoi > 0
-    );
-    let spawned = 0;
-    for (const p of unresolved) {
-      if (activePoiGuardians + spawned >= desiredSupports) break;
-      if (p.state === 'guarded') continue;
-      this.spawnBossSupport(p.kind, x, z, spawned);
-      spawned++;
-    }
-    const supports = Math.min(desiredSupports, activePoiGuardians + spawned);
-    this.events.push({
-      type: 'BossSpawned',
-      tick: this.tick,
-      entity: e.id,
-      x,
-      z,
-      supports,
-      uncleared: unresolved.length
-    });
+    return this.eliteSpawns.spawnBoss();
   }
+
   private recycleFarEnemies() {
     this.recycleAcc += this.dt;
     if (this.recycleAcc < 0.35) return;
@@ -1978,36 +1889,14 @@ export class Simulation {
     });
     if (request) this.spawnElite(request === 'opening');
   }
-  /** D9: higher tiers become steadily more common as the run wears on. */
+  /** D9 compatibility seam; spawn-time rarity policy lives in EliteSpawnSystem. */
   private rollEliteRarity(): EliteRarity {
-    const t = Math.min(1, this.time / this.runDuration);
-    const r = this.rng.float();
-    if (r < 0.02 + 0.18 * t) return 'legendary';
-    if (r < 0.2 + 0.45 * t) return 'uplifted';
-    return 'common';
+    return this.eliteSpawns.rollRarity();
   }
-  /**
-   * Active affixes were implemented but ordinary elites had been hard-wired to 'none'.
-   * Reintroduce them as a run-depth layer: early elites teach the chassis first, later
-   * tiers combine one chassis question with one affix question.
-   */
   private rollEliteAffix(rarity: EliteRarity): EliteAffix {
-    const t = Math.min(1, this.time / this.runDuration);
-    // The first minute teaches chassis language before combinations appear.
-    if (t < 0.12) return 'none';
-    if (rarity === 'common') {
-      if (t < 0.12 || this.rng.float() < 0.58 - t * 0.18) return 'none';
-      const pool: EliteAffix[] = ['regenerating', 'volatile', 'shielded'];
-      return pool[this.rng.int(pool.length)];
-    }
-    if (rarity === 'uplifted') {
-      if (this.rng.float() < 0.12) return 'none';
-      const pool: EliteAffix[] = ['regenerating', 'shielded', 'vanguard', 'temporal', 'brood'];
-      return pool[this.rng.int(pool.length)];
-    }
-    const pool: EliteAffix[] = ['crowned', 'shielded', 'vanguard', 'temporal', 'brood'];
-    return pool[this.rng.int(pool.length)];
+    return this.eliteSpawns.rollAffix(rarity);
   }
+
   /**
    * Refusal repertoire is learned ecosystem knowledge. Early encounters are intentionally
    * narrow for readability; later elites can carry a much broader selection.
@@ -2083,58 +1972,7 @@ export class Simulation {
   }
 
   private spawnElite(opening = false) {
-    const pool: EliteChassis[] = [
-      'hunter',
-      'architect',
-      'broodmaker',
-      'bulwark',
-      'harvester',
-      'shepherd'
-    ];
-    const chassis = pool[this.rng.int(pool.length)];
-    const rarity: EliteRarity = opening ? 'common' : this.rollEliteRarity(),
-      affix = opening ? 'none' : this.rollEliteAffix(rarity);
-    const q = this.pointAroundPlayer(15, 18.5),
-      scale = this.worldScale();
-    let hp = eliteHp[chassis] * scale * ELITE_RARITY_HP[rarity],
-      speed = eliteSpeed[chassis];
-    if (opening && this.mode === 'clean') hp *= 0.8;
-    const e = makeEnt({
-      id: this.nextId++,
-      kind: 'elite',
-      x: q.x,
-      z: q.z,
-      hp,
-      radius:
-        (chassis === 'bulwark' ? 1.02 : chassis === 'broodmaker' ? 0.94 : 0.86) *
-        ELITE_RARITY_SIZE[rarity],
-      speed,
-      contactDps: eliteDps[chassis] * this.damageScale() * 0.62,
-      cooldown: this.rng.range(1.7, 3.0),
-      chassis,
-      affix,
-      adaptAt: hp * 0.6,
-      rarity
-    });
-    if (!opening) {
-      this.claimRepertoire(e);
-      this.inheritEliteLegacy(e);
-      this.grantNativeEliteGrowth(e);
-    }
-    this.noteEliteSpawn(e);
-    this.entityStore.add(e);
-    this.metrics.spawned++;
-    this.metrics.eliteSpawned++;
-    this.events.push({
-      type: 'EntitySpawned',
-      tick: this.tick,
-      entity: e.id,
-      kind: 'elite',
-      x: e.x,
-      z: e.z,
-      chassis,
-      affix
-    });
+    return this.eliteSpawns.spawnRegular(opening);
   }
 
   private steerTo(e: Ent, tx: number, tz: number, speed: number, mul = 1) {

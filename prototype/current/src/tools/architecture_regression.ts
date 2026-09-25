@@ -35,6 +35,7 @@ const eliteDamageResponse=readFileSync('src/core/eliteDamageResponseSystem.ts','
 const eliteEcho=readFileSync('src/core/eliteEchoSystem.ts','utf8');
 const eliteEncounterLedger=readFileSync('src/core/eliteEncounterLedger.ts','utf8');
 const eliteProgression=readFileSync('src/core/eliteProgressionSystem.ts','utf8');
+const eliteSpawnSystem=readFileSync('src/core/eliteSpawnSystem.ts','utf8');
 const eliteAffix=readFileSync('src/core/eliteAffixSystem.ts','utf8');
 const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
 const enemyBehavior=readFileSync('src/core/enemyBehaviorSystem.ts','utf8');
@@ -427,6 +428,35 @@ assert(!simulation.includes('private eliteEchoes =') && !simulation.includes('pr
 for (const method of ['echoTellDuration','echoTelegraph','resolveEliteEcho'])
   assert(!simulation.includes('private '+method+'('), 'Elite Echo authored state machine leaked back into Simulation: '+method);
 assert(simulation.includes('this.eliteEchoSystem.update()'), 'Simulation no longer advances Elite Echo owner');
+assert(eliteSpawnSystem.includes('export class EliteSpawnSystem'),
+  'elite/boss construction has no dedicated owner');
+assert(simulation.includes('private eliteSpawns!: EliteSpawnSystem'),
+  'Simulation no longer delegates elite/boss construction');
+for (const method of [
+  ['spawnElite','this.eliteSpawns.spawnRegular(opening)'],
+  ['rollEliteRarity','this.eliteSpawns.rollRarity()'],
+  ['rollEliteAffix','this.eliteSpawns.rollAffix(rarity)'],
+  ['bossSupportForPoi','this.eliteSpawns.supportIdentity(kind)'],
+  ['spawnBossSupport','this.eliteSpawns.spawnBossSupport(kind, bossX, bossZ, index)']
+] as const) {
+  const start=simulation.indexOf('  private '+method[0]+'(');
+  const next=simulation.indexOf('\n  private ', start + 3);
+  const block=simulation.slice(start, next > start ? next : start + 500);
+  assert(block.includes(method[1]),
+    'elite spawn compatibility seam stopped delegating: '+method[0]);
+}
+const spawnBossStart=simulation.indexOf('  private spawnBoss()');
+const spawnBossNext=simulation.indexOf('\n  private ', spawnBossStart + 3);
+const spawnBossBlock=simulation.slice(spawnBossStart, spawnBossNext > spawnBossStart ? spawnBossNext : spawnBossStart + 500);
+assert(spawnBossBlock.includes('this.bossSpawned = true') &&
+       spawnBossBlock.includes('this.eliteSpawns.spawnBoss()'),
+  'boss spawn compatibility seam changed ownership/order');
+for (const token of [
+  'ELITE_RARITY_HP','ELITE_RARITY_SIZE','const eliteHp:','const eliteSpeed:','const eliteDps:',
+  '0.02 + 0.18 * t','0.58 - t * 0.18','const pool: EliteChassis[]'
+])
+  assert(!simulation.includes(token),
+    'elite spawn policy leaked back into Simulation: '+token);
 assert(eliteProgression.includes('export class EliteProgressionSystem'), 'elite ecosystem growth has no dedicated system');
 assert(simulation.includes('private eliteProgression!: EliteProgressionSystem'),
   'Simulation no longer delegates elite progression policy');
@@ -566,6 +596,7 @@ console.log('architecture-regression OK', {
   eliteEchoSystem:true,
   eliteEncounterLedger:true,
   eliteProgressionSystem:true,
+  eliteSpawnSystem:true,
   eliteAffixSystem:true,
   bossBehaviorSystem:true,
   enemyBehaviorSystem:true,
