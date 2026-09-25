@@ -22,6 +22,7 @@ import {
   statBase
 } from '../content/definitions.js';
 import { fnv1a } from './hash.js';
+import { ActivationPipelineSystem } from './activationPipelineSystem.js';
 import { ActivationRuntime } from './activationRuntime.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
 import { ConstructSystem } from './constructSystem.js';
@@ -53,7 +54,6 @@ import {
   HERO_HIT_RADIUS,
   makeEnt,
   makeHeroEnt,
-  type CatalystBinding,
   type CastFaction,
   type CastSource,
   type ChoreographyCarrier,
@@ -287,6 +287,7 @@ export class Simulation {
   private deathResolution!: DeathResolutionSystem;
   private delayedStrikeSystem!: DelayedStrikeSystem;
   private physicalActivations!: PhysicalActivationSystem;
+  private activationPipeline!: ActivationPipelineSystem;
   private physicalCatalysts!: PhysicalCatalystSystem;
   private relicRace!: RelicRaceSystem;
   private phenomenonCasts!: PhenomenonCastSystem;
@@ -991,7 +992,7 @@ export class Simulation {
       aimZ: () => this.aimZ,
       entities: () => this.ents,
       castPayload: (binding, x, z, aimX, aimZ) =>
-        this.castCatalystPayload(binding, x, z, aimX, aimZ),
+        this.activationPipeline.castPayload(binding, x, z, aimX, aimZ),
       emit: (event) => this.events.push(event),
       noteReaction: () => {
         this.metrics.reactions++;
@@ -1003,6 +1004,40 @@ export class Simulation {
       addBinding: (binding) => this.physical.addBinding(binding),
       queueEvent: (event) => this.physical.queue(event)
     });
+    this.activationPipeline = new ActivationPipelineSystem(
+      {
+        activeSpan: () => this.activeSpan(),
+        skillAt: (slot) => this.slots[slot] ?? null,
+        skillRuntime: (skill) => this.skillsRuntime.get(skill),
+        incomingCatalyst: (slot) => this.incomingCatalyst(slot),
+        conductivity: () => this.resonance.conductivity,
+        playerPosition: () => ({ x: this.px, z: this.pz }),
+        aim: () => ({ x: this.aimX, z: this.aimZ }),
+        setAim: (x, z) => {
+          this.aimX = x;
+          this.aimZ = z;
+        },
+        heroSource: () => this.heroSource(),
+        choreographySource: (x, z, aimX, aimZ) =>
+          this.choreographySource(x, z, aimX, aimZ),
+        entityPosition: (id) => {
+          const entity = this.entityStore.get(id);
+          return entity ? { x: entity.x, z: entity.z } : null;
+        },
+        castWithTrace: (skill, runtime, slot, source) =>
+          this.castWithTrace(skill, runtime, slot, source),
+        prepareOrbitPayload: (x, z) => this.setOrbitChoreography(x, z),
+        noteActivation: () => {
+          this.metrics.activations++;
+        },
+        flushPhysicalEvents: () => this.flushPhysicalEvents()
+      },
+      this.activation,
+      this.choreography,
+      this.physical,
+      this.physicalActivations,
+      this.legacyCatalysts
+    );
     this.phenomenonCasts = new PhenomenonCastSystem({
       time: () => this.time,
       cycle: () => this.cycle,
@@ -2481,7 +2516,7 @@ export class Simulation {
     while (this.beatAcc + 1e-9 >= beatTime) {
       this.beatAcc -= beatTime;
       if (this.beat >= span) this.beat = 0;
-      this.activateSlot(this.beat);
+      this.activationPipeline.activate(this.beat);
       this.beat++;
       if (this.beat >= span) {
         this.beat = 0;
@@ -2566,113 +2601,7 @@ export class Simulation {
     if (this.phenomenonCasts.cast(id, st, slot, src)) return;
     this.statefulPhenomenonCasts.cast(id, st, slot, src);
   }
-  private activateSlot(slot: number) {
-    const lastSlot = this.activeSpan() - 1,
-      id = this.slots[slot];
-    if (!id) {
-      return;
-    }
-    const st = this.skillsRuntime.get(id);
-    if (!st) return;
-
-    // A compatible physical Catalyst owns the right node completely. B is a payload of A,
-    // not an independent clocked cast. This must hold across cycle boundaries: a slow projectile
-    // may reach its terminal long after the beat that armed the edge.
-    const incomingPhysical = this.incomingCatalyst(slot),
-      producerSkill = slot > 0 ? this.slots[slot - 1] : undefined;
-    if (
-      this.physicalActivations.isPhysicalCatalyst(incomingPhysical) &&
-      producerSkill &&
-      catalystPairCompatible(incomingPhysical, producerSkill, id)
-    )
-      return;
-
-    this.activation.begin(slot);
-    const activationId = this.beginPhysicalActivation(slot, id);
-    this.choreography.begin(id, { x: this.px, z: this.pz }, this.aimX, this.aimZ);
-
-    const incoming = this.incomingCatalyst(slot);
-
-    // Catalyst 1.x is compatibility-only and isolated from the live physical pipeline.
-    const oldAimX = this.aimX,
-      oldAimZ = this.aimZ,
-      legacyBefore = this.legacyCatalysts.beforeCast({
-        catalyst: incoming,
-        slot,
-        conductivity: this.resonance.conductivity,
-        previous: this.activation.context,
-        aimX: this.aimX,
-        aimZ: this.aimZ,
-        activationScale: this.activation.scale,
-        activationCountBonus: this.activation.countBonus
-      });
-    this.aimX = legacyBefore.aimX;
-    this.aimZ = legacyBefore.aimZ;
-    this.activation.scale = legacyBefore.activationScale;
-    this.activation.countBonus = legacyBefore.activationCountBonus;
-
-    this.metrics.activations++;
-    // Catalyst 2.x no longer teleports B on this beat. A's live lifecycle owns when/where B fires.
-    this.castWithTrace(id, st, slot, this.heroSource());
-
-    this.aimX = oldAimX;
-    this.aimZ = oldAimZ;
-
-    this.legacyCatalysts.afterCast({
-      catalyst: incoming,
-      slot,
-      skill: id,
-      runtime: st,
-      conductivity: this.resonance.conductivity,
-      previous: this.activation.context,
-      currentHits: this.activation.hits,
-      currentKills: this.activation.kills
-    });
-
-    let cx = this.px,
-      cz = this.pz;
-    if (this.activation.hits.size) {
-      const ts = [...this.activation.hits]
-        .map((eid) => this.entityStore.get(eid))
-        .filter(Boolean) as Ent[];
-      if (ts.length) {
-        cx = ts.reduce((a, e) => a + e.x, 0) / ts.length;
-        cz = ts.reduce((a, e) => a + e.z, 0) / ts.length;
-      }
-    }
-
-    const trace = this.choreography.finish(),
-      physicalOrigin = trace?.origin ?? { x: this.px, z: this.pz };
-    this.physical.setLastPoint(activationId, { ...physicalOrigin });
-    this.physicalActivations.armOutgoing(slot, id, activationId, physicalOrigin);
-    this.physicalActivations.publishImmediate(id, slot, activationId, trace);
-    this.flushPhysicalEvents();
-    const previous = this.activation.publishContext(id, cx, cz, trace);
-
-    this.legacyCatalysts.afterContextPublished({
-      catalyst: incoming,
-      slot,
-      conductivity: this.resonance.conductivity,
-      previous,
-      targetX: cx,
-      targetZ: cz
-    });
-
-    if (slot === lastSlot) this.activation.clearContext(this.px, this.pz);
-    this.activation.end();
-    this.physical.currentActivationId = 0;
-    this.choreography.clear();
-  }
-
-
-
-  private beginPhysicalActivation(slot: number, skill: SkillId, origin: ChoreographyPoint = { x: this.px, z: this.pz }) {
-    return this.physical.begin(slot, skill, origin);
-  }
-
-
-
-  private registerAsyncPhysical(activationId: number) {
+  private registerAsyncPhysical(activationId: number) {  private registerAsyncPhysical(activationId: number) {
     this.physical.registerAsync(activationId);
   }
 
@@ -2688,50 +2617,7 @@ export class Simulation {
 
 
 
-  private castCatalystPayload(
-    binding: CatalystBinding,
-    x: number,
-    z: number,
-    aimX?: number,
-    aimZ?: number
-  ) {
-    const st = this.skillsRuntime.get(binding.toSkill);
-    if (!st) return false;
-    const activationFrame = this.activation.suspend(),
-      previousActivationId = this.physical.currentActivationId,
-      previousChoreography = this.choreography.suspend();
-    this.activation.begin(binding.toSlot, true);
-    const src = this.choreographySource(x, z, aimX, aimZ),
-      activationId = this.beginPhysicalActivation(binding.toSlot, binding.toSkill, { x: src.x, z: src.z });
-    this.physical.currentActivationId = activationId;
-    if(binding.toSkill==='orbit_blades') this.setOrbitChoreography(src.x,src.z);
-    this.choreography.begin(binding.toSkill, { x: src.x, z: src.z }, src.aimX, src.aimZ);
-    this.metrics.activations++;
-    this.castWithTrace(binding.toSkill, st, binding.toSlot, src);
-    const trace = this.choreography.finish(),
-      physicalOrigin = trace?.origin ?? {x:src.x,z:src.z};
-    this.physical.setLastPoint(activationId,{...physicalOrigin});
-    this.physicalActivations.armOutgoing(
-      binding.toSlot,
-      binding.toSkill,
-      activationId,
-      physicalOrigin
-    );
-    this.physicalActivations.publishImmediate(binding.toSkill, binding.toSlot, activationId, trace);
-
-    this.activation.restore(activationFrame);
-    this.physical.currentActivationId = previousActivationId;
-    this.choreography.resume(previousChoreography);
-    return true;
-  }
-
-
-
-
-
-
-
-  private flushPhysicalEvents() {
+  private flushPhysicalEvents() {  private flushPhysicalEvents() {
     this.physical.flush(
       (binding, event) => this.physicalCatalysts.handle(binding, event),
       (activationId) => this.constructs.some((construct) => construct.activationId === activationId)
