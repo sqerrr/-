@@ -16,7 +16,7 @@ let u32 = 100;
 const intQueue: number[] = [];
 const floatQueue: number[] = [];
 const slots = ['rail_spear', 'toxic_mist', 'cleaver', null] as const;
-const resonanceLevels = { tempo: 2, multiplicity: 1, precision: 0, persistence: 0, conductivity: 3 };
+const resonanceLevels = { tempo: 2, multiplicity: 1, precision: 0, persistence: 0, conductivity: 3, mobility: 0 };
 const doctrineLevels = {
   might: 2, size: 0, quantity: 1, duration: 0,
   mobility: 0, guard: 3, force: 0, precision: 1
@@ -106,9 +106,9 @@ assert(global.kind === 'global' && global.stat === 'hp' && global.title === 'Ð—Ð
 assert(global.amount && global.amount > 0, 'global HP reward lost amount');
 assert(
   calls.length === 3 &&
-  calls[0] === 'int:4' &&
-  calls[1] === 'float' &&
-  calls[2] === 'u32',
+  String(calls[0]) === 'int:4' &&
+  String(calls[1]) === 'float' &&
+  String(calls[2]) === 'u32',
   'global reward RNG cadence changed'
 );
 
