@@ -306,15 +306,19 @@ assert(rewardOfferFactory.includes('export class RewardOfferFactory'),
 assert(simulation.includes('private rewardOfferFactory!: RewardOfferFactory'),
   'Simulation no longer delegates reward card construction');
 for (const call of [
-  'this.rewardOfferFactory.catalystAdd(id)',
-  'this.rewardOfferFactory.resonance(id)',
-  'this.rewardOfferFactory.skillAdd(id)',
-  'this.rewardOfferFactory.skillSwap(id)',
-  'this.rewardOfferFactory.doctrine(id)',
-  'this.rewardOfferFactory.global()'
+  'this.factory.catalystAdd(id)',
+  'this.factory.resonance(id)',
+  'this.factory.skillAdd(id)',
+  'this.factory.skillSwap(id)',
+  'this.factory.doctrine(id)',
+  'this.factory.global()',
+  'this.factory.mutationTarget(',
+  'this.factory.eliteCatalyst(id)',
+  'this.factory.eliteResonance(id)',
+  'this.factory.eliteSkill(id)'
 ])
-  assert(simulation.includes(call),
-    'reward construction no longer routes through RewardOfferFactory: '+call);
+  assert(progressionOfferSystem.includes(call),
+    'progression selection no longer delegates card construction to RewardOfferFactory: '+call);
 for (const method of [
   'fmtSkillStat','axisLabel','statLabel','rollRarity','rollItemId',
   'makeResonanceOffer','makeGlobalOffer','makeCatalystAdd',
