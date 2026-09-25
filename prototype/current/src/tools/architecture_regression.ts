@@ -35,6 +35,7 @@ const eliteAffix=readFileSync('src/core/eliteAffixSystem.ts','utf8');
 const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
 const enemyBehavior=readFileSync('src/core/enemyBehaviorSystem.ts','utf8');
 const enemyDamageModifier=readFileSync('src/core/enemyDamageModifierSystem.ts','utf8');
+const playerDamageSystem=readFileSync('src/core/playerDamageSystem.ts','utf8');
 const stateModel=readFileSync('src/core/state.ts','utf8');
 const testHarness=readFileSync('src/testing/simulationHarness.ts','utf8');
 const statusSystem=readFileSync('src/core/statusSystem.ts','utf8');
@@ -161,6 +162,34 @@ for (const token of [
 ])
   assert(!enemyDamageBlock.includes(token),
     'incoming modifier policy leaked back into Simulation.damage: '+token);
+assert(playerDamageSystem.includes('export class PlayerDamageSystem'),
+  'resolved player damage has no dedicated owner');
+assert(simulation.includes('private playerDamage!: PlayerDamageSystem'),
+  'Simulation no longer delegates resolved player damage');
+const hitPlayerBlock=simulation.slice(
+  simulation.indexOf('  private hitPlayer('),
+  simulation.indexOf('  private grantBarrier(', simulation.indexOf('  private hitPlayer('))
+);
+assert(hitPlayerBlock.includes('this.playerDamage.hit(amount, attacker, source)'),
+  'hitPlayer compatibility entry no longer delegates to PlayerDamageSystem');
+for (const token of [
+  'dashIFramesUntil','dashWindowSaved','damageToHeroBySource',
+  'itemDamageTakenMul','Math.pow(0.94','barrierDamage','PlayerHit'
+])
+  assert(!hitPlayerBlock.includes(token),
+    'player mitigation policy leaked back into Simulation.hitPlayer: '+token);
+const damageHeroBlock=simulation.slice(
+  simulation.indexOf('  private damageHero('),
+  simulation.indexOf('  private cleanup()', simulation.indexOf('  private damageHero('))
+);
+assert(damageHeroBlock.includes('this.playerDamage.damageFromRival('),
+  'rival damage compatibility entry no longer delegates to PlayerDamageSystem');
+for (const token of [
+  'itemRefusalDamageMul','relicCritChance','relicCastMul',
+  'groundRelicCastMul','relicSiphon','rivalAxisCount'
+])
+  assert(!damageHeroBlock.includes(token),
+    'rival damage policy leaked back into Simulation.damageHero: '+token);
 for (const method of [
   'castBreachLine','castContactSaw','castBackhand','castSpreadingFront','castShardFan','castTetherDrag','castPinBurst',
   'castEmber','castFrost','castRail','castToxic',
@@ -401,6 +430,7 @@ console.log('architecture-regression OK', {
   bossBehaviorSystem:true,
   enemyBehaviorSystem:true,
   enemyDamageModifierSystem:true,
+  playerDamageSystem:true,
   statusSystem:true,
   entityComponents:true,
   typedTestHarness:true
