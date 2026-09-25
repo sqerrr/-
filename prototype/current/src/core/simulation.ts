@@ -34,6 +34,7 @@ import { EliteAffixSystem } from './eliteAffixSystem.js';
 import { EliteBehaviorSystem } from './eliteBehaviorSystem.js';
 import { EliteDamageResponseSystem } from './eliteDamageResponseSystem.js';
 import { EliteEchoSystem } from './eliteEchoSystem.js';
+import { EliteEncounterLedger } from './eliteEncounterLedger.js';
 import { EliteProgressionSystem } from './eliteProgressionSystem.js';
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
 import { EnemyDamageModifierSystem } from './enemyDamageModifierSystem.js';
@@ -461,9 +462,7 @@ export class Simulation {
    * the reach of the longest phenomenon, so the measure tracks time the hero could actually
    * be hitting it. Diagnostic only - nothing in the simulation branches on this.
    */
-  /** Next moment each elite may field a refusal, keyed by entity id. */
-  private eliteLog: EliteEncounter[] = [];
-  private eliteLogById = new Map<number, EliteEncounter>();
+  private eliteEncountersLedger = new EliteEncounterLedger();
   /** Held only for the length of a rival cast, so its damage can be charged to its owner. */
   private castOwner: Ent | null = null;
   private castRivalConcentration = 1;
@@ -480,7 +479,7 @@ export class Simulation {
     this.combatLedger = new CombatLedger({
       time: () => this.time,
       metrics: () => this.metrics,
-      eliteEncounter: (entityId) => this.eliteLogById.get(entityId),
+      eliteEncounter: (entityId) => this.eliteEncountersLedger.get(entityId),
       slotIndex: (skill) => this.slots.indexOf(skill)
     });
     this.eliteProgression = new EliteProgressionSystem({
@@ -523,11 +522,7 @@ export class Simulation {
       emit: (event) => this.events.push(event),
       noteRivalCast: (entity, skill) => {
         this.metrics.rivalCasts++;
-        const record = this.eliteLogById.get(entity.id);
-        if (record) {
-          record.casts++;
-          record.castSkills[skill] = (record.castSkills[skill] ?? 0) + 1;
-        }
+        this.eliteEncountersLedger.noteRivalCast(entity.id, skill);
       }
     });
     this.relicRace = new RelicRaceSystem({
@@ -777,7 +772,7 @@ export class Simulation {
       },
       metrics: () => this.metrics,
       entities: () => this.ents,
-      eliteEncounter: (entityId) => this.eliteLogById.get(entityId),
+      eliteEncounter: (entityId) => this.eliteEncountersLedger.get(entityId),
       randomFloat: () => this.rng.float(),
       rivalAxisCount: (entity, axis) => this.rivalAxisCount(entity, axis),
       emit: (event) => this.events.push(event)
@@ -1023,11 +1018,7 @@ export class Simulation {
         this.releaseRepertoire(entity);
         this.grantBarrier(this.itemBarrierOnEliteKill);
         this.eliteCore += this.itemCoreBonus;
-        const record = this.eliteLogById.get(entity.id);
-        if (record) {
-          record.endedAt = this.time;
-          record.killed = true;
-        }
+        this.eliteEncountersLedger.finish(entity.id, this.time, true);
       },
       emit: (event) => this.events.push(event),
       markBossDefeated: () => {
@@ -1864,15 +1855,7 @@ export class Simulation {
       this.dashReadyAt = this.dashUntil + Simulation.DASH_COOLDOWN * this.dashCooldownMul;
       this.dashWindowSaved = false;
       this.metrics.dashes++;
-      for (const record of this.eliteLog) {
-        if (
-          record.engagedAt >= 0 &&
-          record.endedAt < 0 &&
-          record.lastExchangeAt >= 0 &&
-          this.time - record.lastExchangeAt <= 2
-        )
-          record.dashes++;
-      }
+      this.eliteEncountersLedger.noteDash(this.time);
     }
     if (this.time < this.dashUntil) {
       this.moveAmount = 1;
@@ -2136,45 +2119,16 @@ export class Simulation {
    * wanders off and comes back, and the clock keeps running through the gap.
    */
   private noteEliteContact(e: Ent, _d: number) {
-    const record = this.eliteLogById.get(e.id);
-    if (!record || record.engagedAt < 0 || record.lastExchangeAt < 0) return;
-    // D49 is time actually spent exchanging blows, not time an elite happens to stand in
-    // an arbitrary 11 m circle while the hero is occupied by the crowd. A 1.6 s grace
-    // bridges normal weapon cadences without counting long disengages.
-    if (this.time - record.lastExchangeAt <= 1.6) record.contactTime += this.dt;
+    this.eliteEncountersLedger.noteContact(e.id, this.time, this.dt);
   }
+
   private noteEliteSpawn(e: Ent) {
-    const record: EliteEncounter = {
-      id: e.id,
-      // Only ever called from spawnElite, where the chassis is already chosen.
-      chassis: e.chassis!,
-      rarity: e.rarity,
-      spawnedAt: this.time,
-      engagedAt: -1,
-      contactTime: 0,
-      endedAt: -1,
-      killed: false,
-      repertoire: e.repertoire.length,
-      casts: 0,
-      castSkills: {},
-      damageToHero: 0,
-      damageFromHero: 0,
-      lastExchangeAt: -1,
-      damageFromHeroByNode: {},
-      damageToHeroBySource: {},
-      refusalDamageToHero: 0,
-      itemAmplifiedDamage: 0,
-      itemsTaken: [],
-      dashes: 0,
-      dashIFrameSaves: 0
-    };
-    this.eliteLog.push(record);
-    this.eliteLogById.set(e.id, record);
+    this.eliteEncountersLedger.start(e, this.time);
   }
 
   /** D52: every elite fight of the run, for calibrating the D49 target length. */
   eliteEncounters(): EliteEncounter[] {
-    return this.eliteLog;
+    return this.eliteEncountersLedger.all();
   }
 
   private spawnElite(opening = false) {
@@ -2486,8 +2440,7 @@ export class Simulation {
     const def = items[r.item];
     this.metrics.relicsTakenByElites++;
     this.eliteProgression.recordCapturedRelic(e, r.item);
-    const record = this.eliteLogById.get(e.id);
-    if (record) record.itemsTaken.push(r.item);
+    this.eliteEncountersLedger.noteItem(e.id, r.item);
     this.events.push({
       type: 'RelicTaken',
       tick: this.tick,
