@@ -1,4 +1,5 @@
 import { Simulation } from '../core/simulation.js';
+import { SimulationHarness } from '../testing/simulationHarness.js';
 
 function assert(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error('crowd-build-elite-regression: ' + message);
@@ -6,28 +7,30 @@ function assert(ok: unknown, message: string): asserts ok {
 const near=(a:number,b:number,eps=0.08)=>Math.abs(a-b)<=eps*Math.max(1,Math.abs(b));
 
 // Quantity is a real power axis: parallel rail lanes keep full base power.
-const rail:any=new Simulation({seed:91001,hz:60,benchmark:true,mode:'clean'});
+const railHarness=SimulationHarness.create({seed:91001,hz:60,benchmark:true,mode:'clean'});
+const rail:any=railHarness.sim;
 rail.configureBenchmarkLoadout({slots:['rail_spear'],catalysts:[],level:1,globalPower:0,skillPower:0,skillCoverage:0,skillRange:0});
 const rst=rail.skillsRuntime.get('rail_spear'); rst.crit=0; rst.count=1; rail.resonance.multiplicity=0;
 const target:any={id:1,kind:'footnote',hp:1e9,maxHp:1e9,x:6,z:0,radius:.4,markUntil:0,embedded:0,exposedUntil:0};
 const railAmounts:number[]=[];
 rail.rayHits=()=>[{e:target,t:1}];
 rail.damage=(_e:any,amount:number)=>{railAmounts.push(amount);return false;};
-rail.doctrines.quantity=0; rail.castRail(rst,0,rail.heroSource());
+rail.doctrines.quantity=0; railHarness.castSkill('rail_spear',rst,0,railHarness.heroSource());
 const railBase=railAmounts.reduce((a,b)=>a+b,0), baseRays=railAmounts.length;
-railAmounts.length=0; rail.doctrines.quantity=4; rail.castRail(rst,0,rail.heroSource());
+railAmounts.length=0; rail.doctrines.quantity=4; railHarness.castSkill('rail_spear',rst,0,railHarness.heroSource());
 const railWide=railAmounts.reduce((a,b)=>a+b,0), wideRays=railAmounts.length;
 assert(baseRays===1&&wideRays===3,`rail quantity rays ${baseRays}->${wideRays}`);
 assert(railWide>=railBase*2.9,`rail count still carries hidden damage tax: ${railBase}->${railWide}`);
 
 // Mortar count creates full-strength nearby impacts rather than normalized copies.
-const mortar:any=new Simulation({seed:91002,hz:60,benchmark:true,mode:'clean'});
+const mortarHarness=SimulationHarness.create({seed:91002,hz:60,benchmark:true,mode:'clean'});
+const mortar:any=mortarHarness.sim;
 mortar.configureBenchmarkLoadout({slots:['mortar_bloom'],catalysts:[],level:1,globalPower:0,skillPower:0,skillCoverage:0,skillRange:0});
 const mst=mortar.skillsRuntime.get('mortar_bloom'); mst.count=1; mortar.resonance.multiplicity=0;
 const strikes:any[]=[]; mortar.scheduleStrike=(q:any)=>strikes.push(q);
-mortar.doctrines.quantity=0; mortar.castMortar(mst,0,mortar.heroSource());
+mortar.doctrines.quantity=0; mortarHarness.castSkill('mortar_bloom',mst,0,mortarHarness.heroSource());
 const mortarBase=strikes.reduce((a,q)=>a+q.damage,0), baseMortars=strikes.length;
-strikes.length=0; mortar.doctrines.quantity=4; mortar.castMortar(mst,0,mortar.heroSource());
+strikes.length=0; mortar.doctrines.quantity=4; mortarHarness.castSkill('mortar_bloom',mst,0,mortarHarness.heroSource());
 const mortarWide=strikes.reduce((a,q)=>a+q.damage,0), wideMortars=strikes.length;
 assert(baseMortars===1&&wideMortars===3,`mortar quantity impacts ${baseMortars}->${wideMortars}`);
 assert(mortarWide>=mortarBase*2.9,`mortar count still carries hidden damage tax: ${mortarBase}->${mortarWide}`);
@@ -42,10 +45,11 @@ assert(ob.count===3&&og.count===6,`orbit blade count ${ob.count}->${og.count}`);
 assert(near(og.hitInterval,ob.hitInterval/2,0.12),`orbit contact cadence is not near-linear: ${ob.hitInterval}->${og.hitInterval}`);
 
 // Sentry is a chain-cycle deployment, not a permanent bunker, and inherits the build's power.
-const sentry:any=new Simulation({seed:91004,hz:60,benchmark:true,mode:'clean'});
+const sentryHarness=SimulationHarness.create({seed:91004,hz:60,benchmark:true,mode:'clean'});
+const sentry:any=sentryHarness.sim;
 sentry.configureBenchmarkLoadout({slots:['sentry'],catalysts:[],level:1,globalPower:1,skillPower:0,skillDuration:0});
 const sst=sentry.skillsRuntime.get('sentry');
-sentry.castSentry(sst,0,sentry.heroSource());
+sentryHarness.castSkill('sentry',sst,0,sentryHarness.heroSource());
 assert(sentry.constructs.length===1,'base sentry cast did not deploy exactly one turret');
 assert(sentry.constructs[0].ttl>=4.5&&sentry.constructs[0].ttl<=6.5,`base sentry should preserve several recent Chain waves without becoming permanent: ${sentry.constructs[0].ttl}`);
 assert(sentry.constructs[0].power>1.9,`sentry did not inherit run power: ${sentry.constructs[0].power}`);
