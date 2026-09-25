@@ -52,6 +52,7 @@ import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { PhenomenonCastSystem } from './phenomenonCastSystem.js';
 import { PhenomenonKillReactionSystem } from './phenomenonKillReactionSystem.js';
 import { PlayerDamageSystem } from './playerDamageSystem.js';
+import { PoiSystem } from './poiSystem.js';
 import { PlayerMovementSystem } from './playerMovementSystem.js';
 import { ProjectileSystem } from './projectileSystem.js';
 import { ProgressionOfferSystem } from './progressionOfferSystem.js';
@@ -251,6 +252,7 @@ export class Simulation {
   private relicRace!: RelicRaceSystem;
   private rewardOfferFactory!: RewardOfferFactory;
   private progressionOffers!: ProgressionOfferSystem;
+  private poiSystem!: PoiSystem;
   private phenomenonCasts!: PhenomenonCastSystem;
   private phenomenonKillReactions!: PhenomenonKillReactionSystem;
   private playerDamage!: PlayerDamageSystem;
@@ -309,7 +311,9 @@ export class Simulation {
   private worldRng!: Rng;
   private static readonly OBSTACLE_CELL = 8;
   static readonly HERO_BODY_RADIUS = 0.42;
-  private pois: Poi[] = [];
+  /** Compatibility view; POI ownership lives in PoiSystem. */
+  private get pois(): Poi[] { return this.poiSystem.all; }
+  private set pois(value: Poi[]) { this.poiSystem.replace(value); }
   private bossSpawned = false;
   private bossDefeated = false;
   private skillsRuntime = new Map<SkillId, SkillRuntime>();
@@ -550,6 +554,24 @@ export class Simulation {
       },
       this.rewardOfferFactory
     );
+    this.poiSystem = new PoiSystem({
+      tick: () => this.tick,
+      bossSpawned: () => this.bossSpawned,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      maxHp: () => this.maxHp,
+      hasChoice: () => this.choiceRuntime.hasChoice,
+      hasUnownedSkills: () => this.progressionOffers.hasUnownedSkills(),
+      emit: (event) => this.events.push(event),
+      healPlayer: (amount) => this.healPlayer(amount),
+      grantBarrier: (amount) => this.grantBarrier(amount),
+      openPhenomenonDiscovery: () =>
+        this.choiceRuntime.openRewards(this.progressionOffers.discovery()),
+      openCatalystDiscovery: () =>
+        this.choiceRuntime.openRewards(this.progressionOffers.catalystDiscovery()),
+      openResonanceChoice: () =>
+        this.choiceRuntime.openRewards(this.progressionOffers.resonanceChoice())
+    });
     this.playerMovement = new PlayerMovementSystem({
       time: () => this.time,
       dt: () => this.dt,
@@ -1658,19 +1680,7 @@ export class Simulation {
   }
 
   private initPois() {
-    // Build sources are intentionally distributed around the opening instead of hiding the
-    // whole run behind two far-away weapon nodes. The exact rewards stay random; the route to
-    // *a* build decision must be visible and reachable from several directions.
-    this.pois = [
-      { id: 1, kind: 'phenomenon', x: 14, z: -7, state: 'dormant', guardianId: 0 },
-      { id: 2, kind: 'catalyst', x: -19, z: 9, state: 'dormant', guardianId: 0 },
-      { id: 3, kind: 'resonance', x: -34, z: -23, state: 'dormant', guardianId: 0 },
-      { id: 4, kind: 'vital', x: 2, z: 29, state: 'dormant', guardianId: 0 },
-      { id: 5, kind: 'phenomenon', x: 34, z: 21, state: 'dormant', guardianId: 0 },
-      { id: 6, kind: 'catalyst', x: 35, z: -23, state: 'dormant', guardianId: 0 },
-      { id: 7, kind: 'phenomenon', x: -9, z: 15, state: 'dormant', guardianId: 0 },
-      { id: 8, kind: 'vital', x: -23, z: -14, state: 'dormant', guardianId: 0 }
-    ];
+    this.poiSystem.initialize();
   }
   private clampWorld() {
     this.px = Math.max(this.world.minX + 0.7, Math.min(this.world.maxX - 0.7, this.px));
@@ -1704,61 +1714,11 @@ export class Simulation {
     };
   }
   private updatePoiDirector() {
-    if (this.bossSpawned) return;
-    for (const p of this.pois) {
-      if (p.state !== 'dormant') continue;
-      if (Math.hypot(this.px - p.x, this.pz - p.z) <= 3.0) {
-        p.state = 'guarded';
-        p.guardianId = 0;
-        this.events.push({
-          type: 'PoiAwakened',
-          tick: this.tick,
-          poi: p.id,
-          kind: p.kind,
-          x: p.x,
-          z: p.z,
-          guardian: 0
-        });
-        this.completePoi(p.id);
-      }
-    }
+    this.poiSystem.update();
   }
 
   private completePoi(id: number) {
-    const p = this.pois.find((q) => q.id === id);
-    if (!p || p.state === 'cleared') return;
-    p.state = 'cleared';
-    p.guardianId = 0;
-    this.events.push({
-      type: 'PoiCleared',
-      tick: this.tick,
-      poi: p.id,
-      kind: p.kind,
-      x: p.x,
-      z: p.z
-    });
-    if (p.kind === 'vital') {
-      this.healPlayer(Math.max(45, this.maxHp * 0.42));
-      this.grantBarrier(20);
-      return;
-    }
-    if (this.hasChoice) return;
-    if (p.kind === 'phenomenon') {
-      if (this.progressionOffers.hasUnownedSkills()) this.generateDiscovery();
-      else this.generateResonanceChoice();
-      return;
-    }
-    if (p.kind === 'catalyst') {
-      this.generateCatalystDiscovery();
-      return;
-    }
-    this.generateResonanceChoice();
-  }
-  private generateCatalystDiscovery() {
-    this.choiceRuntime.openRewards(this.progressionOffers.catalystDiscovery());
-  }
-  private generateResonanceChoice() {
-    this.choiceRuntime.openRewards(this.progressionOffers.resonanceChoice());
+    return this.poiSystem.complete(id);
   }
   private bossDirector() {
     if (this.encounterDirector.shouldSpawnBoss(this.time, this.runDuration, this.bossSpawned))
