@@ -1,6 +1,5 @@
 import {
   activeSkillOrder,
-  catalysts,
   catalystPairCompatible,
   doctrines,
   effectGrammar,
@@ -2704,10 +2703,6 @@ export class Simulation {
       serial: card.serial
     });
   }
-  private refusalFromOffer(o: RewardOffer): RefusedCard | null {
-    return this.refusalLedger.fromOffer(o);
-  }
-
   private applyCoreAxis(axis: ResonanceId, amount = 1) {
     this.resonance[axis] += amount;
     if (axis === 'mobility') this.moveSpeed *= 1 + 0.045 * amount;
