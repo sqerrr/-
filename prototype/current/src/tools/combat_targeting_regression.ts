@@ -79,6 +79,8 @@ const rivalSource: CastSource = {
 {
   let targets = system.targetsFor(rivalSource);
   assert(targets.length === 1, 'rival cast gained more than one player target');
+  assert(system.isSyntheticHero(targets[0]),
+    'rival target lost synthetic-hero identity contract');
   assert(
     targets[0].x === 2 &&
     targets[0].z === -1 &&
