@@ -1,6 +1,5 @@
 import {
   activeSkillOrder,
-  catalysts,
   catalystPairCompatible,
   doctrines,
   effectGrammar,
@@ -59,6 +58,7 @@ import { ProjectileSystem } from './projectileSystem.js';
 import { ProgressionOfferSystem } from './progressionOfferSystem.js';
 import { RelicRaceSystem } from './relicRaceSystem.js';
 import { RewardOfferFactory } from './rewardOfferFactory.js';
+import { RefusalLedger } from './refusalLedger.js';
 import { Rng } from './rng.js';
 import { SquadDirector } from './squadDirector.js';
 import { StatefulPhenomenonCastSystem } from './statefulPhenomenonCastSystem.js';
@@ -371,17 +371,12 @@ export class Simulation {
   private get pendingMutationTarget() { return this.choiceRuntime.pendingMutationTarget; }
   private set pendingMutationTarget(value: boolean) { this.choiceRuntime.pendingMutationTarget = value; }
 
-  /**
-   * Cards the hero declined, in concession order. Elites draw their repertoire from here,
-   * and D11 returns a dead elite's cards to the same store rather than destroying them.
-   */
-  private refusalStore: RefusedCard[] = [];
-  private refusalSerial = 0;
-  /**
-   * Dedicated stream for deciding which declined card is conceded. Keeping it apart from
-   * the combat stream means recording a refusal can never perturb the fight.
-   */
-  private refusalRng: Rng;
+  private refusalLedger!: RefusalLedger;
+  /** Compatibility view for systems/snapshots that consume the live refusal records. */
+  private get refusalStore() { return this.refusalLedger.all(); }
+  private set refusalStore(value: RefusedCard[]) { this.refusalLedger.replace(value); }
+  private get refusalSerial() { return this.refusalLedger.serialValue; }
+  private set refusalSerial(value: number) { this.refusalLedger.serialValue = value; }
   /** All rival capability now comes from effectGrammar; there is no code-side allowlist. */
   /**
    * How far a phenomenon actually reaches from whoever owns it. Ranged work carries
@@ -397,25 +392,6 @@ export class Simulation {
    */
   /** D28: a phenomenon forks three ways. */
   static readonly MUTATION_BRANCHES = 3;
-  /**
-   * Every direction of growth used to be drawn as the same letter on an elite, so six
-   * different things the hero turned down were indistinguishable once they were being
-   * used against him.
-   */
-  static readonly AXIS_GLYPH: Record<string, string> = {
-    tempo: 'ТЕМП',
-    multiplicity: 'ЧИСЛ',
-    precision: 'ТОЧН',
-    persistence: 'СРОК',
-    conductivity: 'ПРОВ',
-    mobility: 'ПОДВ'
-  };
-  static readonly STAT_GLYPH: Record<string, string> = {
-    hp: 'ЗДОР',
-    pickup: 'СБОР',
-    fortune: 'УДАЧ',
-    armor: 'БРОН'
-  };
   private static rivalReach(id: SkillId): number {
     const def = skills[id];
     return Math.max(def.baseRange ?? 0, def.baseRadius ?? 0);
@@ -435,7 +411,8 @@ export class Simulation {
     this.dt = 1 / cfg.hz;
     this.rng = new Rng(cfg.seed);
     this.encounterDirector = new EncounterDirector(this.rng);
-    this.refusalRng = new Rng((cfg.seed ^ 0x5bf03635) >>> 0);
+    const refusalRng = new Rng((cfg.seed ^ 0x5bf03635) >>> 0);
+    this.refusalLedger = new RefusalLedger((maxExclusive) => refusalRng.int(maxExclusive));
     this.worldRng = new Rng((cfg.seed ^ 0x27d4eb2f) >>> 0);
     this.relicRng = new Rng((cfg.seed ^ 0x6a09e667) >>> 0);
     this.worldGeometry = new WorldGeometrySystem(this.world, {
@@ -551,7 +528,7 @@ export class Simulation {
       {
         randomInt: (maxExclusive) => this.rng.int(maxExclusive),
         randomFloat: () => this.rng.float(),
-        refusalInt: (maxExclusive) => this.refusalRng.int(maxExclusive),
+        refusalInt: (maxExclusive) => this.refusalLedger.pickIndex(maxExclusive),
         slots: () => this.slots,
         skillReserve: () => this.skillReserve,
         catalysts: () => this.catalysts,
@@ -2719,15 +2696,8 @@ export class Simulation {
    * rest simply remain in the pool. D53 applies the same rule to a skipped reward.
    */
   private concedeRefusal(passed: RewardOffer[]) {
-    const cards = passed.map((o) => this.refusalFromOffer(o)).filter((c): c is RefusedCard => !!c);
-    if (!cards.length) return;
-    // The hero was shown which card the elites were waiting for; honour that if he left
-    // it, and fall back to chance only when he denied them by taking it himself.
-    const wanted = passed.findIndex((o) => o.marked);
-    const card =
-      wanted >= 0 && cards[wanted] ? cards[wanted] : cards[this.refusalRng.int(cards.length)];
-    card.serial = ++this.refusalSerial;
-    this.refusalStore.push(card);
+    const card = this.refusalLedger.concede(passed);
+    if (!card) return;
     this.events.push({
       type: 'RewardRefused',
       tick: this.tick,
@@ -2735,35 +2705,6 @@ export class Simulation {
       kind: card.kind,
       serial: card.serial
     });
-  }
-  private refusalFromOffer(o: RewardOffer): RefusedCard | null {
-    const base = { serial: 0, title: o.title, heldBy: 0 };
-    if (o.skill) return { ...base, kind: 'skill', icon: skills[o.skill].icon, skill: o.skill };
-    if (o.catalyst)
-      return {
-        ...base,
-        kind: 'catalyst',
-        icon: catalysts[o.catalyst].shortName,
-        catalyst: o.catalyst
-      };
-    if (o.item) return { ...base, kind: 'item', icon: items[o.item].short, item: o.item };
-    if (o.resonance)
-      return {
-        ...base,
-        kind: 'axis',
-        icon: Simulation.AXIS_GLYPH[o.resonance] ?? o.resonance.slice(0, 3).toUpperCase(),
-        resonance: o.resonance,
-        amount: o.amount ?? 1
-      };
-    if (o.stat)
-      return {
-        ...base,
-        kind: 'global',
-        icon: Simulation.STAT_GLYPH[o.stat] ?? o.stat.slice(0, 3).toUpperCase(),
-        stat: o.stat,
-        amount: o.amount ?? 0
-      };
-    return null;
   }
   private applyCoreAxis(axis: ResonanceId, amount = 1) {
     this.resonance[axis] += amount;

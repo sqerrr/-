@@ -23,6 +23,7 @@ const combatLedger=readFileSync('src/core/combatLedger.ts','utf8');
 const combatTargeting=readFileSync('src/core/combatTargetingSystem.ts','utf8');
 const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
 const rewardOfferFactory=readFileSync('src/core/rewardOfferFactory.ts','utf8');
+const refusalLedger=readFileSync('src/core/refusalLedger.ts','utf8');
 const progressionOfferSystem=readFileSync('src/core/progressionOfferSystem.ts','utf8');
 const poiSystem=readFileSync('src/core/poiSystem.ts','utf8');
 const worldGeometry=readFileSync('src/core/worldGeometrySystem.ts','utf8');
@@ -381,6 +382,22 @@ assert(simulation.includes('this.progressionOffers.hasUnownedSkills()'),
   'Phenomenon POI no longer asks progression policy about discoveries');
 assert(simulation.includes('this.progressionOffers.hasEvolvableSkill()'),
   'mutation-core progression no longer asks progression policy about eligibility');
+assert(refusalLedger.includes('export class RefusalLedger'),
+  'declined reward history has no dedicated owner');
+assert(simulation.includes('private refusalLedger!: RefusalLedger'),
+  'Simulation no longer delegates refusal history');
+assert(simulation.includes('private get refusalStore() { return this.refusalLedger.all(); }'),
+  'legacy refusal consumers no longer read the ledger-backed live view');
+assert(simulation.includes('this.refusalLedger.concede(passed)'),
+  'refusal concession no longer routes through RefusalLedger');
+assert(simulation.includes('this.refusalLedger.pickIndex(maxExclusive)'),
+  'elite-cache marking no longer shares the dedicated refusal selection stream');
+for (const token of [
+  'private refusalStore: RefusedCard[]','private refusalSerial =','private refusalRng:',
+  'static readonly AXIS_GLYPH','static readonly STAT_GLYPH','private refusalFromOffer('
+])
+  assert(!simulation.includes(token),
+    'refusal storage/presentation policy leaked back into Simulation: '+token);
 assert(rewardOfferFactory.includes('export class RewardOfferFactory'),
   'player-facing reward cards have no dedicated factory');
 assert(simulation.includes('private rewardOfferFactory!: RewardOfferFactory'),
@@ -677,6 +694,7 @@ console.log('architecture-regression OK', {
   combatLedger:true,
   combatTargetingSystem:true,
   relicRaceSystem:true,
+  refusalLedger:true,
   rewardOfferFactory:true,
   progressionOfferSystem:true,
   poiSystem:true,
