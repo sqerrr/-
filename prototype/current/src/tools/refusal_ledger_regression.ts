@@ -124,6 +124,14 @@ const global: RewardOffer = {
     'refusal ledger stopped exposing live heldBy ownership');
 }
 
+// Legacy fixtures may increment refusalSerial directly; the ledger seam must stay numeric/live.
+{
+  const before = ledger.serialValue;
+  ledger.serialValue++;
+  assert(ledger.serialValue === before + 1,
+    'refusal serial compatibility accessor stopped tracking ledger serial');
+}
+
 // Replacement is a compatibility seam for deterministic fixtures and keeps serial monotonic.
 {
   const existing = ledger.all().map((card) => ({ ...card }));
