@@ -28,6 +28,7 @@ import { SnapshotBuilder, type SnapshotBuilderInput } from './snapshotBuilder.js
 import { ChoreographyTraceSystem } from './choreographyTraceSystem.js';
 import { ChoiceRuntime } from './choiceRuntime.js';
 import { CombatLedger } from './combatLedger.js';
+import { CombatTargetingSystem } from './combatTargetingSystem.js';
 import { DeathResolutionSystem } from './deathResolutionSystem.js';
 import { DelayedStrikeSystem } from './delayedStrikeSystem.js';
 import { EncounterDirector } from './encounterDirector.js';
@@ -67,7 +68,6 @@ import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCir
 import {
   HERO_HIT_RADIUS,
   makeEnt,
-  makeHeroEnt,
   type CastFaction,
   type CastSource,
   type ChoreographyCarrier,
@@ -242,6 +242,7 @@ export class Simulation {
   private fieldSystem!: FieldSystem;
   private constructSystem!: ConstructSystem;
   private combatLedger!: CombatLedger;
+  private combatTargeting!: CombatTargetingSystem;
   private legacyCatalysts!: LegacyCatalystSystem;
   private orbitSystem!: OrbitSystem;
   private deathResolution!: DeathResolutionSystem;
@@ -265,9 +266,6 @@ export class Simulation {
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
   private get ents(): Ent[] { return this.entityStore.all; }
   private set ents(value: Ent[]) { this.entityStore.replace(value); }
-  // Synthetic combatant standing in for the player whenever a rival owns the cast.
-  // Deliberately kept OUT of `ents` so every existing loop keeps its exact behaviour.
-  private hero: Ent = makeHeroEnt();
   private pickups: Pickup[] = [];
   /** Compatibility view; ground relic ownership lives in RelicRaceSystem. */
   private get relics(): Relic[] { return this.relicRace.all; }
@@ -605,6 +603,20 @@ export class Simulation {
       metrics: () => this.metrics,
       eliteEncounter: (entityId) => this.eliteEncountersLedger.get(entityId),
       slotIndex: (skill) => this.slots.indexOf(skill)
+    });
+    this.combatTargeting = new CombatTargetingSystem({
+      entities: () => this.ents,
+      fields: () => this.fields,
+      player: () => ({
+        x: this.px,
+        z: this.pz,
+        hp: this.php,
+        maxHp: this.maxHp,
+        facingX: this.aimX,
+        facingZ: this.aimZ
+      }),
+      lineOfSight: (ax, az, bx, bz, margin) =>
+        this.lineOfSight(ax, az, bx, bz, margin)
     });
     this.eliteProgression = new EliteProgressionSystem({
       time: () => this.time,
@@ -2389,24 +2401,13 @@ export class Simulation {
     predicate: (entity: Ent) => boolean,
     compare: (candidate: Ent, best: Ent) => number
   ) {
-    let best: Ent | undefined;
-    for (const entity of this.targetsFor(src)) {
-      if (entity.hp <= 0 || !predicate(entity)) continue;
-      if (!best || compare(entity, best) < 0) best = entity;
-    }
-    return best;
+    return this.combatTargeting.bestTarget(src, predicate, compare);
   }
 
   private targetsFor(src: CastSource): Ent[] {
-    if (src.faction === 'hero') return this.ents;
-    this.hero.x = this.px;
-    this.hero.z = this.pz;
-    this.hero.hp = this.php;
-    this.hero.maxHp = this.maxHp;
-    this.hero.facingX = this.aimX;
-    this.hero.facingZ = this.aimZ;
-    return [this.hero];
+    return this.combatTargeting.targetsFor(src);
   }
+
   private rayHits(
     src: CastSource,
     ax: number,
@@ -2415,37 +2416,17 @@ export class Simulation {
     width: number,
     maxHits = 99
   ) {
-    const m=Math.hypot(ax,az)||1,
-      nx=ax/m,nz=az/m,
-      shape:CombatShape={kind:'ray',x:src.x,z:src.z,aimX:nx,aimZ:nz,range,halfWidth:width},
-      hits:{ e:Ent;t:number;lat:number }[]=[];
-    for(const e of this.targetsFor(src)){
-      if(e.hp<=0||!this.lineOfSight(src.x,src.z,e.x,e.z,width*0.2))continue;
-      if(!combatShapeIntersectsCircle(shape,e.x,e.z,e.radius))continue;
-      const dx=e.x-src.x,dz=e.z-src.z,
-        t=dx*nx+dz*nz,
-        lat=Math.abs(dx*nz-dz*nx);
-      hits.push({e,t,lat});
-    }
-    hits.sort((a,b)=>a.t-b.t);
-    return hits.slice(0,maxHits);
+    return this.combatTargeting.rayHits(src, ax, az, range, width, maxHits);
   }
 
   private rotatedAim(src: CastSource, rad: number) {
-    const c = Math.cos(rad),
-      s = Math.sin(rad);
-    return { x: src.aimX * c - src.aimZ * s, z: src.aimX * s + src.aimZ * c };
+    return this.combatTargeting.rotatedAim(src, rad);
   }
+
   private targetVisible(src: CastSource, e: Ent) {
-    if (!this.lineOfSight(src.x, src.z, e.x, e.z, 0.1)) return false;
-    for (const f of this.fields) {
-      if (f.kind !== 'veil') continue;
-      const inside = Math.hypot(e.x - f.x, e.z - f.z) < f.radius,
-        observerInside = Math.hypot(src.x - f.x, src.z - f.z) < f.radius;
-      if (inside && !observerInside && Math.hypot(e.x - src.x, e.z - src.z) > 3.6) return false;
-    }
-    return true;
+    return this.combatTargeting.targetVisible(src, e);
   }
+
   private spawnReplicant(parent: Ent) {
     const a = this.rng.range(0, Math.PI * 2),
       r = this.rng.range(0.8, 1.8);
@@ -2472,28 +2453,11 @@ export class Simulation {
       });
     }
   }
+
   private aimPoint(src: CastSource, range: number) {
-    let best: Ent | undefined,
-      bestScore = 999;
-    for (const e of this.targetsFor(src)) {
-      if (e.hp <= 0 || !this.targetVisible(src, e)) continue;
-      const dx = e.x - src.x,
-        dz = e.z - src.z,
-        d = Math.hypot(dx, dz);
-      if (d > range || d < 2) continue;
-      const dot = (dx / d) * src.aimX + (dz / d) * src.aimZ;
-      if (dot < 0.45) continue;
-      const lateral = Math.abs(dx * src.aimZ - dz * src.aimX),
-        score = lateral * 0.9 + d * 0.04;
-      if (score < bestScore) {
-        bestScore = score;
-        best = e;
-      }
-    }
-    return best
-      ? { x: best.x, z: best.z }
-      : { x: src.x + src.aimX * range * 0.72, z: src.z + src.aimZ * range * 0.72 };
+    return this.combatTargeting.aimPoint(src, range);
   }
+
   private combatShape(
     source: string,
     shape: CombatShape,
@@ -2537,7 +2501,7 @@ export class Simulation {
   ) {
     // A rival-owned cast resolves against the player, not against the enemy roster.
     // None of the bookkeeping below applies: it is all scored from the hero's point of view.
-    if (e === this.hero) return this.damageHero(amount, source as DamageSourceId);
+    if (this.combatTargeting.isSyntheticHero(e)) return this.damageHero(amount, source as DamageSourceId);
     // Everything reaching this line is the hero striking an enemy: rival casts resolve
     // against the synthetic hero above and elite contact goes straight to hitPlayer.
     if (e.hp <= 0) return false;
