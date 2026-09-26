@@ -34,6 +34,10 @@ export class CombatTargetingSystem {
 
   constructor(private readonly port: CombatTargetingPort) {}
 
+  isSyntheticHero(entity: Ent) {
+    return entity === this.hero;
+  }
+
   targetsFor(source: CastSource): Ent[] {
     if (source.faction === 'hero') return this.port.entities();
 
