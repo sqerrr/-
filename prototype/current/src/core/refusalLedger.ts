@@ -34,6 +34,11 @@ export class RefusalLedger {
     return this.cards;
   }
 
+  replace(cards: RefusedCard[]) {
+    this.cards.splice(0, this.cards.length, ...cards);
+    this.serial = cards.reduce((max, card) => Math.max(max, card.serial), 0);
+  }
+
   pickIndex(maxExclusive: number) {
     return this.randomInt(maxExclusive);
   }
