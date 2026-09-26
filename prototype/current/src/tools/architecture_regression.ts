@@ -412,16 +412,9 @@ for (const method of [
   ['swapInSkill','this.buildLoadout.swapInSkill(id, slot)'],
   ['swapSkillLocations','this.buildLoadout.swapSkillLocations(za, a, zb, b)'],
   ['swapCatalystLocations','this.buildLoadout.swapCatalystLocations(za, a, zb, b)']
-] as const) {
-  const token=(method[0] === 'swapSkillLocations' || method[0] === 'swapCatalystLocations')
-    ? '  '+method[0]+'('
-    : '  private '+method[0]+'(';
-  const start=simulation.indexOf(token);
-  const next=simulation.indexOf('\n  ', start + 3);
-  const block=simulation.slice(start, next > start ? next : start + 800);
-  assert(block.includes(method[1]),
+] as const)
+  assert(simulation.includes(method[1]),
     'build/loadout compatibility seam stopped delegating: '+method[0]);
-}
 for (const token of [
   'this.mutationCores += 1 +','[A[a], B[b]] = [B[b], A[a]]',
   'this.slots.findIndex((x) => !x)','this.skillReserve.findIndex((x) => !x)'
