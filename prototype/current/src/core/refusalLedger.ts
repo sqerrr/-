@@ -34,6 +34,14 @@ export class RefusalLedger {
     return this.cards;
   }
 
+  get serialValue() {
+    return this.serial;
+  }
+
+  set serialValue(value: number) {
+    this.serial = value;
+  }
+
   replace(cards: RefusedCard[]) {
     this.cards.splice(0, this.cards.length, ...cards);
     this.serial = cards.reduce((max, card) => Math.max(max, card.serial), 0);
