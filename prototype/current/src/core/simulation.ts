@@ -374,6 +374,7 @@ export class Simulation {
   private refusalLedger!: RefusalLedger;
   /** Compatibility view for systems/snapshots that consume the live refusal records. */
   private get refusalStore() { return this.refusalLedger.all(); }
+  private set refusalStore(value: RefusedCard[]) { this.refusalLedger.replace(value); }
   /** All rival capability now comes from effectGrammar; there is no code-side allowlist. */
   /**
    * How far a phenomenon actually reaches from whoever owns it. Ranged work carries
