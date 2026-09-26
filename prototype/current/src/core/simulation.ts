@@ -17,6 +17,7 @@ import {
 import { ActivationPipelineSystem } from './activationPipelineSystem.js';
 import { ActivationRuntime } from './activationRuntime.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
+import { BuildLoadoutSystem } from './buildLoadoutSystem.js';
 import {
   CANONICAL_SCHEMA_VERSION as CANONICAL_RUN_SCHEMA_VERSION,
   CanonicalStateSerializer,
@@ -232,6 +233,7 @@ export class Simulation {
   private eliteSpawns!: EliteSpawnSystem;
   private eliteAffix!: EliteAffixSystem;
   private bossBehavior!: BossBehaviorSystem;
+  private buildLoadout!: BuildLoadoutSystem;
   private enemyBehavior!: EnemyBehaviorSystem;
   private enemySpawns!: EnemySpawnSystem;
   private enemyRecycler!: EnemyRecycleSystem;
@@ -423,6 +425,24 @@ export class Simulation {
       playerZ: () => this.pz
     });
     this.runDuration = cfg.runDuration ?? 480;
+    this.buildLoadout = new BuildLoadoutSystem({
+      slots: () => this.slots,
+      skillReserve: () => this.skillReserve,
+      catalysts: () => this.catalysts,
+      catalystReserve: () => this.catalystReserve,
+      newSkill: (id) => this.newSkill(id),
+      skillState: (id) => this.skillState(id),
+      setSkillRuntime: (id, runtime) => this.skillsRuntime.set(id, runtime),
+      deleteSkillRuntime: (id) => this.skillsRuntime.delete(id),
+      setCatalystRuntime: (id, runtime) => this.catalystRuntime.set(id, runtime),
+      mutationCores: () => this.mutationCores,
+      setMutationCores: (value) => {
+        this.mutationCores = value;
+      },
+      resetCapacitor: () => {
+        this.capacitorCharge = 0;
+      }
+    });
     this.enemySpawns = new EnemySpawnSystem({
       time: () => this.time,
       randomRange: (min, max) => this.rng.range(min, max),
@@ -2585,21 +2605,13 @@ export class Simulation {
     return a;
   }
   private allOwnedSkills() {
-    return [...new Set([...this.slots, ...this.skillReserve].filter(Boolean) as SkillId[])];
+    return this.buildLoadout.allOwnedSkills();
   }
   private allOwnedCatalysts() {
-    return [
-      ...new Set([...this.catalysts, ...this.catalystReserve].filter(Boolean) as CatalystId[])
-    ];
+    return this.buildLoadout.allOwnedCatalysts();
   }
   private catalystCompatibleEdges(id: CatalystId) {
-    const out: number[] = [];
-    for (let i = 0; i < this.catalysts.length; i++) {
-      const left = this.slots[i],
-        right = this.slots[i + 1];
-      if (left && right && catalystPairCompatible(id, left, right)) out.push(i);
-    }
-    return out;
+    return this.buildLoadout.catalystCompatibleEdges(id);
   }
   private generateDiscovery() {
     this.choiceRuntime.openRewards(this.progressionOffers.discovery());
@@ -2616,54 +2628,13 @@ export class Simulation {
     this.choiceRuntime.openRewards(this.progressionOffers.eliteCache());
   }
   private placeCatalyst(id: CatalystId) {
-    let edge = this.catalysts.findIndex((c, i) => {
-      const left=this.slots[i], right=this.slots[i+1];
-      return !c && !!left && !!right && catalystPairCompatible(id,left,right);
-    });
-    if (edge >= 0) this.catalysts[edge] = id;
-    else {
-      const reserve = this.catalystReserve.findIndex((x) => !x);
-      if (reserve >= 0) this.catalystReserve[reserve] = id;
-      else {
-        edge = this.catalysts.findIndex((x) => !x);
-        if (edge >= 0) this.catalysts[edge] = id;
-        else return false;
-      }
-    }
-    this.catalystRuntime.set(id, { id });
-    return true;
+    return this.buildLoadout.placeCatalyst(id);
   }
   private addSkill(id: SkillId) {
-    if (this.allOwnedSkills().includes(id)) return true;
-    const active = this.slots.findIndex((x) => !x),
-      reserve = this.skillReserve.findIndex((x) => !x);
-    if (active >= 0) this.slots[active] = id;
-    else if (reserve >= 0) this.skillReserve[reserve] = id;
-    else return false;
-    this.skillsRuntime.set(id, this.newSkill(id));
-    return true;
+    return this.buildLoadout.addSkill(id);
   }
-  /**
-   * D27: the phenomenon stepping aside goes to the reserve, and whatever was sitting
-   * in the reserve is what leaves the run, so a swap is a real decision rather than a
-   * free upgrade.
-   */
   private swapInSkill(id: SkillId, slot: number) {
-    if (this.allOwnedSkills().includes(id)) return true;
-    if (slot < 0 || slot >= this.slots.length) return false;
-    const leaving = this.slots[slot];
-    this.slots[slot] = id;
-    this.skillsRuntime.set(id, this.newSkill(id));
-    if (leaving) {
-      const free = this.skillReserve.findIndex((x) => !x);
-      if (free >= 0) this.skillReserve[free] = leaving;
-      else {
-        const dropped = this.skillReserve[0];
-        this.skillReserve[0] = leaving;
-        if (dropped) this.skillsRuntime.delete(dropped);
-      }
-    }
-    return true;
+    return this.buildLoadout.swapInSkill(id, slot);
   }
   chooseReward(index: number) {
     const chosen = this.choiceRuntime.takeReward(index);
@@ -2823,34 +2794,10 @@ export class Simulation {
     return this.swapCatalystLocations('active', a, 'active', b);
   }
   swapSkillLocations(za: 'active' | 'reserve', a: number, zb: 'active' | 'reserve', b: number) {
-    const A = za === 'active' ? this.slots : this.skillReserve,
-      B = zb === 'active' ? this.slots : this.skillReserve;
-    if (a < 0 || a >= A.length || b < 0 || b >= B.length || (A === B && a === b)) return false;
-    const av = A[a],
-      bv = B[b];
-    if (za !== zb) {
-      const leaving = za === 'active' ? av : bv;
-      if (leaving) {
-        const st = this.skillState(leaving);
-        if (st.mutation) {
-          this.mutationCores += 1 + (st.mutationUpgrade ? 1 : 0) + (st.mutationApotheosis ? 1 : 0);
-          st.mutation = null;
-          st.mutationUpgrade = null;
-          st.mutationApotheosis = null;
-        }
-      }
-    }
-    A[a] = bv;
-    B[b] = av;
-    return true;
+    return this.buildLoadout.swapSkillLocations(za, a, zb, b);
   }
   swapCatalystLocations(za: 'active' | 'reserve', a: number, zb: 'active' | 'reserve', b: number) {
-    const A = za === 'active' ? this.catalysts : this.catalystReserve,
-      B = zb === 'active' ? this.catalysts : this.catalystReserve;
-    if (a < 0 || a >= A.length || b < 0 || b >= B.length || (A === B && a === b)) return false;
-    [A[a], B[b]] = [B[b], A[a]];
-    this.capacitorCharge = 0;
-    return true;
+    return this.buildLoadout.swapCatalystLocations(za, a, zb, b);
   }
 
   configureBenchmarkLoadout(cfg: BenchmarkLoadout) {

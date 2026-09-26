@@ -44,6 +44,7 @@ const eliteProgression=readFileSync('src/core/eliteProgressionSystem.ts','utf8')
 const eliteSpawnSystem=readFileSync('src/core/eliteSpawnSystem.ts','utf8');
 const eliteAffix=readFileSync('src/core/eliteAffixSystem.ts','utf8');
 const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
+const buildLoadout=readFileSync('src/core/buildLoadoutSystem.ts','utf8');
 const enemyBehavior=readFileSync('src/core/enemyBehaviorSystem.ts','utf8');
 const enemySpawnSystem=readFileSync('src/core/enemySpawnSystem.ts','utf8');
 const enemyRecycleSystem=readFileSync('src/core/enemyRecycleSystem.ts','utf8');
@@ -398,6 +399,28 @@ for (const token of [
 ])
   assert(!simulation.includes(token),
     'refusal storage/presentation policy leaked back into Simulation: '+token);
+assert(buildLoadout.includes('export class BuildLoadoutSystem'),
+  'structural build/loadout transitions have no dedicated owner');
+assert(simulation.includes('private buildLoadout!: BuildLoadoutSystem'),
+  'Simulation no longer delegates build/loadout transitions');
+for (const method of [
+  ['allOwnedSkills','this.buildLoadout.allOwnedSkills()'],
+  ['allOwnedCatalysts','this.buildLoadout.allOwnedCatalysts()'],
+  ['catalystCompatibleEdges','this.buildLoadout.catalystCompatibleEdges(id)'],
+  ['placeCatalyst','this.buildLoadout.placeCatalyst(id)'],
+  ['addSkill','this.buildLoadout.addSkill(id)'],
+  ['swapInSkill','this.buildLoadout.swapInSkill(id, slot)'],
+  ['swapSkillLocations','this.buildLoadout.swapSkillLocations(za, a, zb, b)'],
+  ['swapCatalystLocations','this.buildLoadout.swapCatalystLocations(za, a, zb, b)']
+] as const)
+  assert(simulation.includes(method[1]),
+    'build/loadout compatibility seam stopped delegating: '+method[0]);
+for (const token of [
+  'this.mutationCores += 1 +','[A[a], B[b]] = [B[b], A[a]]',
+  'this.slots.findIndex((x) => !x)','this.skillReserve.findIndex((x) => !x)'
+])
+  assert(!simulation.includes(token),
+    'build/loadout transition policy leaked back into Simulation: '+token);
 assert(rewardOfferFactory.includes('export class RewardOfferFactory'),
   'player-facing reward cards have no dedicated factory');
 assert(simulation.includes('private rewardOfferFactory!: RewardOfferFactory'),
@@ -715,6 +738,7 @@ console.log('architecture-regression OK', {
   eliteProgressionSystem:true,
   eliteSpawnSystem:true,
   eliteAffixSystem:true,
+  buildLoadoutSystem:true,
   bossBehaviorSystem:true,
   enemyBehaviorSystem:true,
   enemySpawnSystem:true,
