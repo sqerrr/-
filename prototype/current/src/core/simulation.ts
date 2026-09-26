@@ -2501,7 +2501,7 @@ export class Simulation {
   ) {
     // A rival-owned cast resolves against the player, not against the enemy roster.
     // None of the bookkeeping below applies: it is all scored from the hero's point of view.
-    if (e === this.hero) return this.damageHero(amount, source as DamageSourceId);
+    if (this.combatTargeting.isSyntheticHero(e)) return this.damageHero(amount, source as DamageSourceId);
     // Everything reaching this line is the hero striking an enemy: rival casts resolve
     // against the synthetic hero above and elite contact goes straight to hitPlayer.
     if (e.hp <= 0) return false;
