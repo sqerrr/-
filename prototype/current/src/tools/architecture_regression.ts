@@ -206,6 +206,8 @@ for (const token of [
 ])
   assert(!simulation.includes(token),
     'combat targeting policy leaked back into Simulation: '+token);
+assert(simulation.includes('this.combatTargeting.isSyntheticHero(e)'),
+  'rival damage routing no longer uses targeting-owned synthetic hero identity');
 assert(combatLedger.includes('export class CombatLedger'),
   'diagnostic combat source accounting has no dedicated owner');
 assert(simulation.includes('private combatLedger!: CombatLedger'),
