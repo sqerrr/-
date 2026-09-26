@@ -20,6 +20,7 @@ const choiceRuntime=readFileSync('src/core/choiceRuntime.ts','utf8');
 const activationRuntime=readFileSync('src/core/activationRuntime.ts','utf8');
 const activationPipeline=readFileSync('src/core/activationPipelineSystem.ts','utf8');
 const combatLedger=readFileSync('src/core/combatLedger.ts','utf8');
+const combatTargeting=readFileSync('src/core/combatTargetingSystem.ts','utf8');
 const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
 const rewardOfferFactory=readFileSync('src/core/rewardOfferFactory.ts','utf8');
 const progressionOfferSystem=readFileSync('src/core/progressionOfferSystem.ts','utf8');
@@ -181,6 +182,30 @@ assert(activationPipeline.includes('this.activation.suspend()') && activationPip
   'nested Catalyst payload no longer preserves the parent activation frame');
 for (const method of ['activateSlot','castCatalystPayload','beginPhysicalActivation'])
   assert(!simulation.includes('private '+method+'('), 'activation orchestration leaked back into Simulation: '+method);
+assert(combatTargeting.includes('export class CombatTargetingSystem'),
+  'faction-aware combat targeting has no dedicated owner');
+assert(simulation.includes('private combatTargeting!: CombatTargetingSystem'),
+  'Simulation no longer delegates combat targeting');
+for (const method of [
+  ['targetsFor','this.combatTargeting.targetsFor(src)'],
+  ['bestTarget','this.combatTargeting.bestTarget(src, predicate, compare)'],
+  ['rayHits','this.combatTargeting.rayHits(src, ax, az, range, width, maxHits)'],
+  ['rotatedAim','this.combatTargeting.rotatedAim(src, rad)'],
+  ['targetVisible','this.combatTargeting.targetVisible(src, e)'],
+  ['aimPoint','this.combatTargeting.aimPoint(src, range)']
+] as const) {
+  const start=simulation.indexOf('  private '+method[0]+'(');
+  const next=simulation.indexOf('\n  private ', start + 3);
+  const block=simulation.slice(start, next > start ? next : start + 700);
+  assert(block.includes(method[1]),
+    'combat targeting compatibility seam stopped delegating: '+method[0]);
+}
+for (const token of [
+  'private hero: Ent = makeHeroEnt()','bestScore = 999','observerInside =',
+  'this.hero.x = this.px'
+])
+  assert(!simulation.includes(token),
+    'combat targeting policy leaked back into Simulation: '+token);
 assert(combatLedger.includes('export class CombatLedger'),
   'diagnostic combat source accounting has no dedicated owner');
 assert(simulation.includes('private combatLedger!: CombatLedger'),
@@ -648,6 +673,7 @@ console.log('architecture-regression OK', {
   activationRuntime:true,
   activationPipelineSystem:true,
   combatLedger:true,
+  combatTargetingSystem:true,
   relicRaceSystem:true,
   rewardOfferFactory:true,
   progressionOfferSystem:true,
