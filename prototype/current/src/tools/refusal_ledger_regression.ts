@@ -124,6 +124,16 @@ const global: RewardOffer = {
     'refusal ledger stopped exposing live heldBy ownership');
 }
 
+// Replacement is a compatibility seam for deterministic fixtures and keeps serial monotonic.
+{
+  const existing = ledger.all().map((card) => ({ ...card }));
+  ledger.replace([{ ...existing[0], serial: 9, heldBy: 0 }]);
+  const next = ledger.concede([skill]);
+  assert(next?.serial === 10,
+    'ledger replacement did not synchronize refusal serial');
+  ledger.replace(existing);
+}
+
 // Elite-cache marking uses the same dedicated refusal stream through pickIndex.
 {
   random.push(2);
