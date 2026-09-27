@@ -52,6 +52,7 @@ import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { PhenomenonCastSystem } from './phenomenonCastSystem.js';
 import { PhenomenonKillReactionSystem } from './phenomenonKillReactionSystem.js';
 import { PlayerDamageSystem } from './playerDamageSystem.js';
+import { PlayerGrowthSystem } from './playerGrowthSystem.js';
 import { PoiSystem } from './poiSystem.js';
 import { PlayerMovementSystem } from './playerMovementSystem.js';
 import { ProjectileSystem } from './projectileSystem.js';
@@ -261,6 +262,7 @@ export class Simulation {
   private phenomenonCasts!: PhenomenonCastSystem;
   private phenomenonKillReactions!: PhenomenonKillReactionSystem;
   private playerDamage!: PlayerDamageSystem;
+  private playerGrowth!: PlayerGrowthSystem;
   private playerMovement!: PlayerMovementSystem;
   private statefulPhenomenonCasts!: StatefulPhenomenonCastSystem;
   private nextId = 1;
@@ -282,20 +284,33 @@ export class Simulation {
   private eliteLegacyItems: ItemId[] = [];
   /** Autonomous enemy growth is a separate history from physically contested relic captures. */
   private eliteEvolutionHistory: ItemId[] = [];
-  /** Everything the hero has picked up, in the order it was taken. No slots, by D14. */
-  heldItems: ItemId[] = [];
-  private itemDamageMul = 1;
-  private itemCrit = 0;
-  private itemSiphon = 0;
-  private itemEliteDamageMul = 1;
-  private itemDamageTakenMul = 1;
-  private itemRefusalDamageMul = 1;
-  private itemBarrierOnEliteKill = 0;
-  private itemXpMul = 1;
-  private itemCoreBonus = 0;
-  private itemRelicRateMul = 1;
-  private dashCooldownMul = 1;
-  private dashIFrameMul = 1;
+  /** Compatibility views; persistent hero-growth state is owned by PlayerGrowthSystem. */
+  get heldItems(): ItemId[] { return this.playerGrowth.heldItems; }
+  set heldItems(value: ItemId[]) { this.playerGrowth.heldItems = value; }
+  private get itemDamageMul() { return this.playerGrowth.itemDamageMul; }
+  private set itemDamageMul(value: number) { this.playerGrowth.itemDamageMul = value; }
+  private get itemCrit() { return this.playerGrowth.itemCrit; }
+  private set itemCrit(value: number) { this.playerGrowth.itemCrit = value; }
+  private get itemSiphon() { return this.playerGrowth.itemSiphon; }
+  private set itemSiphon(value: number) { this.playerGrowth.itemSiphon = value; }
+  private get itemEliteDamageMul() { return this.playerGrowth.itemEliteDamageMul; }
+  private set itemEliteDamageMul(value: number) { this.playerGrowth.itemEliteDamageMul = value; }
+  private get itemDamageTakenMul() { return this.playerGrowth.itemDamageTakenMul; }
+  private set itemDamageTakenMul(value: number) { this.playerGrowth.itemDamageTakenMul = value; }
+  private get itemRefusalDamageMul() { return this.playerGrowth.itemRefusalDamageMul; }
+  private set itemRefusalDamageMul(value: number) { this.playerGrowth.itemRefusalDamageMul = value; }
+  private get itemBarrierOnEliteKill() { return this.playerGrowth.itemBarrierOnEliteKill; }
+  private set itemBarrierOnEliteKill(value: number) { this.playerGrowth.itemBarrierOnEliteKill = value; }
+  private get itemXpMul() { return this.playerGrowth.itemXpMul; }
+  private set itemXpMul(value: number) { this.playerGrowth.itemXpMul = value; }
+  private get itemCoreBonus() { return this.playerGrowth.itemCoreBonus; }
+  private set itemCoreBonus(value: number) { this.playerGrowth.itemCoreBonus = value; }
+  private get itemRelicRateMul() { return this.playerGrowth.itemRelicRateMul; }
+  private set itemRelicRateMul(value: number) { this.playerGrowth.itemRelicRateMul = value; }
+  private get dashCooldownMul() { return this.playerGrowth.dashCooldownMul; }
+  private set dashCooldownMul(value: number) { this.playerGrowth.dashCooldownMul = value; }
+  private get dashIFrameMul() { return this.playerGrowth.dashIFrameMul; }
+  private set dashIFrameMul(value: number) { this.playerGrowth.dashIFrameMul = value; }
   // D34 asked for twenty or more relics across a run of roughly eight minutes.
   static readonly RELIC_INTERVAL = RelicRaceSystem.INTERVAL;
   static readonly RELIC_REACH = RelicRaceSystem.HERO_REACH;
@@ -417,6 +432,28 @@ export class Simulation {
     this.refusalLedger = new RefusalLedger((maxExclusive) => refusalRng.int(maxExclusive));
     this.worldRng = new Rng((cfg.seed ^ 0x27d4eb2f) >>> 0);
     this.relicRng = new Rng((cfg.seed ^ 0x6a09e667) >>> 0);
+    this.playerGrowth = new PlayerGrowthSystem({
+      armor: () => this.armor,
+      setArmor: (value) => { this.armor = value; },
+      maxHp: () => this.maxHp,
+      setMaxHp: (value) => { this.maxHp = value; },
+      playerHp: () => this.php,
+      setPlayerHp: (value) => { this.php = value; },
+      moveSpeed: () => this.moveSpeed,
+      setMoveSpeed: (value) => { this.moveSpeed = value; },
+      tempo: () => this.tempo,
+      setTempo: (value) => { this.tempo = value; },
+      pickupRadius: () => this.pickupRadius,
+      setPickupRadius: (value) => { this.pickupRadius = value; },
+      fortune: () => this.fortune,
+      setFortune: (value) => { this.fortune = value; },
+      globalPower: () => this.globalPower,
+      setGlobalPower: (value) => { this.globalPower = value; },
+      resonance: () => this.resonance,
+      doctrines: () => this.doctrines,
+      healPlayer: (amount) => this.healPlayer(amount),
+      grantBarrier: (amount) => this.grantBarrier(amount)
+    });
     this.worldGeometry = new WorldGeometrySystem(this.world, {
       worldRandomRange: (min, max) => this.worldRng.range(min, max),
       worldRandomInt: (maxExclusive) => this.worldRng.int(maxExclusive),
@@ -2020,28 +2057,7 @@ export class Simulation {
    * level reward. D14 forbids slots, so nothing is displaced and copies simply stack.
    */
   private grantItem(id: ItemId) {
-    this.heldItems.push(id);
-    const a = items[id].effect;
-    if (a.kind === 'armor') this.armor += a.amount;
-    else if (a.kind === 'maxHp') {
-      this.maxHp += a.amount;
-      this.healPlayer(a.amount);
-    } else if (a.kind === 'barrierOnEliteKill') this.itemBarrierOnEliteKill += a.amount;
-    else if (a.kind === 'damageTakenMul') this.itemDamageTakenMul *= a.amount;
-    else if (a.kind === 'damageMul') this.itemDamageMul *= a.amount;
-    else if (a.kind === 'crit') this.itemCrit += a.amount;
-    else if (a.kind === 'siphon') this.itemSiphon += a.amount;
-    else if (a.kind === 'eliteDamageMul') this.itemEliteDamageMul *= a.amount;
-    else if (a.kind === 'moveSpeedMul') this.moveSpeed *= a.amount;
-    else if (a.kind === 'tempo') this.tempo += a.amount;
-    else if (a.kind === 'dashCooldownMul') this.dashCooldownMul *= a.amount;
-    else if (a.kind === 'dashIFrameMul') this.dashIFrameMul *= a.amount;
-    else if (a.kind === 'pickupRadiusMul') this.pickupRadius *= a.amount;
-    else if (a.kind === 'fortune') this.fortune += a.amount;
-    else if (a.kind === 'xpMul') this.itemXpMul *= a.amount;
-    else if (a.kind === 'relicRateMul') this.itemRelicRateMul *= a.amount;
-    else if (a.kind === 'coreBonus') this.itemCoreBonus += a.amount;
-    else if (a.kind === 'refusalDamageMul') this.itemRefusalDamageMul *= a.amount;
+    this.playerGrowth.applyItem(id);
   }
   private takeRelic(r: Relic) {
     const def = items[r.item];
@@ -2689,119 +2705,15 @@ export class Simulation {
     });
   }
   private applyCoreAxis(axis: ResonanceId, amount = 1) {
-    this.resonance[axis] += amount;
-    if (axis === 'mobility') this.moveSpeed *= 1 + 0.045 * amount;
+    this.playerGrowth.applyCoreAxis(axis, amount);
   }
   private applyDoctrine(id: DoctrineId, amount: number) {
-    this.doctrines[id] += amount;
-    if (id === 'mobility') {
-      this.moveSpeed *= Math.pow(1.055, amount);
-      this.dashCooldownMul *= Math.pow(0.96, amount);
-    }
-    if (id === 'guard') {
-      this.armor += 4 * amount;
-      this.grantBarrier(5 * amount);
-    }
+    this.playerGrowth.applyDoctrine(id, amount);
   }
   private applyGlobal(stat?: string, amount = 0) {
-    if (stat === 'hp') {
-      this.maxHp += amount;
-      this.php = Math.min(this.maxHp, this.php + amount);
-    } else if (stat === 'move') this.moveSpeed *= 1 + amount;
-    else if (stat === 'tempo') this.tempo += amount;
-    else if (stat === 'globalPower') this.globalPower += amount;
-    else if (stat === 'pickup') this.pickupRadius *= 1 + amount;
-    else if (stat === 'fortune') this.fortune += amount;
-    else if (stat === 'armor') this.armor += amount;
-  }
-  chooseMutation(index: number) {
-    return this.mutationChoices.choose(index);
-  }
-  refuseMutation(index: number) {
-    return this.mutationChoices.refuse(index);
-  }
-  rerollRewards() {
-    if (
-      !this.rewardOffers ||
-      this.rerolls <= 0 ||
-      this.rewardOffers.some(
-        (o) => o.kind === 'elite' || o.kind === 'mutation_target' || o.kind === 'skill_add'
-      )
-    )
-      return false;
-    this.rerolls--;
-    this.generateLevelOffers();
-    return true;
-  }
-  skipReward() {
-    if (
-      !this.rewardOffers ||
-      this.rewardOffers.some(
-        (o) => o.kind === 'elite' || o.kind === 'mutation_target' || o.kind === 'skill_add'
-      )
-    )
-      return false;
-    const passed = this.choiceRuntime.clearRewards()!;
-    this.xp += this.xpNeed * 0.3;
-    this.events.push({ type: 'RewardChosen', tick: this.tick, title: 'Пропуск награды' });
-    this.concedeRefusal(passed);
-    return true;
+    this.playerGrowth.applyGlobal(stat, amount);
   }
 
-  private isActiveSkill(id: SkillId) {
-    return this.slots.includes(id);
-  }
-  swapSkillSlots(a: number, b: number) {
-    return this.swapSkillLocations('active', a, 'active', b);
-  }
-  swapCatalysts(a: number, b: number) {
-    return this.swapCatalystLocations('active', a, 'active', b);
-  }
-  swapSkillLocations(za: 'active' | 'reserve', a: number, zb: 'active' | 'reserve', b: number) {
-    return this.buildLoadout.swapSkillLocations(za, a, zb, b);
-  }
-  swapCatalystLocations(za: 'active' | 'reserve', a: number, zb: 'active' | 'reserve', b: number) {
-    return this.buildLoadout.swapCatalystLocations(za, a, zb, b);
-  }
-
-  configureBenchmarkLoadout(cfg: BenchmarkLoadout) {
-    this.slots = Array.from({ length: 4 }, (_, i) => cfg.slots[i] ?? null);
-    this.catalysts = Array.from({ length: 3 }, (_, i) => cfg.catalysts[i] ?? null);
-    this.skillReserve = [null];
-    this.catalystReserve = [null, null];
-    this.skillsRuntime.clear();
-    this.catalystRuntime.clear();
-    const lvl = cfg.level ?? 7;
-    for (const id of this.slots) {
-      if (!id) continue;
-      const st = this.newSkill(id);
-      st.level = lvl;
-      st.power = cfg.skillPower ?? 0.28;
-      st.coverage = cfg.skillCoverage ?? 0.24;
-      st.range = cfg.skillRange ?? 0.2;
-      st.duration = cfg.skillDuration ?? 0.22;
-      st.control = cfg.skillControl ?? 0.2;
-      st.statusPotency = cfg.skillStatus ?? 0.24;
-      st.eliteDamage = cfg.skillElite ?? 0.12;
-      st.crit = 0.1;
-      st.mutation = cfg.mutations?.[id] ?? null;
-      st.mutationUpgrade = cfg.mutationUpgrades?.[id] ?? null;
-      st.mutationApotheosis = cfg.mutationApotheoses?.[id] ?? null;
-      this.skillsRuntime.set(id, st);
-    }
-    for (const id of this.catalysts) {
-      if (!id) continue;
-      this.catalystRuntime.set(id, { id });
-    }
-    this.globalPower = cfg.globalPower ?? 0.35;
-    this.tempo = cfg.tempo ?? 0.2;
-    this.armor = cfg.armor ?? 28;
-    this.maxHp = cfg.maxHp ?? 260;
-    this.php = this.maxHp;
-    this.moveSpeed = cfg.moveSpeed ?? 5.2;
-    this.pickupRadius = cfg.pickupRadius ?? 9;
-    this.fortune = cfg.fortune ?? 0.15;
-  }
   /** Diagnostic contract for regression/probe tooling; gameplay does not branch on it. */
   physicalDiagnostics() {
     return this.physical.diagnostics();
