@@ -29,6 +29,13 @@ function freshState(id: SkillId): SkillRuntime {
 }
 
 const runtime = new ChoiceRuntime();
+const currentOffer = () => runtime.mutationOffer;
+function requireOffer() {
+  const offer = currentOffer();
+  assert(!!offer, 'expected an open mutation offer');
+  return offer;
+}
+const refusalToken = () => runtime.mutationRefusalToken;
 const states = new Map<SkillId, SkillRuntime>();
 const state = (id: SkillId) => {
   let value = states.get(id);
@@ -77,8 +84,7 @@ const system = new MutationChoiceSystem(port, runtime);
   runtime.mutationRefusalToken = true;
 
   system.open('frost_ring');
-  const offer = runtime.mutationOffer;
-  assert(!!offer, 'Tier I offer did not open');
+  const offer = requireOffer();
   assert(offer.tier === 1, 'fresh Phenomenon did not open Tier I');
   assert(offer.choices.length === 3, 'Tier I no longer exposes exactly three branches');
   assert(new Set(offer.choices).size === offer.choices.length, 'Tier I duplicated a branch');
@@ -89,7 +95,7 @@ const system = new MutationChoiceSystem(port, runtime);
   const before = [...offer.choices];
   const refused = system.refuse(1);
   assert(!refused, 'refusal fabricated a mutation branch outside authored content');
-  assert(runtime.mutationRefusalToken === true, 'failed refusal consumed the one-run token');
+  assert(refusalToken(), 'failed refusal consumed the one-run token');
   assert(offer.refusalAvailable === true, 'failed refusal changed the visible refusal state');
   assert(offer.choices.every((choice, index) => choice === before[index]),
     'failed refusal mutated the offered branches');
@@ -105,13 +111,13 @@ const system = new MutationChoiceSystem(port, runtime);
   runtime.beginMutationTarget();
   system.open('frost_ring');
 
-  const picked = runtime.mutationOffer!.choices[0];
+  const picked = requireOffer().choices[0];
   assert(system.choose(0), 'valid Tier I choice was rejected');
   assert(frost.mutation === picked, 'Tier I choice was not applied to the SkillRuntime');
   assert(cores === 1, 'mutation-target choice did not consume exactly one core');
   assert(mutations === 1, 'mutation metric was not recorded');
   assert(chosen.at(-1)?.mutation === picked, 'MutationChosen event payload drifted');
-  assert(runtime.mutationOffer === null, 'mutation modal stayed open after a valid choice');
+  assert(currentOffer() === null, 'mutation modal stayed open after a valid choice');
 }
 
 // Tier II follows the selected root; Tier III follows the continuation and emits Apotheosis.
@@ -122,15 +128,17 @@ const system = new MutationChoiceSystem(port, runtime);
   frost.mutationApotheosis = null;
 
   system.open('frost_ring');
-  assert(runtime.mutationOffer?.tier === 2, 'selected root did not advance to Tier II');
-  const whiteout = runtime.mutationOffer!.choices.indexOf('frost_whiteout');
+  let offer = requireOffer();
+  assert(offer.tier === 2, 'selected root did not advance to Tier II');
+  const whiteout = offer.choices.indexOf('frost_whiteout');
   assert(whiteout >= 0, 'Frost Front continuation disappeared from Tier II');
   assert(system.choose(whiteout), 'valid Frost continuation was rejected');
   assert(frost.mutationUpgrade === 'frost_whiteout', 'Tier II continuation was not applied');
 
   system.open('frost_ring');
-  assert(runtime.mutationOffer?.tier === 3, 'continuation did not advance to Tier III');
-  const worldstorm = runtime.mutationOffer!.choices.indexOf('frost_worldstorm');
+  offer = requireOffer();
+  assert(offer.tier === 3, 'continuation did not advance to Tier III');
+  const worldstorm = offer.choices.indexOf('frost_worldstorm');
   assert(worldstorm >= 0, 'Frost Whiteout Apotheosis disappeared from Tier III');
   assert(system.choose(worldstorm), 'valid Apotheosis was rejected');
   assert(frost.mutationApotheosis === 'frost_worldstorm', 'Tier III Apotheosis was not applied');
