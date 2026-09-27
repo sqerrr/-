@@ -1,4 +1,5 @@
 import type {
+  CatalystId,
   DoctrineId,
   ItemId,
   ResonanceId,
@@ -43,7 +44,7 @@ export interface ProgressionRuntimePort {
   grantItem(item: ItemId): void;
   swapInSkill(skill: SkillId, slot: number): boolean;
   addSkill(skill: SkillId): boolean;
-  placeCatalyst(id: RewardOffer['catalyst'] & {}): boolean;
+  placeCatalyst(id: CatalystId): boolean;
   applyDoctrine(id: DoctrineId, amount: number): void;
   applyCoreAxis(id: ResonanceId, amount: number): void;
   applyGlobal(stat: string | undefined, amount: number): void;
