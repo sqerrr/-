@@ -165,7 +165,7 @@ state.offers = [offer('mutation_target', { skill: 'cleaver' })];
 assert(runtime.chooseReward(0), 'mutation target was not accepted');
 assert(state.actions.join('|') === 'begin-mutation-target|open-mutation:cleaver',
   'mutation target handoff changed');
-assert(state.rewardTitles.length === 0 && state.refusals.length === 0,
+assert(Number(state.rewardTitles.length) === 0 && Number(state.refusals.length) === 0,
   'mutation target started resolving as an ordinary reward');
 clearTrace();
 
@@ -177,7 +177,7 @@ state.offers = [
 assert(runtime.chooseReward(0), 'doctrine reward failed');
 assert(state.actions.join('|') === 'doctrine:might:2', 'doctrine dispatch changed');
 assert(state.rewardTitles[0] === 'Сила', 'RewardChosen title changed');
-assert(state.refusals.length === 0, 'doctrine-only choice incorrectly conceded a refusal');
+assert(Number(state.refusals.length) === 0, 'doctrine-only choice incorrectly conceded a refusal');
 clearTrace();
 
 // Non-doctrine choices concede every unchosen card to the refusal selector.
@@ -187,7 +187,7 @@ state.offers = [
 ];
 assert(runtime.chooseReward(0), 'global reward failed');
 assert(state.actions.join('|') === 'global:hp:18', 'global dispatch changed');
-assert(state.refusals.length === 1 && state.refusals[0].length === 1 &&
+assert(Number(state.refusals.length) === 1 && Number(state.refusals[0].length) === 1 &&
   state.refusals[0][0].title === 'Темп', 'passed-card refusal set changed');
 clearTrace();
 
@@ -208,7 +208,7 @@ for (const [candidate, expected] of [
 state.offers = [offer('skill_swap', { skill: 'rail_spear', swapSlot: 2 }), offer('global')];
 assert(!runtime.chooseReward(0), 'failed swap incorrectly succeeded');
 assert(state.offers === null, 'failed swap no longer consumes the opened choice');
-assert(state.rewardTitles.length === 0 && state.refusals.length === 0,
+assert(Number(state.rewardTitles.length) === 0 && Number(state.refusals.length) === 0,
   'failed swap emitted post-apply choice effects');
 clearTrace();
 
@@ -231,8 +231,8 @@ state.xpNeed = 20;
 state.offers = [offer('resonance'), offer('global')];
 assert(runtime.skipReward(), 'ordinary reward could not be skipped');
 close(state.xp, 6, 'skip XP refund');
-assert(state.rewardTitles[0] === 'Пропуск награды', 'skip event title changed');
-assert(state.refusals.length === 1 && state.refusals[0].length === 2,
+assert(String(state.rewardTitles[0]) === 'Пропуск награды', 'skip event title changed');
+assert(Number(state.refusals.length) === 1 && Number(state.refusals[0].length) === 2,
   'skip no longer concedes the full passed window');
 clearTrace();
 state.offers = [offer('skill_add', { skill: 'cleaver' })];
