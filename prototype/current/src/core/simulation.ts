@@ -392,6 +392,8 @@ export class Simulation {
    * with tell -> active -> recovery in EliteEchoSystem. effectGrammar remains
    * useful for ownership/LOS/reach data; it is not an excuse to mirror player geometry.
    */
+  /** Compatibility constant for content/tooling; branch policy is owned by MutationChoiceSystem. */
+  static readonly MUTATION_BRANCHES = MutationChoiceSystem.BRANCHES;
   private static rivalReach(id: SkillId): number {
     const def = skills[id];
     return Math.max(def.baseRange ?? 0, def.baseRadius ?? 0);
