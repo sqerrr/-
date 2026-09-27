@@ -2713,7 +2713,94 @@ export class Simulation {
   private applyGlobal(stat?: string, amount = 0) {
     this.playerGrowth.applyGlobal(stat, amount);
   }
+  chooseMutation(index: number) {
+    return this.mutationChoices.choose(index);
+  }
+  refuseMutation(index: number) {
+    return this.mutationChoices.refuse(index);
+  }
+  rerollRewards() {
+    if (
+      !this.rewardOffers ||
+      this.rerolls <= 0 ||
+      this.rewardOffers.some(
+        (o) => o.kind === 'elite' || o.kind === 'mutation_target' || o.kind === 'skill_add'
+      )
+    )
+      return false;
+    this.rerolls--;
+    this.generateLevelOffers();
+    return true;
+  }
+  skipReward() {
+    if (
+      !this.rewardOffers ||
+      this.rewardOffers.some(
+        (o) => o.kind === 'elite' || o.kind === 'mutation_target' || o.kind === 'skill_add'
+      )
+    )
+      return false;
+    const passed = this.choiceRuntime.clearRewards()!;
+    this.xp += this.xpNeed * 0.3;
+    this.events.push({ type: 'RewardChosen', tick: this.tick, title: 'Пропуск награды' });
+    this.concedeRefusal(passed);
+    return true;
+  }
 
+  private isActiveSkill(id: SkillId) {
+    return this.slots.includes(id);
+  }
+  swapSkillSlots(a: number, b: number) {
+    return this.swapSkillLocations('active', a, 'active', b);
+  }
+  swapCatalysts(a: number, b: number) {
+    return this.swapCatalystLocations('active', a, 'active', b);
+  }
+  swapSkillLocations(za: 'active' | 'reserve', a: number, zb: 'active' | 'reserve', b: number) {
+    return this.buildLoadout.swapSkillLocations(za, a, zb, b);
+  }
+  swapCatalystLocations(za: 'active' | 'reserve', a: number, zb: 'active' | 'reserve', b: number) {
+    return this.buildLoadout.swapCatalystLocations(za, a, zb, b);
+  }
+
+  configureBenchmarkLoadout(cfg: BenchmarkLoadout) {
+    this.slots = Array.from({ length: 4 }, (_, i) => cfg.slots[i] ?? null);
+    this.catalysts = Array.from({ length: 3 }, (_, i) => cfg.catalysts[i] ?? null);
+    this.skillReserve = [null];
+    this.catalystReserve = [null, null];
+    this.skillsRuntime.clear();
+    this.catalystRuntime.clear();
+    const lvl = cfg.level ?? 7;
+    for (const id of this.slots) {
+      if (!id) continue;
+      const st = this.newSkill(id);
+      st.level = lvl;
+      st.power = cfg.skillPower ?? 0.28;
+      st.coverage = cfg.skillCoverage ?? 0.24;
+      st.range = cfg.skillRange ?? 0.2;
+      st.duration = cfg.skillDuration ?? 0.22;
+      st.control = cfg.skillControl ?? 0.2;
+      st.statusPotency = cfg.skillStatus ?? 0.24;
+      st.eliteDamage = cfg.skillElite ?? 0.12;
+      st.crit = 0.1;
+      st.mutation = cfg.mutations?.[id] ?? null;
+      st.mutationUpgrade = cfg.mutationUpgrades?.[id] ?? null;
+      st.mutationApotheosis = cfg.mutationApotheoses?.[id] ?? null;
+      this.skillsRuntime.set(id, st);
+    }
+    for (const id of this.catalysts) {
+      if (!id) continue;
+      this.catalystRuntime.set(id, { id });
+    }
+    this.globalPower = cfg.globalPower ?? 0.35;
+    this.tempo = cfg.tempo ?? 0.2;
+    this.armor = cfg.armor ?? 28;
+    this.maxHp = cfg.maxHp ?? 260;
+    this.php = this.maxHp;
+    this.moveSpeed = cfg.moveSpeed ?? 5.2;
+    this.pickupRadius = cfg.pickupRadius ?? 9;
+    this.fortune = cfg.fortune ?? 0.15;
+  }
   /** Diagnostic contract for regression/probe tooling; gameplay does not branch on it. */
   physicalDiagnostics() {
     return this.physical.diagnostics();
