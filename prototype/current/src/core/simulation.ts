@@ -8,8 +8,6 @@ import {
   initialSkillReserve,
   initialSlots,
   mutationDef,
-  mutationRoots,
-  mutationChildren,
   resonance,
   skills,
   statBase
@@ -46,6 +44,7 @@ import { EnemyDamageModifierSystem } from './enemyDamageModifierSystem.js';
 import { EntityStore } from './entityStore.js';
 import { FieldSystem } from './fieldSystem.js';
 import { LegacyCatalystSystem } from './legacyCatalystSystem.js';
+import { MutationChoiceSystem } from './mutationChoiceSystem.js';
 import { OrbitSystem } from './orbitSystem.js';
 import { PhysicalActivationSystem } from './physicalActivationSystem.js';
 import { PhysicalCatalystSystem } from './physicalCatalystSystem.js';
@@ -257,6 +256,7 @@ export class Simulation {
   private relicRace!: RelicRaceSystem;
   private rewardOfferFactory!: RewardOfferFactory;
   private progressionOffers!: ProgressionOfferSystem;
+  private mutationChoices!: MutationChoiceSystem;
   private poiSystem!: PoiSystem;
   private phenomenonCasts!: PhenomenonCastSystem;
   private phenomenonKillReactions!: PhenomenonKillReactionSystem;
@@ -392,8 +392,8 @@ export class Simulation {
    * with tell -> active -> recovery in EliteEchoSystem. effectGrammar remains
    * useful for ownership/LOS/reach data; it is not an excuse to mirror player geometry.
    */
-  /** D28: a phenomenon forks three ways. */
-  static readonly MUTATION_BRANCHES = 3;
+  /** Compatibility constant for content/tooling; branch policy is owned by MutationChoiceSystem. */
+  static readonly MUTATION_BRANCHES = MutationChoiceSystem.BRANCHES;
   private static rivalReach(id: SkillId): number {
     const def = skills[id];
     return Math.max(def.baseRange ?? 0, def.baseRadius ?? 0);
@@ -558,6 +558,24 @@ export class Simulation {
         catalystCompatibleEdges: (id) => this.catalystCompatibleEdges(id)
       },
       this.rewardOfferFactory
+    );
+    this.mutationChoices = new MutationChoiceSystem(
+      {
+        randomInt: (maxExclusive) => this.rng.int(maxExclusive),
+        skillState: (id) => this.skillState(id),
+        mutationCores: () => this.mutationCores,
+        setMutationCores: (value) => {
+          this.mutationCores = value;
+        },
+        noteMutation: () => {
+          this.metrics.mutations++;
+        },
+        emitMutationChosen: (skill, mutation) =>
+          this.events.push({ type: 'MutationChosen', tick: this.tick, skill, mutation }),
+        emitRareEvent: (title, detail) =>
+          this.events.push({ type: 'RareEvent', tick: this.tick, title, detail })
+      },
+      this.choiceRuntime
     );
     this.poiSystem = new PoiSystem({
       tick: () => this.tick,
@@ -2597,13 +2615,6 @@ export class Simulation {
   private nextXpNeed(level: number) {
     return Math.round(12 + level * 1.5 + Math.pow(level, 1.25) * 0.7);
   }
-  private shuffle<T>(a: T[]) {
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = this.rng.int(i + 1);
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  }
   private allOwnedSkills() {
     return this.buildLoadout.allOwnedSkills();
   }
@@ -2642,7 +2653,7 @@ export class Simulation {
     const { offers, offer } = chosen;
     if (offer.kind === 'mutation_target' && offer.skill) {
       this.choiceRuntime.beginMutationTarget();
-      this.generateMutationOffer(offer.skill);
+      this.mutationChoices.open(offer.skill);
       return true;
     }
     if (offer.kind === 'item_grant' && offer.item) {
@@ -2703,58 +2714,11 @@ export class Simulation {
     else if (stat === 'fortune') this.fortune += amount;
     else if (stat === 'armor') this.armor += amount;
   }
-  /**
-   * D28 puts three branches on a phenomenon, so a mutation is a fork rather than a coin
-   * toss. A hand-written table used to pin eight of the phenomena to two branches each
-   * and left the rest of their declared mutations unreachable; with eighteen phenomena
-   * in the roster that table was also a standing invitation to forget an entry. The
-   * offer is now drawn from whatever the phenomenon itself declares.
-   */
-  private generateMutationOffer(id: SkillId) {
-    const st = this.skillState(id);
-    const tier: 1 | 2 | 3 = !st.mutation ? 1 : !st.mutationUpgrade ? 2 : 3;
-    const parent = tier === 1 ? null : tier === 2 ? st.mutation : st.mutationUpgrade;
-    const choices = parent
-      ? mutationChildren(id, parent).map((m) => m.id)
-      : mutationRoots(id).map((m) => m.id);
-    this.choiceRuntime.openMutation({
-      skill: id,
-      choices: tier === 1 ? this.shuffle([...choices]).slice(0, Simulation.MUTATION_BRANCHES) : choices,
-      refusalAvailable: tier === 1 && this.choiceRuntime.mutationRefusalToken,
-      tier
-    });
-  }
   chooseMutation(index: number) {
-    const m = this.mutationOffer;
-    if (!m) return false;
-    const id = this.choiceRuntime.mutationChoice(index);
-    if (!id) return false;
-    const st = this.skillState(m.skill);
-    const def = mutationDef(m.skill, id);
-    if (!def.parent) {
-      if (st.mutation) return false;
-      st.mutation = id;
-    } else if (st.mutation === def.parent) {
-      if (st.mutationUpgrade) return false;
-      st.mutationUpgrade = id;
-    } else if (st.mutationUpgrade === def.parent) {
-      if (st.mutationApotheosis) return false;
-      st.mutationApotheosis = id;
-      this.events.push({ type: 'RareEvent', tick: this.tick, title: 'АПОФЕОЗ', detail: `${skills[m.skill].name}: ${def.name}` });
-    } else return false;
-    if (this.choiceRuntime.consumeMutationTarget() && this.mutationCores > 0) this.mutationCores--;
-    this.metrics.mutations++;
-    this.events.push({ type: 'MutationChosen', tick: this.tick, skill: m.skill, mutation: id });
-    this.choiceRuntime.closeMutation();
-    return true;
+    return this.mutationChoices.choose(index);
   }
   refuseMutation(index: number) {
-    const m = this.mutationOffer;
-    if (!m || !this.choiceRuntime.canRefuseMutation()) return false;
-    const cur = new Set(m.choices),
-      cand = mutationRoots(m.skill).map((x) => x.id).filter((id) => !cur.has(id));
-    if (!cand.length) return false;
-    return this.choiceRuntime.replaceMutationChoice(index, cand[this.rng.int(cand.length)]);
+    return this.mutationChoices.refuse(index);
   }
   rerollRewards() {
     if (

@@ -17,6 +17,7 @@ const phenomenonKillReaction=readFileSync('src/core/phenomenonKillReactionSystem
 const statefulPhenomenonCastSystem=readFileSync('src/core/statefulPhenomenonCastSystem.ts','utf8');
 const choreographyTraceSystem=readFileSync('src/core/choreographyTraceSystem.ts','utf8');
 const choiceRuntime=readFileSync('src/core/choiceRuntime.ts','utf8');
+const mutationChoiceSystem=readFileSync('src/core/mutationChoiceSystem.ts','utf8');
 const activationRuntime=readFileSync('src/core/activationRuntime.ts','utf8');
 const activationPipeline=readFileSync('src/core/activationPipelineSystem.ts','utf8');
 const combatLedger=readFileSync('src/core/combatLedger.ts','utf8');
@@ -144,12 +145,29 @@ assert(simulation.includes('return this.choiceRuntime.hasChoice'),
   'Simulation.hasChoice no longer reads the choice runtime');
 for (const call of [
   'this.choiceRuntime.openRewards(','this.choiceRuntime.takeReward(index)',
-  'this.choiceRuntime.openMutation(','this.choiceRuntime.closeMutation()',
-  'this.choiceRuntime.beginMutationTarget()','this.choiceRuntime.consumeMutationTarget()',
-  'this.choiceRuntime.replaceMutationChoice('
+  'this.choiceRuntime.beginMutationTarget()'
 ])
   assert(simulation.includes(call),
-    'choice lifecycle no longer routes through ChoiceRuntime: '+call);
+    'reward choice lifecycle no longer routes through ChoiceRuntime: '+call);
+assert(mutationChoiceSystem.includes('export class MutationChoiceSystem'),
+  'mutation graph/application policy has no dedicated owner');
+assert(simulation.includes('private mutationChoices!: MutationChoiceSystem'),
+  'Simulation no longer delegates mutation choice policy');
+assert(simulation.includes('return this.mutationChoices.choose(index)') &&
+       simulation.includes('return this.mutationChoices.refuse(index)'),
+  'public mutation commands stopped delegating to MutationChoiceSystem');
+for (const call of [
+  'this.choices.openMutation(','this.choices.closeMutation()',
+  'this.choices.consumeMutationTarget()','this.choices.replaceMutationChoice('
+])
+  assert(mutationChoiceSystem.includes(call),
+    'mutation lifecycle no longer routes MutationChoiceSystem -> ChoiceRuntime: '+call);
+for (const token of [
+  'private generateMutationOffer(','private shuffle<T>(',
+  'mutationRoots(id)','mutationChildren(id, parent)','st.mutationUpgrade = id'
+])
+  assert(!simulation.includes(token),
+    'mutation graph/application policy leaked back into Simulation: '+token);
 assert(!simulation.includes('this.choiceSerial++'),
   'choice serial policy leaked back into Simulation');
 assert(choreographyTraceSystem.includes('export class ChoreographyTraceSystem'),
@@ -712,6 +730,7 @@ console.log('architecture-regression OK', {
   statefulPhenomenonCastSystem:true,
   choreographyTraceSystem:true,
   choiceRuntime:true,
+  mutationChoiceSystem:true,
   activationRuntime:true,
   activationPipelineSystem:true,
   combatLedger:true,
