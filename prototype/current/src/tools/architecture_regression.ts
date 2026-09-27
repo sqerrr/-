@@ -47,6 +47,7 @@ const eliteAffix=readFileSync('src/core/eliteAffixSystem.ts','utf8');
 const bossBehavior=readFileSync('src/core/bossBehaviorSystem.ts','utf8');
 const buildLoadout=readFileSync('src/core/buildLoadoutSystem.ts','utf8');
 const enemyBehavior=readFileSync('src/core/enemyBehaviorSystem.ts','utf8');
+const enemyRuntimeSystem=readFileSync('src/core/enemyRuntimeSystem.ts','utf8');
 const enemySpawnSystem=readFileSync('src/core/enemySpawnSystem.ts','utf8');
 const enemyRecycleSystem=readFileSync('src/core/enemyRecycleSystem.ts','utf8');
 const enemyDamageModifier=readFileSync('src/core/enemyDamageModifierSystem.ts','utf8');
@@ -673,6 +674,23 @@ for (const token of [
 ])
   assert(!simulation.includes(token),
     'ordinary enemy construction policy leaked back into Simulation: '+token);
+assert(enemyRuntimeSystem.includes('export class EnemyRuntimeSystem'),
+  'shared enemy tick pipeline has no dedicated owner');
+assert(simulation.includes('private enemyRuntime!: EnemyRuntimeSystem'),
+  'Simulation no longer delegates shared enemy runtime');
+const enemyRuntimeBlock=simulation.slice(
+  simulation.indexOf('private updateEnemyAI()'),
+  simulation.indexOf('private elitePatternCooldown(', simulation.indexOf('private updateEnemyAI()'))
+);
+assert(enemyRuntimeBlock.includes('this.enemyRuntime.update()'),
+  'Simulation updateEnemyAI is no longer a thin runtime wrapper');
+for (const token of [
+  'e.cooldown -=','e.affixTimer +=','e.frozenUntil',
+  'affixBehavior.speedMultiplier','e.contactDps *'
+])
+  assert(!enemyRuntimeBlock.includes(token),
+    'shared enemy tick policy leaked back into Simulation.updateEnemyAI: '+token);
+
 assert(enemyBehavior.includes('export class EnemyBehaviorSystem'), 'non-elite enemies have no dedicated behavior system');
 for (const kind of ['footnote','bookmark','binder','redactor','indexer','inkblot','marginwalker'])
   assert(enemyBehavior.includes("entity.kind === '"+kind+"'"), 'enemy behavior missing native script: '+kind);
@@ -782,6 +800,7 @@ console.log('architecture-regression OK', {
   buildLoadoutSystem:true,
   bossBehaviorSystem:true,
   enemyBehaviorSystem:true,
+  enemyRuntimeSystem:true,
   enemySpawnSystem:true,
   enemyRecycleSystem:true,
   enemyDamageModifierSystem:true,
