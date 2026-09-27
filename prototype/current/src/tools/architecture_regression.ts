@@ -26,6 +26,7 @@ const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
 const rewardOfferFactory=readFileSync('src/core/rewardOfferFactory.ts','utf8');
 const refusalLedger=readFileSync('src/core/refusalLedger.ts','utf8');
 const progressionOfferSystem=readFileSync('src/core/progressionOfferSystem.ts','utf8');
+const progressionRuntime=readFileSync('src/core/progressionRuntime.ts','utf8');
 const poiSystem=readFileSync('src/core/poiSystem.ts','utf8');
 const worldGeometry=readFileSync('src/core/worldGeometrySystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
@@ -356,6 +357,27 @@ assert(delayedUpdate.includes('this.delayedStrikeSystem.update(this.delayedStrik
   'Simulation updateDelayedStrikes is no longer a thin orchestration wrapper');
 for (const token of ['areaPoints=[0,1,2,3]','fieldKind','_impact'])
   assert(!delayedUpdate.includes(token), 'delayed strike runtime leaked back into Simulation: '+token);
+
+
+assert(progressionRuntime.includes('export class ProgressionRuntime'),
+  'run progression has no dedicated orchestration owner');
+assert(simulation.includes('private progressionRuntime!: ProgressionRuntime'),
+  'Simulation no longer delegates progression orchestration');
+for (const seam of [
+  'this.progressionRuntime.check()',
+  'return this.progressionRuntime.chooseReward(index)',
+  'return this.progressionRuntime.rerollRewards()',
+  'return this.progressionRuntime.skipReward()'
+])
+  assert(simulation.includes(seam), 'progression runtime seam stopped delegating: '+seam);
+for (const token of [
+  'if (this.mutationCores > 0 && this.progressionOffers.hasEvolvableSkill())',
+  'const chosen = this.choiceRuntime.takeReward(index)',
+  'this.rerolls <= 0',
+  'this.xp += this.xpNeed * 0.3'
+])
+  assert(!simulation.includes(token),
+    'progression orchestration leaked back into Simulation: '+token);
 
 assert(progressionOfferSystem.includes('export class ProgressionOfferSystem'),
   'progression reward selection has no dedicated policy owner');

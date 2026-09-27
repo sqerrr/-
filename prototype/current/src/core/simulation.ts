@@ -59,6 +59,7 @@ import { PoiSystem } from './poiSystem.js';
 import { PlayerMovementSystem } from './playerMovementSystem.js';
 import { ProjectileSystem } from './projectileSystem.js';
 import { ProgressionOfferSystem } from './progressionOfferSystem.js';
+import { ProgressionRuntime } from './progressionRuntime.js';
 import { RelicRaceSystem } from './relicRaceSystem.js';
 import { RewardOfferFactory } from './rewardOfferFactory.js';
 import { RefusalLedger } from './refusalLedger.js';
@@ -260,6 +261,7 @@ export class Simulation {
   private relicRace!: RelicRaceSystem;
   private rewardOfferFactory!: RewardOfferFactory;
   private progressionOffers!: ProgressionOfferSystem;
+  private progressionRuntime!: ProgressionRuntime;
   private mutationChoices!: MutationChoiceSystem;
   private poiSystem!: PoiSystem;
   private phenomenonCasts!: PhenomenonCastSystem;
@@ -644,6 +646,43 @@ export class Simulation {
       },
       this.choiceRuntime
     );
+    this.progressionRuntime = new ProgressionRuntime({
+      hasChoice: () => this.hasChoice,
+      mutationCores: () => this.mutationCores,
+      hasEvolvableSkill: () => this.progressionOffers.hasEvolvableSkill(),
+      openMutationTargets: () => this.generateMutationTargetOffers(),
+      eliteCore: () => this.eliteCore,
+      spendEliteCore: (amount) => { this.eliteCore -= amount; },
+      openEliteCache: () => this.generateEliteCache(),
+      xp: () => this.xp,
+      xpNeed: () => this.xpNeed,
+      spendXp: (amount) => { this.xp -= amount; },
+      addXp: (amount) => { this.xp += amount; },
+      level: () => this.level,
+      setLevel: (value) => { this.level = value; },
+      setXpNeed: (value) => { this.xpNeed = value; },
+      noteLevel: () => { this.metrics.levels++; },
+      openLevelOffers: () => this.generateLevelOffers(),
+      emitLevelUp: (level) =>
+        this.events.push({ type: 'LevelUp', tick: this.tick, level }),
+      takeReward: (index) => this.choiceRuntime.takeReward(index),
+      rewardOffers: () => this.rewardOffers,
+      clearRewards: () => this.choiceRuntime.clearRewards(),
+      rerolls: () => this.rerolls,
+      spendReroll: () => { this.rerolls--; },
+      beginMutationTarget: () => this.choiceRuntime.beginMutationTarget(),
+      openMutation: (skill) => { this.mutationChoices.open(skill); },
+      grantItem: (item) => this.grantItem(item),
+      swapInSkill: (skill, slot) => this.swapInSkill(skill, slot),
+      addSkill: (skill) => this.addSkill(skill),
+      placeCatalyst: (id) => this.placeCatalyst(id),
+      applyDoctrine: (id, amount) => this.applyDoctrine(id, amount),
+      applyCoreAxis: (id, amount) => this.applyCoreAxis(id, amount),
+      applyGlobal: (stat, amount) => this.applyGlobal(stat, amount),
+      emitRewardChosen: (title) =>
+        this.events.push({ type: 'RewardChosen', tick: this.tick, title }),
+      concedeRefusal: (passed) => this.concedeRefusal(passed)
+    });
     this.poiSystem = new PoiSystem({
       tick: () => this.tick,
       bossSpawned: () => this.bossSpawned,
@@ -2598,27 +2637,7 @@ export class Simulation {
   }
 
   private checkProgression() {
-    if (this.hasChoice) return;
-    if (this.mutationCores > 0 && this.progressionOffers.hasEvolvableSkill()) {
-      this.generateMutationTargetOffers();
-      return;
-    }
-    if (this.eliteCore >= 5) {
-      this.eliteCore -= 5;
-      this.generateEliteCache();
-      return;
-    }
-    if (this.xp >= this.xpNeed) {
-      this.xp -= this.xpNeed;
-      this.level++;
-      this.metrics.levels++;
-      this.xpNeed = this.nextXpNeed(this.level);
-      this.generateLevelOffers();
-      this.events.push({ type: 'LevelUp', tick: this.tick, level: this.level });
-    }
-  }
-  private nextXpNeed(level: number) {
-    return Math.round(12 + level * 1.5 + Math.pow(level, 1.25) * 0.7);
+    this.progressionRuntime.check();
   }
   private allOwnedSkills() {
     return this.buildLoadout.allOwnedSkills();
@@ -2653,30 +2672,7 @@ export class Simulation {
     return this.buildLoadout.swapInSkill(id, slot);
   }
   chooseReward(index: number) {
-    const chosen = this.choiceRuntime.takeReward(index);
-    if (!chosen) return false;
-    const { offers, offer } = chosen;
-    if (offer.kind === 'mutation_target' && offer.skill) {
-      this.choiceRuntime.beginMutationTarget();
-      this.mutationChoices.open(offer.skill);
-      return true;
-    }
-    if (offer.kind === 'item_grant' && offer.item) {
-      this.grantItem(offer.item);
-    } else if (offer.kind === 'skill_swap' && offer.skill && offer.swapSlot !== undefined) {
-      if (!this.swapInSkill(offer.skill, offer.swapSlot)) return false;
-    } else if ((offer.kind === 'skill_add' || offer.kind === 'elite') && offer.skill) {
-      if (!this.addSkill(offer.skill)) return false;
-    } else if ((offer.kind === 'catalyst_add' || offer.kind === 'elite') && offer.catalyst) {
-      if (!this.placeCatalyst(offer.catalyst)) return false;
-    } else if (offer.kind === 'doctrine' && offer.doctrine) {
-      this.applyDoctrine(offer.doctrine, offer.amount ?? 1);
-    } else if ((offer.kind === 'resonance' || offer.kind === 'elite') && offer.resonance) {
-      this.applyCoreAxis(offer.resonance, offer.amount ?? 1);
-    } else this.applyGlobal(offer.stat, offer.amount ?? 0);
-    this.events.push({ type: 'RewardChosen', tick: this.tick, title: offer.title });
-    if (!offers.every((o) => o.kind === 'doctrine')) this.concedeRefusal(offers.filter((o) => o !== offer));
-    return true;
+    return this.progressionRuntime.chooseReward(index);
   }
   /**
    * D7: of the cards the hero passed over, exactly one is conceded to the elites and the
@@ -2709,31 +2705,10 @@ export class Simulation {
     return this.mutationChoices.refuse(index);
   }
   rerollRewards() {
-    if (
-      !this.rewardOffers ||
-      this.rerolls <= 0 ||
-      this.rewardOffers.some(
-        (o) => o.kind === 'elite' || o.kind === 'mutation_target' || o.kind === 'skill_add'
-      )
-    )
-      return false;
-    this.rerolls--;
-    this.generateLevelOffers();
-    return true;
+    return this.progressionRuntime.rerollRewards();
   }
   skipReward() {
-    if (
-      !this.rewardOffers ||
-      this.rewardOffers.some(
-        (o) => o.kind === 'elite' || o.kind === 'mutation_target' || o.kind === 'skill_add'
-      )
-    )
-      return false;
-    const passed = this.choiceRuntime.clearRewards()!;
-    this.xp += this.xpNeed * 0.3;
-    this.events.push({ type: 'RewardChosen', tick: this.tick, title: 'Пропуск награды' });
-    this.concedeRefusal(passed);
-    return true;
+    return this.progressionRuntime.skipReward();
   }
 
   private isActiveSkill(id: SkillId) {
