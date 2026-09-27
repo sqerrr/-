@@ -53,6 +53,7 @@ const enemyRecycleSystem=readFileSync('src/core/enemyRecycleSystem.ts','utf8');
 const enemyDamageModifier=readFileSync('src/core/enemyDamageModifierSystem.ts','utf8');
 const playerDamageSystem=readFileSync('src/core/playerDamageSystem.ts','utf8');
 const playerGrowthSystem=readFileSync('src/core/playerGrowthSystem.ts','utf8');
+const pickupSystem=readFileSync('src/core/pickupSystem.ts','utf8');
 const playerMovementSystem=readFileSync('src/core/playerMovementSystem.ts','utf8');
 const stateModel=readFileSync('src/core/state.ts','utf8');
 const testHarness=readFileSync('src/testing/simulationHarness.ts','utf8');
@@ -441,6 +442,25 @@ for (const token of [
 ])
   assert(!simulation.includes(token),
     'build/loadout transition policy leaked back into Simulation: '+token);
+
+
+assert(pickupSystem.includes('export class PickupSystem'),
+  'collectible pickups have no dedicated lifecycle owner');
+assert(simulation.includes('private pickupSystem!: PickupSystem'),
+  'Simulation no longer delegates pickup lifecycle');
+assert(simulation.includes('private get pickups(): Pickup[] { return this.pickupSystem.all; }'),
+  'Simulation pickup compatibility view bypasses PickupSystem');
+assert(simulation.includes('this.pickupSystem.update()'),
+  'Simulation updatePickups is no longer a thin lifecycle seam');
+assert(simulation.includes('this.pickupSystem.add(pickup)'),
+  'death resolution no longer creates pickups through PickupSystem');
+for (const token of [
+  'private pickups: Pickup[] = []',
+  'const alive: Pickup[] = []',
+  "if (p.kind === 'xp') this.xp += p.value"
+])
+  assert(!simulation.includes(token),
+    'pickup storage/collection policy leaked back into Simulation: '+token);
 
 assert(playerGrowthSystem.includes('export class PlayerGrowthSystem'),
   'player reward effects have no dedicated growth owner');
