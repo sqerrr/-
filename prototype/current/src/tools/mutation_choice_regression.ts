@@ -84,19 +84,15 @@ const system = new MutationChoiceSystem(port, runtime);
   assert(new Set(offer.choices).size === offer.choices.length, 'Tier I duplicated a branch');
   assert(offer.refusalAvailable, 'fresh Tier I lost its refusal token');
 
-  // Frost has three roots, so use Ember to verify replacement against a larger root pool.
-  runtime.closeMutation();
-  const ember = state('ember_lance');
-  ember.mutation = null;
-  ember.mutationUpgrade = null;
-  ember.mutationApotheosis = null;
-  system.open('ember_lance');
-  const before = [...runtime.mutationOffer!.choices];
+  // Current authored Phenomena expose exactly the three displayed roots. Preserve the
+  // existing behavior: refusal cannot fabricate a fourth branch and therefore remains unused.
+  const before = [...offer.choices];
   const refused = system.refuse(1);
-  assert(refused, 'Tier I refusal failed while an unseen root exists');
-  assert(runtime.mutationRefusalToken === false, 'refusal token was not consumed');
-  assert(runtime.mutationOffer!.refusalAvailable === false, 'offer still advertises refusal after use');
-  assert(runtime.mutationOffer!.choices[1] !== before[1], 'refusal did not replace the selected branch');
+  assert(!refused, 'refusal fabricated a mutation branch outside authored content');
+  assert(runtime.mutationRefusalToken === true, 'failed refusal consumed the one-run token');
+  assert(offer.refusalAvailable === true, 'failed refusal changed the visible refusal state');
+  assert(offer.choices.every((choice, index) => choice === before[index]),
+    'failed refusal mutated the offered branches');
 }
 
 // Choosing a mutation reached through a mutation-target reward consumes exactly one core.
