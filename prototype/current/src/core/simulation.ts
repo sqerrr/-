@@ -38,6 +38,7 @@ import { EliteEncounterLedger } from './eliteEncounterLedger.js';
 import { EliteProgressionSystem } from './eliteProgressionSystem.js';
 import { EliteSpawnSystem } from './eliteSpawnSystem.js';
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
+import { EnemyRuntimeSystem } from './enemyRuntimeSystem.js';
 import { EnemySpawnSystem } from './enemySpawnSystem.js';
 import { EnemyRecycleSystem } from './enemyRecycleSystem.js';
 import { EnemyDamageModifierSystem } from './enemyDamageModifierSystem.js';
@@ -235,6 +236,7 @@ export class Simulation {
   private bossBehavior!: BossBehaviorSystem;
   private buildLoadout!: BuildLoadoutSystem;
   private enemyBehavior!: EnemyBehaviorSystem;
+  private enemyRuntime!: EnemyRuntimeSystem;
   private enemySpawns!: EnemySpawnSystem;
   private enemyRecycler!: EnemyRecycleSystem;
   private enemyDamageModifiers!: EnemyDamageModifierSystem;
@@ -891,6 +893,25 @@ export class Simulation {
         this.events.push({ type: 'RareEvent', tick: this.tick, title, detail, x, z }),
       hitPlayer: (amount, attacker, source) => this.hitPlayer(amount, attacker, source),
       damageScale: () => this.damageScale()
+    });
+    this.enemyRuntime = new EnemyRuntimeSystem({
+      dt: () => this.dt,
+      time: () => this.time,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      entities: () => this.ents,
+      earlyAffixTick: (entity) => this.eliteAffix.earlyTick(entity),
+      beforeAffixBehavior: (entity, distance) =>
+        this.eliteAffix.beforeBehavior(entity, distance),
+      updateNormal: (entity, speed, distance, nx, nz) =>
+        this.enemyBehavior.update(entity, speed, distance, nx, nz),
+      steerEliteToRelic: (entity, speed, distance) =>
+        this.steerEliteToRelic(entity, speed, distance),
+      updateElite: (entity, speed, distance, nx, nz) =>
+        this.updateEliteAI(entity, speed, distance, nx, nz),
+      updateBoss: (entity, speed, distance, nx, nz) =>
+        this.updateBossAI(entity, speed, distance, nx, nz),
+      hitPlayer: (amount, attacker) => this.hitPlayer(amount, attacker)
     });
     this.eliteDamageResponse = new EliteDamageResponseSystem({
       time: () => this.time,
@@ -1903,44 +1924,7 @@ export class Simulation {
   }
 
   private updateEnemyAI() {
-    const dt = this.dt;
-    for (const e of this.ents) {
-      if (e.hp <= 0) continue;
-      e.cooldown -= dt;
-      e.linkTimer -= dt;
-      e.stateTimer -= dt;
-      e.affixTimer += dt;
-      e.affixPulse -= dt;
-      e.adaptCooldown -= dt;
-      this.eliteAffix.earlyTick(e);
-      let dx = this.px - e.x,
-        dz = this.pz - e.z,
-        d = Math.hypot(dx, dz) || 1,
-        nx = dx / d,
-        nz = dz / d;
-      e.facingX = nx;
-      e.facingZ = nz;
-      let speed =
-        e.speed *
-        ((e.frozenUntil ?? 0) > this.time ? (e.kind === 'elite' ? 0.45 : 0.08) : e.chillUntil > this.time ? (e.kind === 'elite' ? 0.88 : 0.72) : 1) *
-        (e.buffUntil > this.time ? 1.32 : 1);
-      const affixBehavior = this.eliteAffix.beforeBehavior(e, d);
-      if (affixBehavior.skipBehavior) continue;
-      speed *= affixBehavior.speedMultiplier;
-      if (e.kind !== 'elite') {
-        this.enemyBehavior.update(e, speed, d, nx, nz);
-      } else if (e.kind === 'elite' && !e.boss && this.steerEliteToRelic(e, speed, d)) {
-        // Looting is a temporary tactical job. Contact damage below still applies if the hero intercepts it.
-      } else if (e.kind === 'elite') {
-        if (e.boss) this.updateBossAI(e, speed, d, nx, nz);
-        else this.updateEliteAI(e, speed, d, nx, nz);
-      }
-      dx = this.px - e.x;
-      dz = this.pz - e.z;
-      d = Math.hypot(dx, dz) || 1;
-      if (d < e.radius + 0.44)
-        this.hitPlayer(e.contactDps * (e.buffUntil > this.time ? 1.28 : 1) * dt, e);
-    }
+    this.enemyRuntime.update();
   }
   private elitePatternCooldown(base: number, e: Ent) {
     return this.eliteBehavior.patternCooldown(base, e);
