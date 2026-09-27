@@ -54,6 +54,7 @@ import { PhenomenonCastSystem } from './phenomenonCastSystem.js';
 import { PhenomenonKillReactionSystem } from './phenomenonKillReactionSystem.js';
 import { PlayerDamageSystem } from './playerDamageSystem.js';
 import { PlayerGrowthSystem } from './playerGrowthSystem.js';
+import { PickupSystem } from './pickupSystem.js';
 import { PoiSystem } from './poiSystem.js';
 import { PlayerMovementSystem } from './playerMovementSystem.js';
 import { ProjectileSystem } from './projectileSystem.js';
@@ -265,6 +266,7 @@ export class Simulation {
   private phenomenonKillReactions!: PhenomenonKillReactionSystem;
   private playerDamage!: PlayerDamageSystem;
   private playerGrowth!: PlayerGrowthSystem;
+  private pickupSystem!: PickupSystem;
   private playerMovement!: PlayerMovementSystem;
   private statefulPhenomenonCasts!: StatefulPhenomenonCastSystem;
   private nextId = 1;
@@ -272,7 +274,9 @@ export class Simulation {
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
   private get ents(): Ent[] { return this.entityStore.all; }
   private set ents(value: Ent[]) { this.entityStore.replace(value); }
-  private pickups: Pickup[] = [];
+  /** Compatibility view; pickup storage and collection lifecycle live in PickupSystem. */
+  private get pickups(): Pickup[] { return this.pickupSystem.all; }
+  private set pickups(value: Pickup[]) { this.pickupSystem.replace(value); }
   /** Compatibility view; ground relic ownership lives in RelicRaceSystem. */
   private get relics(): Relic[] { return this.relicRace.all; }
   private set relics(value: Relic[]) { this.relicRace.replace(value); }
@@ -455,6 +459,30 @@ export class Simulation {
       doctrines: () => this.doctrines,
       healPlayer: (amount) => this.healPlayer(amount),
       grantBarrier: (amount) => this.grantBarrier(amount)
+    });
+    this.pickupSystem = new PickupSystem({
+      dt: () => this.dt,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      pickupRadius: () => this.pickupRadius,
+      nextId: () => this.nextId++,
+      grantXp: (amount) => { this.xp += amount; },
+      grantEliteCore: (amount) => { this.eliteCore += amount; },
+      grantMutationCore: (amount) => {
+        this.mutationCores += amount;
+        return this.mutationCores;
+      },
+      healPlayer: (amount) => this.healPlayer(amount),
+      noteHealPickup: () => { this.metrics.healsPicked++; },
+      emitMutationCore: (pickup, total) =>
+        this.events.push({
+          type: 'RareEvent',
+          tick: this.tick,
+          title: 'ЯДРО МУТАЦИИ',
+          detail: `Ядро получено · запас ${total}`,
+          x: pickup.x,
+          z: pickup.z
+        })
     });
     this.worldGeometry = new WorldGeometrySystem(this.world, {
       worldRandomRange: (min, max) => this.worldRng.range(min, max),
@@ -1236,7 +1264,7 @@ export class Simulation {
       getAliveEntity: (id) => this.entityStore.getAlive(id),
       addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
       scheduleStrike: (strike) => this.scheduleStrike(strike),
-      addPickup: (pickup) => this.pickups.push({ id: this.nextId++, ...pickup }),
+      addPickup: (pickup) => { this.pickupSystem.add(pickup); },
       damageScale: () => this.damageScale(),
       xpMultiplier: () => this.itemXpMul,
       ownedCatalystCount: () => this.allOwnedCatalysts().length,
@@ -1999,32 +2027,9 @@ export class Simulation {
   }
 
   private updatePickups() {
-    const alive: Pickup[] = [];
-    for (const p of this.pickups) {
-      const dx = this.px - p.x,
-        dz = this.pz - p.z,
-        d = Math.hypot(dx, dz);
-      if (d > 1e-6 && d < this.pickupRadius) {
-        const sp = 5.5 + Math.max(0, this.pickupRadius - d) * 2.4;
-        p.x += (dx / d) * sp * this.dt;
-        p.z += (dz / d) * sp * this.dt;
-      }
-      if (d < 0.42) {
-        if (p.kind === 'xp') this.xp += p.value;
-        else if (p.kind === 'core') this.eliteCore += p.value;
-        else if (p.kind === 'mutation') {
-          this.mutationCores += p.value;
-          this.events.push({ type: 'RareEvent', tick: this.tick, title: 'ЯДРО МУТАЦИИ', detail: `Ядро получено · запас ${this.mutationCores}`, x: p.x, z: p.z });
-        } else {
-          this.healPlayer(p.value);
-          this.metrics.healsPicked++;
-        }
-        continue;
-      }
-      alive.push(p);
-    }
-    this.pickups = alive;
+    this.pickupSystem.update();
   }
+
   /**
    * Relics appear away from the hero on purpose. A relic that spawns underfoot is a gift;
    * one that spawns across the field is a decision, and it is the only thing in the build
