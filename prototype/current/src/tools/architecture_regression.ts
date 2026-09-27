@@ -50,6 +50,7 @@ const enemySpawnSystem=readFileSync('src/core/enemySpawnSystem.ts','utf8');
 const enemyRecycleSystem=readFileSync('src/core/enemyRecycleSystem.ts','utf8');
 const enemyDamageModifier=readFileSync('src/core/enemyDamageModifierSystem.ts','utf8');
 const playerDamageSystem=readFileSync('src/core/playerDamageSystem.ts','utf8');
+const playerGrowthSystem=readFileSync('src/core/playerGrowthSystem.ts','utf8');
 const playerMovementSystem=readFileSync('src/core/playerMovementSystem.ts','utf8');
 const stateModel=readFileSync('src/core/state.ts','utf8');
 const testHarness=readFileSync('src/testing/simulationHarness.ts','utf8');
@@ -421,6 +422,27 @@ for (const token of [
 ])
   assert(!simulation.includes(token),
     'build/loadout transition policy leaked back into Simulation: '+token);
+
+assert(playerGrowthSystem.includes('export class PlayerGrowthSystem'),
+  'player reward effects have no dedicated growth owner');
+assert(simulation.includes('private playerGrowth!: PlayerGrowthSystem'),
+  'Simulation no longer delegates persistent player growth');
+for (const seam of [
+  'this.playerGrowth.applyItem(id)',
+  'this.playerGrowth.applyCoreAxis(axis, amount)',
+  'this.playerGrowth.applyDoctrine(id, amount)',
+  'this.playerGrowth.applyGlobal(stat, amount)'
+])
+  assert(simulation.includes(seam), 'player growth compatibility seam stopped delegating: '+seam);
+for (const token of [
+  'heldItems: ItemId[] = []',
+  'private itemDamageMul = 1',
+  "const a = items[id].effect",
+  "if (a.kind === 'armor')"
+])
+  assert(!simulation.includes(token),
+    'player growth state/policy leaked back into Simulation: '+token);
+
 assert(rewardOfferFactory.includes('export class RewardOfferFactory'),
   'player-facing reward cards have no dedicated factory');
 assert(simulation.includes('private rewardOfferFactory!: RewardOfferFactory'),
