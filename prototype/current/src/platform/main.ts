@@ -55,8 +55,15 @@ function skillVisualIcon(id: SkillId, mutated = false) {
 }
 
 const params = new URLSearchParams(location.search);
-const seed = Number(params.get('seed') || 12345),
-  smoke = params.get('smoke') === '1',
+// Seed policy. Local/dev and tests keep the fixed 12345 so runs are reproducible. The GitHub
+// Pages launcher sets __ROGUE_PAGES__.randomSeed, and `?seed=random` does the same locally:
+// every start and every restart then rolls a new world. `?seed=N` always pins one world.
+const seedParam = params.get('seed'),
+  pagesConfig = (globalThis as { __ROGUE_PAGES__?: { randomSeed?: boolean } }).__ROGUE_PAGES__,
+  randomSeeds = seedParam === 'random' || (!seedParam && pagesConfig?.randomSeed === true),
+  rollSeed = () => 1 + Math.floor(Math.random() * 999999);
+let seed = randomSeeds ? rollSeed() : Number(seedParam || 12345);
+const smoke = params.get('smoke') === '1',
   uiTest = params.get('uitest') === '1',
   debugEnabled = params.get('debug') === '1';
 let runMode: RunMode = params.get('mode') === 'showcase' ? 'showcase' : 'clean';
@@ -343,6 +350,10 @@ function togglePlanning() {
 function restart() {
   runMode = modeSelect.value as RunMode;
   startingSkill = startSelect.value as SkillId;
+  if (randomSeeds) {
+    seed = rollSeed();
+    $('seed').textContent = String(seed);
+  }
   sim = newSimulation();
   presentation.reset(sim.snapshot());
   renderer?.reset();

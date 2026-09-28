@@ -2,6 +2,10 @@
 // It deliberately uses import.meta.url so the game works from a project path such as /-/.
 const entry = new URL('./dist/platform/main.js', import.meta.url);
 
+// The public build rolls a fresh world on every start and restart (local runs keep 12345).
+// `?seed=N` in the address still pins a specific world, e.g. to reproduce a bug.
+globalThis.__ROGUE_PAGES__ = { randomSeed: true };
+
 try {
   await import(entry.href);
 } catch (error) {
