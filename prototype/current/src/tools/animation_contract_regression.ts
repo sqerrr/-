@@ -83,9 +83,14 @@ for(const i of [0,1,2,3])
   assert(renderer.includes(`player_cast_${i}`),`hero cast frame ${i} is not loaded/used`);
 assert(renderer.includes('const alphaBox = (img: HTMLImageElement)'), 'actor UVs no longer trim transparent margins');
 assert(renderer.includes('dashing || invulnerable') && renderer.includes("'player_cast_' + frame"), 'dash no longer uses authored cast/body animation');
+// v0.14 perf bug: the dash trail is keyed by sim time. It must be cleared on restart, sampled
+// once per sim time and capped, or later dashes draw thousands of stale ghost sprites.
+assert(/reset\(\) \{[\s\S]*?this\.heroTrail = \[\];[\s\S]*?\n  \}/.test(renderer), 'renderer.reset() no longer clears the dash trail');
+assert(renderer.includes('HERO_TRAIL_MAX') && renderer.includes('if (trailLast && trailLast.t > s.time) this.heroTrail = [];'), 'dash trail lost its cap or its time-rewind reset');
 
 const html=readFileSync('public/index.html','utf8'), platform=readFileSync('src/platform/main.ts','utf8');
 assert(!html.includes('legacy-hidden')&&!html.includes('id="eventLog"'),'retired legacy HUD DOM returned');
+assert(!/const snap = sim\.snapshot\(\),\s*from = snap\.chain/.test(platform), 'Catalyst events build a full snapshot per event again');
 assert(!platform.includes("\$('eventLog')")&&!platform.includes("\$('perf')")&&!platform.includes("\$('gpuName')"),'platform still updates retired hidden HUD nodes');
 
 console.log('animation-contract-regression OK',{

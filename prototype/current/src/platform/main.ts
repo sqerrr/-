@@ -524,7 +524,9 @@ function showEliteAlert(title: string, body: string, duration = 3400, rare = fal
     }
   }, duration);
 }
-function pushEvents(events: readonly GameEvent[]) {
+// `snap` is the snapshot already taken for this tick; catalyst events used to build a fresh
+// full snapshot each just to read two slot ids.
+function pushEvents(events: readonly GameEvent[], snap: Snapshot) {
   for (const e of events) {
     const t = eventText(e);
     if (t) pushLog(t);
@@ -559,8 +561,7 @@ function pushEvents(events: readonly GameEvent[]) {
           kind: e.crit ? 'crit' : 'damage'
         });
     } else if (e.type === 'CatalystTriggered') {
-      const snap = sim.snapshot(),
-        from = snap.chain.slots[e.fromSlot],
+      const from = snap.chain.slots[e.fromSlot],
         to = snap.chain.slots[e.toSlot],
         label = catalysts[e.catalyst].shortName.toUpperCase();
       combatFloats.push({
@@ -584,8 +585,7 @@ function pushEvents(events: readonly GameEvent[]) {
         );
       }
     } else if (e.type === 'CatalystChoreography') {
-      const snap = sim.snapshot(),
-        from = snap.chain.slots[e.fromSlot],
+      const from = snap.chain.slots[e.fromSlot],
         to = snap.chain.slots[e.toSlot],
         label = catalysts[e.catalyst].shortName.toUpperCase(),
         explanation =
@@ -1583,7 +1583,7 @@ function consumeChoiceEvents() {
     const snap = sim.snapshot(),
       cues = presentation.consume(sim.events, sim.time, snap);
     if (renderer) renderer.consume(cues, snap);
-    pushEvents(sim.events);
+    pushEvents(sim.events, snap);
   } catch (err) {
     console.error(err);
   }
@@ -1857,7 +1857,7 @@ function frame(now: number) {
       frameSnapshot = sim.snapshot();
       const cues = presentation.consume(sim.events, sim.time, frameSnapshot);
       renderer.consume(cues, frameSnapshot);
-      pushEvents(sim.events);
+      pushEvents(sim.events, frameSnapshot);
       acc -= sim.dt;
       if (sim.hasChoice || sim.php <= 0 || sim.finished) break;
     }

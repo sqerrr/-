@@ -189,6 +189,8 @@ export class WebGLRenderer {
   // Short ring of recent hero positions. Only read while dashing, to draw the streak
   // that tells the player the dash actually fired and where it came from.
   private heroTrail: { x: number; z: number; t: number }[] = [];
+  /** 0.26 s of trail at the 60 Hz simulation step, with headroom. */
+  private static readonly HERO_TRAIL_MAX = 24;
   private cssW = 1;
   private cssH = 1;
   private dpr = 1;
@@ -329,6 +331,9 @@ export class WebGLRenderer {
     this.lastPlayerZ = 0;
     this.lastPlayerAnimTime = 0;
     this.playerMoveBlend = 0;
+    // The trail is keyed by simulation time, which restarts at 0 with a new run. Stale points
+    // from the previous run would never age out and every later dash would draw all of them.
+    this.heroTrail = [];
   }
   get rendererName() {
     const gl = this.gl;
@@ -787,8 +792,9 @@ export class WebGLRenderer {
     gl.useProgram(p);
     this.commonUniforms(p, s);
     gl.uniform1f(gl.getUniformLocation(p, 'u_time'), s.time);
+    // Only permanent cover seeds the floor: temporary Architect walls must not reshuffle it.
     const terrainSeed = s.world.obstacles.reduce(
-      (acc, o) => acc + o.id * 0.137 + o.x * 0.019 + o.z * 0.031,
+      (acc, o) => (o.expiresAt === undefined ? acc + o.id * 0.137 + o.x * 0.019 + o.z * 0.031 : acc),
       17.0
     );
     gl.uniform1f(gl.getUniformLocation(p, 'u_seed'), terrainSeed);
@@ -1842,13 +1848,21 @@ export class WebGLRenderer {
     const heroR = invulnerable ? 1.7 : dashing ? 1.2 : 1,
       heroG = invulnerable ? 2.1 : dashing ? 1.3 : 1,
       heroB = invulnerable ? 2.4 : dashing ? 1.5 : 1;
-    this.heroTrail.push({ x: s.player.x, z: s.player.z, t: s.time });
-    while (this.heroTrail.length > 0 && s.time - this.heroTrail[0].t > 0.26) this.heroTrail.shift();
+    // Sample the trail once per simulation step, never per render frame: paused/choice frames
+    // share one time and used to pile up duplicates. Time running backwards means a new run.
+    const trailLast = this.heroTrail[this.heroTrail.length - 1];
+    if (trailLast && trailLast.t > s.time) this.heroTrail = [];
+    if (!trailLast || s.time > trailLast.t) this.heroTrail.push({ x: s.player.x, z: s.player.z, t: s.time });
+    let trailDrop = 0;
+    while (trailDrop < this.heroTrail.length && s.time - this.heroTrail[trailDrop].t > 0.26) trailDrop++;
+    if (trailDrop) this.heroTrail.splice(0, trailDrop);
+    if (this.heroTrail.length > WebGLRenderer.HERO_TRAIL_MAX)
+      this.heroTrail.splice(0, this.heroTrail.length - WebGLRenderer.HERO_TRAIL_MAX);
     if (dashing) {
       const trailFlip = s.player.aimX - s.player.aimZ < 0 ? 1 : 0;
       for (const g of this.heroTrail) {
         const age = (s.time - g.t) / 0.26;
-        if (age <= 0.02) continue;
+        if (age <= 0.02 || age >= 1) continue;
         addActor(
           g.x,
           g.z,
