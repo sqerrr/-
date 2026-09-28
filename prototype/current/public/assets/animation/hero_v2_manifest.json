@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "cellWidth": 192,
+  "cellHeight": 192,
+  "rows": [
+    "c",
+    "n",
+    "ne",
+    "e",
+    "se",
+    "s",
+    "sw",
+    "w",
+    "nw"
+  ],
+  "pivot": [
+    96,
+    169
+  ],
+  "clips": {
+    "idle": {
+      "image": "/assets/animation/hero_v2_idle.png",
+      "frames": 4,
+      "fps": 5,
+      "loop": true
+    },
+    "run": {
+      "image": "/assets/animation/hero_v2_run.png",
+      "frames": 8,
+      "fps": 12,
+      "loop": true
+    },
+    "cast": {
+      "image": "/assets/animation/hero_v2_cast.png",
+      "frames": 6,
+      "fps": 16,
+      "loop": false
+    }
+  },
+  "notes": "C is neutral fallback only; real facing uses eight directional rows."
+}
