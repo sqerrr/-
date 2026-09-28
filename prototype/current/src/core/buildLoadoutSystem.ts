@@ -66,6 +66,46 @@ export class BuildLoadoutSystem {
     return out;
   }
 
+  hasFreeSkillPlace() {
+    return (
+      this.port.slots().some((current) => !current) ||
+      this.port.skillReserve().some((current) => !current)
+    );
+  }
+
+  hasFreeCatalystPlace() {
+    return (
+      this.port.catalysts().some((current) => !current) ||
+      this.port.catalystReserve().some((current) => !current)
+    );
+  }
+
+  canAddSkill(id: SkillId) {
+    return this.allOwnedSkills().includes(id) || this.hasFreeSkillPlace();
+  }
+
+  canPlaceCatalyst(id: CatalystId) {
+    return this.allOwnedCatalysts().includes(id) || this.hasFreeCatalystPlace();
+  }
+
+  /**
+   * Swap targets address one combined location list: active slots first, then reserve places.
+   * The player chooses the target; there is no random replacement.
+   */
+  swapTargetCount() {
+    return this.port.slots().length + this.port.skillReserve().length;
+  }
+
+  canSwapInSkill(id: SkillId, target: number | undefined) {
+    if (this.allOwnedSkills().includes(id)) return true;
+    return (
+      target !== undefined &&
+      Number.isInteger(target) &&
+      target >= 0 &&
+      target < this.swapTargetCount()
+    );
+  }
+
   placeCatalyst(id: CatalystId) {
     const slots = this.port.slots();
     const catalysts = this.port.catalysts();
@@ -114,31 +154,67 @@ export class BuildLoadoutSystem {
   }
 
   /**
-   * The active Phenomenon stepping aside goes to reserve. If reserve is full, its first
-   * occupant leaves the run and its runtime is discarded.
+   * Places a found Phenomenon at a player-chosen location (see `swapTargetCount`).
+   *
+   * - Active target: its occupant steps aside into a free reserve place. When the reserve is
+   *   full, the reserve occupant leaves the run instead (the choice UI names it beforehand).
+   * - Reserve target: the reserve occupant leaves the run.
+   *
+   * Mutation cores invested into any Phenomenon leaving the active line are refunded, exactly
+   * as a manual active→reserve move does, so a swap never destroys invested cores.
    */
-  swapInSkill(id: SkillId, slot: number) {
+  swapInSkill(id: SkillId, target: number) {
     if (this.allOwnedSkills().includes(id)) return true;
+    if (!this.canSwapInSkill(id, target)) return false;
 
     const slots = this.port.slots();
     const reserve = this.port.skillReserve();
-    if (slot < 0 || slot >= slots.length) return false;
 
-    const leaving = slots[slot];
-    slots[slot] = id;
+    if (target >= slots.length) {
+      const reserveIndex = target - slots.length;
+      const dropped = reserve[reserveIndex];
+      reserve[reserveIndex] = id;
+      this.port.setSkillRuntime(id, this.port.newSkill(id));
+      if (dropped) {
+        this.refundMutationCores(dropped);
+        this.port.deleteSkillRuntime(dropped);
+      }
+      return true;
+    }
+
+    const leaving = slots[target];
+    slots[target] = id;
     this.port.setSkillRuntime(id, this.port.newSkill(id));
 
     if (leaving) {
+      this.refundMutationCores(leaving);
       const free = reserve.findIndex((current) => !current);
       if (free >= 0) reserve[free] = leaving;
-      else {
+      else if (reserve.length) {
         const dropped = reserve[0];
         reserve[0] = leaving;
-        if (dropped) this.port.deleteSkillRuntime(dropped);
-      }
+        if (dropped) {
+          this.refundMutationCores(dropped);
+          this.port.deleteSkillRuntime(dropped);
+        }
+      } else this.port.deleteSkillRuntime(leaving);
     }
 
     return true;
+  }
+
+  private refundMutationCores(skill: SkillId) {
+    const state = this.port.skillState(skill);
+    if (!state.mutation) return;
+    this.port.setMutationCores(
+      this.port.mutationCores() +
+        1 +
+        (state.mutationUpgrade ? 1 : 0) +
+        (state.mutationApotheosis ? 1 : 0)
+    );
+    state.mutation = null;
+    state.mutationUpgrade = null;
+    state.mutationApotheosis = null;
   }
 
   swapSkillLocations(
@@ -164,20 +240,7 @@ export class BuildLoadoutSystem {
 
     if (zoneA !== zoneB) {
       const leaving = zoneA === 'active' ? valueA : valueB;
-      if (leaving) {
-        const state = this.port.skillState(leaving);
-        if (state.mutation) {
-          this.port.setMutationCores(
-            this.port.mutationCores() +
-              1 +
-              (state.mutationUpgrade ? 1 : 0) +
-              (state.mutationApotheosis ? 1 : 0)
-          );
-          state.mutation = null;
-          state.mutationUpgrade = null;
-          state.mutationApotheosis = null;
-        }
-      }
+      if (leaving) this.refundMutationCores(leaving);
     }
 
     a[indexA] = valueB;

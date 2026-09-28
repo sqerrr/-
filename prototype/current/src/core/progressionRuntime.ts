@@ -36,6 +36,10 @@ export interface ProgressionRuntimePort {
   takeReward(index: number): ProgressionSelection | null;
   rewardOffers(): RewardOffer[] | null;
   clearRewards(): RewardOffer[] | null;
+  /** Validates an offer against the current loadout before the window is consumed. */
+  canApplyReward(offer: RewardOffer, target?: number): boolean;
+  /** Rebuilds the visible window from the same source (level, discovery, catalyst, ...). */
+  reopenRewards(): void;
   rerolls(): number;
   spendReroll(): void;
 
@@ -93,7 +97,19 @@ export class ProgressionRuntime {
     }
   }
 
-  chooseReward(index: number) {
+  /**
+   * Applies one visible offer. Validation happens before the window is consumed: an offer
+   * that cannot be applied (for example, a Phenomenon without a free place) leaves the window
+   * open and spends nothing, instead of silently eating the reward.
+   *
+   * `target` is the player's chosen location for a `skill_swap` card.
+   */
+  chooseReward(index: number, target?: number) {
+    const preview = this.port.rewardOffers()?.[index];
+    if (!preview) return false;
+    const swapTarget = target ?? preview.swapSlot;
+    if (!this.port.canApplyReward(preview, swapTarget)) return false;
+
     const chosen = this.port.takeReward(index);
     if (!chosen) return false;
 
@@ -107,8 +123,8 @@ export class ProgressionRuntime {
 
     if (offer.kind === 'item_grant' && offer.item) {
       this.port.grantItem(offer.item);
-    } else if (offer.kind === 'skill_swap' && offer.skill && offer.swapSlot !== undefined) {
-      if (!this.port.swapInSkill(offer.skill, offer.swapSlot)) return false;
+    } else if (offer.kind === 'skill_swap' && offer.skill && swapTarget !== undefined) {
+      if (!this.port.swapInSkill(offer.skill, swapTarget)) return false;
     } else if ((offer.kind === 'skill_add' || offer.kind === 'elite') && offer.skill) {
       if (!this.port.addSkill(offer.skill)) return false;
     } else if ((offer.kind === 'catalyst_add' || offer.kind === 'elite') && offer.catalyst) {
@@ -141,7 +157,7 @@ export class ProgressionRuntime {
       return false;
 
     this.port.spendReroll();
-    this.port.openLevelOffers();
+    this.port.reopenRewards();
     return true;
   }
 

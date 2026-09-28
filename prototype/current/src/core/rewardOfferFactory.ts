@@ -171,19 +171,15 @@ export class RewardOfferFactory {
     };
   }
 
+  /** A swap card has no preset slot: the player picks the replaced location when taking it. */
   skillSwap(id: SkillId): RewardOffer {
-    const slots = this.port.slots();
-    const slot = this.port.randomInt(slots.length);
-    const leaving = slots[slot];
-
     return {
       id: `swap:${id}:${this.port.nextU32()}`,
       kind: 'skill_swap',
       title: skills[id].name,
-      subtitle: `ЗАМЕНА · вместо «${leaving ? skills[leaving].name : '—'}»`,
-      description: `${skills[id].description} Снятый феномен уходит в резерв, а не пропадает.`,
-      skill: id,
-      swapSlot: slot
+      subtitle: 'ЗАМЕНА · выберите, какой феномен уступит место',
+      description: `${skills[id].description} Снятый активный феномен уходит в резерв; вложенные ядра мутаций возвращаются.`,
+      skill: id
     };
   }
 

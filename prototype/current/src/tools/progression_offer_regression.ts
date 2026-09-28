@@ -81,7 +81,10 @@ const port: ProgressionOfferPort = {
   catalystReserve: () => catalystReserve,
   skillState: state,
   mutationCores: () => mutationCores,
-  catalystCompatibleEdges: compatibleEdges
+  catalystCompatibleEdges: compatibleEdges,
+  hasFreeSkillPlace: () => slots.some((id) => !id) || reserve.some((id) => !id),
+  hasFreeCatalystPlace: () =>
+    catalystSlots.some((id) => !id) || catalystReserve.some((id) => !id)
 };
 const system = new ProgressionOfferSystem(port, factory);
 
@@ -105,8 +108,25 @@ const system = new ProgressionOfferSystem(port, factory);
   const offers = system.discovery();
   assert(offers.length === 3 && offers.every((offer) => offer.kind === 'skill_swap'),
     'full build no longer converts discoveries into swaps');
-  assert(offers.every((offer) => offer.swapSlot !== undefined),
-    'swap discovery lost target slot');
+  assert(offers.every((offer) => offer.swapSlot === undefined),
+    'swap discovery must leave the replaced location to the player, not preset it randomly');
+}
+
+// Elite caches cannot be skipped: with a full build they must not offer an unplaceable Phenomenon.
+{
+  slots = ['rail_spear', 'frost_ring', 'cleaver', 'chain_arc'];
+  reserve = ['orbit_blades', 'toxic_mist'];
+  catalystSlots = ['source', 'carrier', 'trail'];
+  catalystReserve = ['reverse', 'collapse'];
+  for (let attempt = 0; attempt < 8; attempt++) {
+    refusalInts.push(0);
+    const offers = system.eliteCache();
+    assert(offers.length === 3, 'full-build elite cache must still show three cards');
+    assert(offers.every((offer) => !offer.skill && !offer.catalyst),
+      'full-build elite cache offered a Phenomenon/Catalyst without a free place');
+  }
+  catalystSlots = [null, null, null];
+  catalystReserve = [null, null];
 }
 
 // Catalyst discovery prefers currently compatible unowned Catalysts before the broad pool.

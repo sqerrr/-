@@ -119,7 +119,9 @@ export class ProgressionComposition {
         catalystReserve: port.catalystReserve,
         skillState: port.skillState,
         mutationCores: port.mutationCores,
-        catalystCompatibleEdges: (id) => this.loadout.catalystCompatibleEdges(id)
+        catalystCompatibleEdges: (id) => this.loadout.catalystCompatibleEdges(id),
+        hasFreeSkillPlace: () => this.loadout.hasFreeSkillPlace(),
+        hasFreeCatalystPlace: () => this.loadout.hasFreeCatalystPlace()
       },
       factory
     );
@@ -158,6 +160,8 @@ export class ProgressionComposition {
       takeReward: (index) => this.choices.takeReward(index),
       rewardOffers: () => this.choices.rewardOffers,
       clearRewards: () => this.choices.clearRewards(),
+      canApplyReward: (offer, target) => this.canApplyReward(offer, target),
+      reopenRewards: () => this.reopenRewards(),
       rerolls: port.rerolls,
       spendReroll: port.spendReroll,
       beginMutationTarget: () => this.choices.beginMutationTarget(),
@@ -215,23 +219,38 @@ export class ProgressionComposition {
     return this.offers.hasEvolvableSkill();
   }
   openDiscovery() {
-    this.choices.openRewards(this.offers.discovery());
+    this.choices.openRewards(this.offers.discovery(), 'discovery');
   }
   openCatalystDiscovery() {
-    this.choices.openRewards(this.offers.catalystDiscovery());
+    this.choices.openRewards(this.offers.catalystDiscovery(), 'catalyst');
   }
   openResonanceChoice() {
-    this.choices.openRewards(this.offers.resonanceChoice());
+    this.choices.openRewards(this.offers.resonanceChoice(), 'resonance');
   }
   openLevelOffers() {
-    this.choices.openRewards(this.offers.levelOffers());
+    this.choices.openRewards(this.offers.levelOffers(), 'level');
+  }
+  get rewardChannel() {
+    return this.choices.rewardChannel;
   }
 
   check() {
     this.runtime.check();
   }
-  chooseReward(index: number) {
-    return this.runtime.chooseReward(index);
+  chooseReward(index: number, target?: number) {
+    return this.runtime.chooseReward(index, target);
+  }
+  canApplyReward(offer: RewardOffer, target?: number) {
+    if (offer.kind === 'skill_swap' && offer.skill)
+      return this.loadout.canSwapInSkill(offer.skill, target);
+    if ((offer.kind === 'skill_add' || offer.kind === 'elite') && offer.skill)
+      return this.loadout.canAddSkill(offer.skill);
+    if ((offer.kind === 'catalyst_add' || offer.kind === 'elite') && offer.catalyst)
+      return this.loadout.canPlaceCatalyst(offer.catalyst);
+    return true;
+  }
+  swapTargetCount() {
+    return this.loadout.swapTargetCount();
   }
   rerollRewards() {
     return this.runtime.rerollRewards();
@@ -283,9 +302,19 @@ export class ProgressionComposition {
 
   private openMutationTargets() {
     const offers = this.offers.mutationTargetOffers();
-    if (offers.length) this.choices.openRewards(offers);
+    if (offers.length) this.choices.openRewards(offers, 'mutation_target');
   }
   private openEliteCache() {
-    this.choices.openRewards(this.offers.eliteCache());
+    this.choices.openRewards(this.offers.eliteCache(), 'elite');
+  }
+  /** Reroll stays inside the source that opened the window. */
+  private reopenRewards() {
+    const channel = this.choices.rewardChannel;
+    if (channel === 'discovery') this.openDiscovery();
+    else if (channel === 'catalyst') this.openCatalystDiscovery();
+    else if (channel === 'resonance') this.openResonanceChoice();
+    else if (channel === 'elite') this.openEliteCache();
+    else if (channel === 'mutation_target') this.openMutationTargets();
+    else this.openLevelOffers();
   }
 }

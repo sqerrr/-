@@ -71,16 +71,14 @@ assert(add.description.includes(skills.frost_ring.description),
   'skill discovery lost base description');
 assert(calls.join(',') === 'u32', 'skill discovery changed RNG cadence');
 
-// Swap chooses one active slot first, then allocates the offer id.
+// Swap leaves the replaced location to the player: no random slot, only the offer id.
 calls.length = 0;
-intQueue.push(2);
 const swap = factory.skillSwap('frost_ring');
-assert(swap.kind === 'skill_swap' && swap.swapSlot === 2,
-  'skill swap slot selection changed');
-assert(swap.subtitle.includes(skills.cleaver.name),
-  'skill swap no longer names the leaving Phenomenon');
-assert(calls[0] === 'int:4' && calls[1] === 'u32',
-  'skill swap RNG ordering changed');
+assert(swap.kind === 'skill_swap' && swap.swapSlot === undefined,
+  'skill swap must not preset a random slot');
+assert(swap.description.includes('ядра мутаций возвращаются'),
+  'skill swap no longer promises the mutation-core refund');
+assert(calls.join(',') === 'u32', 'skill swap RNG cadence changed');
 
 // Catalyst card copy is derived from the actual compatible edge supplied by progression.
 calls.length = 0;
@@ -116,7 +114,7 @@ console.log('reward-offer-factory-regression OK', {
   resonance: axis.title,
   doctrine: doctrine.title,
   discovery: add.title,
-  swapSlot: swap.swapSlot,
+  swap: swap.title,
   catalyst: catalyst.title,
   global: global.title
 });

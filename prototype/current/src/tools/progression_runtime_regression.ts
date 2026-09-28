@@ -87,6 +87,9 @@ const runtime = new ProgressionRuntime({
     state.offers = null;
     return offers;
   },
+  canApplyReward: (candidate, target) =>
+    candidate.kind !== 'skill_swap' || (candidate.skill !== 'rail_spear' && target !== undefined),
+  reopenRewards: () => state.actions.push('reopen'),
   rerolls: () => state.rerolls,
   spendReroll: () => {
     state.rerolls--;
@@ -204,20 +207,29 @@ for (const [candidate, expected] of [
   clearTrace();
 }
 
-// A failed swap keeps the historical semantics: the choice was already consumed, but no event/refusal fires.
+// An offer that cannot be applied is rejected before the window is consumed: nothing is lost.
 state.offers = [offer('skill_swap', { skill: 'rail_spear', swapSlot: 2 }), offer('global')];
 assert(!runtime.chooseReward(0), 'failed swap incorrectly succeeded');
-assert(state.offers === null, 'failed swap no longer consumes the opened choice');
-assert(Number(state.rewardTitles.length) === 0 && Number(state.refusals.length) === 0,
-  'failed swap emitted post-apply choice effects');
+assert(state.offers !== null && state.offers.length === 2,
+  'an unapplicable reward consumed the opened choice');
+assert(Number(state.rewardTitles.length) === 0 && Number(state.refusals.length) === 0 &&
+  state.actions.length === 0, 'failed swap produced side effects');
 clearTrace();
 
-// Reroll is allowed only for ordinary reward windows and consumes one reroll before reopening level offers.
+// A swap card without a preset slot needs the player's target.
+state.offers = [offer('skill_swap', { skill: 'cleaver' }), offer('global')];
+assert(!runtime.chooseReward(0), 'swap without a target was applied');
+assert(state.offers !== null, 'targetless swap consumed the window');
+assert(runtime.chooseReward(0, 3), 'swap with a player target failed');
+assert(state.actions[0] === 'swap:cleaver:3', 'player swap target was not forwarded');
+clearTrace();
+
+// Reroll is allowed only for ordinary reward windows and reopens the same reward channel.
 state.rerolls = 1;
 state.offers = [offer('doctrine')];
 assert(runtime.rerollRewards(), 'ordinary reward could not reroll');
 assert(Number(state.rerolls) === 0, 'reroll charge was not consumed');
-assert(state.actions.join('|') === 'spend-reroll|level-offers', 'reroll ordering changed');
+assert(state.actions.join('|') === 'spend-reroll|reopen', 'reroll ordering changed');
 clearTrace();
 state.rerolls = 1;
 state.offers = [offer('elite')];

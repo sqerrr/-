@@ -2528,8 +2528,13 @@ export class Simulation {
   private swapInSkill(id: SkillId, slot: number) {
     return this.progression.swapInSkill(id, slot);
   }
-  chooseReward(index: number) {
-    return this.progression.chooseReward(index);
+  /** `target` is the chosen location for a swap card: active slots first, then reserve. */
+  chooseReward(index: number, target?: number) {
+    return this.progression.chooseReward(index, target);
+  }
+  canChooseReward(index: number, target?: number) {
+    const offer = this.progression.rewardOffers?.[index];
+    return !!offer && this.progression.canApplyReward(offer, target ?? offer.swapSlot);
   }
   /**
    * D7: of the cards the hero passed over, exactly one is conceded to the elites and the

@@ -1,6 +1,19 @@
 import type { MutationId, MutationOffer, RewardOffer } from './types.js';
 
 /**
+ * Which progression source produced the visible reward window. A reroll must stay inside
+ * this source: rerolling a Catalyst find into specialisations would silently change what
+ * the player earned.
+ */
+export type RewardChannel =
+  | 'level'
+  | 'discovery'
+  | 'catalyst'
+  | 'resonance'
+  | 'elite'
+  | 'mutation_target';
+
+/**
  * Owns the transient UI/application state of progression choices.
  *
  * Offer generation and reward effects stay outside this class. ChoiceRuntime only owns the
@@ -9,6 +22,7 @@ import type { MutationId, MutationOffer, RewardOffer } from './types.js';
  */
 export class ChoiceRuntime {
   rewardOffers: RewardOffer[] | null = null;
+  rewardChannel: RewardChannel = 'level';
   mutationOffer: MutationOffer | null = null;
   serial = 0;
   mutationRefusalToken = true;
@@ -18,9 +32,14 @@ export class ChoiceRuntime {
     return this.rewardOffers !== null || this.mutationOffer !== null;
   }
 
-  openRewards(offers: RewardOffer[]) {
+  openRewards(offers: RewardOffer[], channel: RewardChannel = 'level') {
     this.rewardOffers = offers;
+    this.rewardChannel = channel;
     this.serial++;
+  }
+
+  peekReward(index: number) {
+    return this.rewardOffers?.[index] ?? null;
   }
 
   takeReward(index: number) {

@@ -421,7 +421,7 @@ assert(progressionComposition.includes('private readonly offers: ProgressionOffe
   'progression composition no longer owns offer/runtime wiring');
 for (const seam of [
   'this.progression.check()',
-  'return this.progression.chooseReward(index)',
+  'return this.progression.chooseReward(index, target)',
   'return this.progression.rerollRewards()',
   'return this.progression.skipReward()'
 ])

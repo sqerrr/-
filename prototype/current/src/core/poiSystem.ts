@@ -58,6 +58,11 @@ export class PoiSystem {
     const p = this.port;
     if (p.bossSpawned()) return;
 
+    // A POI completes into a choice window. While another window is open, keep it dormant:
+    // the hero is still inside the radius and it awakens as soon as the window closes,
+    // instead of being cleared with its reward silently dropped.
+    if (p.hasChoice()) return;
+
     const px = p.playerX();
     const pz = p.playerZ();
 
@@ -80,6 +85,7 @@ export class PoiSystem {
       // Current game semantics complete an awakened POI immediately. Keep that ordering here;
       // introducing actual guardian-gated completion is a gameplay change, not a refactor.
       this.complete(poi.id);
+      if (p.hasChoice()) return;
     }
   }
 

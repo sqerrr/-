@@ -26,6 +26,8 @@ export interface ProgressionOfferPort {
   skillState(id: SkillId): SkillRuntime;
   mutationCores(): number;
   catalystCompatibleEdges(id: CatalystId): number[];
+  hasFreeSkillPlace(): boolean;
+  hasFreeCatalystPlace(): boolean;
 }
 
 /**
@@ -82,10 +84,9 @@ export class ProgressionOfferSystem {
 
   discovery(): RewardOffer[] {
     const choices = this.shuffle(this.unownedSkills()).slice(0, 3);
-    const free =
-      this.port.slots().some((id) => !id) ||
-      this.port.skillReserve().some((id) => !id);
+    const free = this.port.hasFreeSkillPlace();
 
+    // Without a free place the cards become swaps; the player picks the replaced location.
     return choices.map((id) =>
       free ? this.factory.skillAdd(id) : this.factory.skillSwap(id)
     );
@@ -168,9 +169,7 @@ export class ProgressionOfferSystem {
     const unowned = usefulUnowned.length ? usefulUnowned : allUnowned;
 
     let offers: RewardOffer[] = [];
-    const hasSpace =
-      this.port.catalystReserve().some((id) => !id) ||
-      this.port.catalysts().some((id) => !id);
+    const hasSpace = this.port.hasFreeCatalystPlace();
 
     if (unowned.length && hasSpace) {
       offers = this.shuffle([...unowned])
@@ -181,8 +180,10 @@ export class ProgressionOfferSystem {
         .slice(0, 2)
         .map((id) => this.factory.eliteResonance(id));
 
+      // Elite caches cannot be skipped, so they must only show rewards that can be applied:
+      // a Phenomenon appears only while a free place exists, otherwise a rarity-rolled card.
       const unownedSkills = this.unownedSkills();
-      if (unownedSkills.length) {
+      if (unownedSkills.length && this.port.hasFreeSkillPlace()) {
         const id = this.shuffle(unownedSkills)[0];
         offers.push(this.factory.eliteSkill(id));
       } else {

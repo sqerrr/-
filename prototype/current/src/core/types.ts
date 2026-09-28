@@ -414,7 +414,10 @@ export interface RewardOffer {
   resonance?: ResonanceId;
   doctrine?: DoctrineId;
   item?: ItemId;
-  /** For a swap: the slot whose phenomenon steps aside into the reserve (D27). */
+  /**
+   * For a swap: an optional preset target location (active slots first, then reserve places).
+   * Normally absent — the player passes the target to `chooseReward(index, target)`.
+   */
   swapSlot?: number;
   /**
    * The card the elites are waiting for. Leave it and they get it; take it and they get

@@ -112,6 +112,37 @@ const system = new BuildLoadoutSystem(port);
   assert(skillRuntime.has('toxic_mist'), 'incoming swap skill runtime was not created');
 }
 
+// Player-chosen swap: validation, reserve target, and mutation-core refunds for leaving skills.
+{
+  assert(!system.hasFreeSkillPlace(), 'fixture should be full here');
+  assert(!system.canAddSkill('mass_driver'), 'full build still claims room for a new skill');
+  assert(system.canAddSkill('toxic_mist'), 'owned skill must stay an idempotent add');
+  assert(system.swapTargetCount() === slots.length + skillReserve.length,
+    'swap targets must cover active slots then reserve places');
+  assert(!system.canSwapInSkill('mass_driver', undefined), 'swap without a target validated');
+  assert(!system.canSwapInSkill('mass_driver', 99), 'out-of-range swap target validated');
+  assert(!system.swapInSkill('mass_driver', -1), 'invalid swap target was applied');
+
+  const active = skillRuntime.get(slots[0]!)!;
+  active.mutation = 'x' as never;
+  active.mutationUpgrade = 'y' as never;
+  const reserveSkill = skillReserve[0]!;
+  const reserveState = skillRuntime.get(reserveSkill)!;
+  reserveState.mutation = 'z' as never;
+  mutationCores = 0;
+  const leaving = slots[0]!;
+  assert(system.swapInSkill('mass_driver', 0), 'active-target swap failed');
+  assert(slots[0] === 'mass_driver' && skillReserve[0] === leaving,
+    'active target did not send its occupant to reserve');
+  assert(!skillRuntime.has(reserveSkill), 'displaced reserve occupant kept its runtime');
+  assert(mutationCores === 3, 'leaving skills did not refund invested mutation cores: ' + mutationCores);
+  assert(!skillRuntime.get(leaving)!.mutation, 'refunded skill kept its mutation in reserve');
+
+  assert(system.swapInSkill('shard_fan', slots.length), 'reserve-target swap failed');
+  assert(skillReserve[0] === 'shard_fan' && !skillRuntime.has(leaving),
+    'reserve target did not replace the reserve occupant');
+}
+
 // Catalyst compatibility reports the same authored pair truth and placement prefers such an edge.
 {
   catalysts = [null, null, null];

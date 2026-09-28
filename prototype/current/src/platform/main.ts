@@ -1544,6 +1544,37 @@ function shortPromise(text: string) {
 function categoryLabel(cat: string) {
   return ({phenomenon:'ФЕНОМЕН',catalyst:'КАТАЛИЗАТОР',item:'ПРЕДМЕТ',resonance:'УСИЛЕНИЕ ЯДРА',doctrine:'СПЕЦИАЛИЗАЦИЯ',mutation:'МУТАЦИЯ',global:'ЯДРО'} as Record<string,string>)[cat] ?? cat.toUpperCase();
 }
+/** Swap cards list every occupied location; the player decides which Phenomenon gives way. */
+function appendSwapTargets(card: HTMLElement, s: Snapshot, index: number, o: RewardOffer) {
+  const active = s.chain.slots,
+    reserve = s.chain.skillReserve,
+    reserveFull = reserve.length > 0 && reserve.every(Boolean),
+    box = document.createElement('div');
+  box.className = 'swap-targets';
+  const label = document.createElement('div');
+  label.className = 'swap-targets-label';
+  label.textContent = 'Вместо:';
+  box.append(label);
+  const addButton = (target: number, skill: SkillId | null, note: string) => {
+    const b = document.createElement('button');
+    b.className = 'swap-target';
+    b.textContent = `${skill ? skills[skill].name : 'пусто'}${note ? ' · ' + note : ''}`;
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      finishChoiceAction(`reward:${index}:${o.id}:swap:${target}`, () => sim.chooseReward(index, target));
+    });
+    box.append(b);
+  };
+  active.forEach((skill, slot) =>
+    addButton(
+      slot,
+      skill,
+      reserveFull && reserve[0] ? `в резерв, «${skills[reserve[0]].name}» уйдёт` : 'в резерв'
+    )
+  );
+  reserve.forEach((skill, place) => addButton(active.length + place, skill, 'из резерва, уйдёт'));
+  card.append(box);
+}
 function syncChoiceUI(s: Snapshot, force = false) {
   const has = !!s.mutationOffer || !!s.rewardOffers,
     wrap = $<HTMLDivElement>('choice'),
@@ -1653,7 +1684,13 @@ function syncChoiceUI(s: Snapshot, force = false) {
       card.style.setProperty('--rarity', rar ? rarityColor[rar] : '#365064');
       if (o.marked) card.classList.add('marked');
       card.innerHTML = `${o.marked ? '<div class="claimtag">ЭТО ЗАБЕРУТ ЭЛИТЫ, ЕСЛИ ОСТАВИШЬ</div>' : ''}<span class="choice-key">${i + 1}</span><div class="card-head"><div class="choice-icon">${offerIcon(o)}</div><div><div class="tag">${categoryLabel(cat)}${rar ? ' · ' + esc(rarityName[rar]) : ''}</div><h3>${esc(o.title)}</h3></div></div><div class="sub">${esc(o.subtitle)}</div><div class="promise">${esc(shortPromise(o.description))}</div>${o.before && o.after ? `<div class="beforeafter">${esc(o.before)} → <b>${esc(o.after)}</b></div>` : ''}<details><summary>Подробнее</summary><p>${esc(o.description)}</p></details>`;
-      const choose = () => finishChoiceAction(`reward:${i}:${o.id}`, () => sim.chooseReward(i));
+      const swapCard = o.kind === 'skill_swap' && o.swapSlot === undefined;
+      if (swapCard) appendSwapTargets(card, s, i, o);
+      const choose = () => {
+        // A swap needs an explicit target; the card body alone does not pick one.
+        if (swapCard) return;
+        finishChoiceAction(`reward:${i}:${o.id}`, () => sim.chooseReward(i));
+      };
       card.addEventListener('click', choose);
       card.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {

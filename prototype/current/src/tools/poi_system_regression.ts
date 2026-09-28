@@ -68,14 +68,18 @@ pz = 9;
 system.update();
 assert(catalyst === 1, 'catalyst POI reward route changed');
 
-// Clearing while another choice is open still changes world state but opens no second modal.
+// While another choice is open the POI waits dormant (its reward is not dropped) and awakens
+// with its own reward once the window closes.
 choiceOpen = true;
 px = -34;
 pz = -23;
 system.update();
-assert(system.get(3)?.state === 'cleared', 'choice-open POI did not clear its world state');
+assert(system.get(3)?.state === 'dormant', 'choice-open POI was consumed while its reward could not open');
 assert(resonance === 1, 'choice-open POI opened a second reward modal');
 choiceOpen = false;
+system.update();
+assert(system.get(3)?.state === 'cleared' && Number(resonance) === 2,
+  'deferred POI did not deliver its reward after the window closed');
 
 // Vital POI heals by max(45, 42% max HP) and grants 20 barrier.
 maxHp = 200;
