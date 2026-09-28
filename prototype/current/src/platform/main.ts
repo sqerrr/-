@@ -65,7 +65,34 @@ const seedParam = params.get('seed'),
 let seed = randomSeeds ? rollSeed() : Number(seedParam || 12345);
 const smoke = params.get('smoke') === '1',
   uiTest = params.get('uitest') === '1',
-  debugEnabled = params.get('debug') === '1';
+  debugEnabled = params.get('debug') === '1',
+  // Dev/perf harness. `?autoplay=1` drives the hero, picks rewards and keeps him alive;
+  // `?warp=N` fast-forwards the run to N seconds before rendering; `?perf=1` (implied by
+  // autoplay) records a per-frame cost breakdown in window.__roguePerf and shows it on screen.
+  autoplay = params.get('autoplay') === '1',
+  warpTo = Math.max(0, Number(params.get('warp') || 0)),
+  perfEnabled = params.get('perf') === '1' || autoplay;
+type PerfBook = { frames: number; sums: Record<string, number>; frameMs: number[]; reset(): void };
+const perfBook: PerfBook = {
+  frames: 0,
+  sums: {},
+  frameMs: [],
+  reset() {
+    this.frames = 0;
+    this.sums = {};
+    this.frameMs = [];
+  }
+};
+(window as unknown as { __roguePerf?: PerfBook }).__roguePerf = perfBook;
+function perfAdd(name: string, ms: number) {
+  if (perfEnabled) perfBook.sums[name] = (perfBook.sums[name] ?? 0) + ms;
+}
+function timed(name: string, fn: () => void) {
+  if (!perfEnabled) return fn();
+  const t0 = performance.now();
+  fn();
+  perfAdd(name, performance.now() - t0);
+}
 let runMode: RunMode = params.get('mode') === 'showcase' ? 'showcase' : 'clean';
 let startingSkill: SkillId = activeSkillOrder.includes(params.get('start') as SkillId)
   ? (params.get('start') as SkillId)
@@ -1551,12 +1578,12 @@ function updateUi(s: Snapshot) {
     $('routeBadge').textContent=route;
     $('finalBadge').textContent=`ФИНАЛ ${Math.floor(remaining/60)}:${Math.floor(remaining%60).toString().padStart(2,'0')}`;
   }
-  updateThreatPanel(s);
-  drawMinimap(s);
-  drawCombatHud(s);
-  updateChain(s);
+  timed('ui.threat', () => updateThreatPanel(s));
+  timed('ui.minimap', () => drawMinimap(s));
+  timed('ui.combatHud', () => drawCombatHud(s));
+  timed('ui.chain', () => updateChain(s));
   updatePlanner(s);
-  syncChoiceUI(s);
+  timed('ui.choice', () => syncChoiceUI(s));
   if ((s.player.hp <= 0 || s.finished) && !$('overlay').classList.contains('visible')) {
     $('overlay').classList.add('visible');
     $('overTitle').textContent = s.player.hp <= 0 ? 'Забег окончен' : 'Хранитель уничтожен';
@@ -1857,18 +1884,95 @@ function syncChoiceUI(s: Snapshot, force = false) {
   }
 }
 
+// ---- autoplay / perf harness (dev only, see `autoplay` above) ----
+let autoSnapshot: Snapshot | null = null;
+function autoCommand(s: Snapshot, t: number) {
+  let ax = 1, az = 0, best = 1e9;
+  for (const e of s.entities) {
+    const d = Math.hypot(e.x - s.player.x, e.z - s.player.z);
+    if (d < best) {
+      best = d;
+      ax = (e.x - s.player.x) / (d || 1);
+      az = (e.z - s.player.z) / (d || 1);
+    }
+  }
+  const a = t * 0.23;
+  return { moveX: Math.cos(a), moveZ: Math.sin(a * 1.3), aimX: ax, aimZ: az, dash: s.player.dashReady && best < 3 };
+}
+function autoChoose(s: Snapshot): boolean {
+  if (s.mutationOffer) return sim.chooseMutation(0);
+  const offers = s.rewardOffers ?? [];
+  const pick = offers.findIndex((o) => !(o.kind === 'skill_swap' && o.swapSlot === undefined));
+  return pick >= 0 ? sim.chooseReward(pick) : sim.skipReward();
+}
+function autoKeepAlive() {
+  if (sim.php > 0 && sim.php < sim.maxHp * 0.3) sim.php = sim.maxHp;
+}
+function warpRun(seconds: number) {
+  let guard = 0;
+  while (sim.time < seconds && !sim.finished && guard++ < seconds * 70) {
+    if (sim.hasChoice) {
+      autoChoose(sim.snapshot());
+      continue;
+    }
+    if (guard % 6 === 1) autoSnapshot = sim.snapshot();
+    sim.step(autoCommand(autoSnapshot ?? sim.snapshot(), sim.time));
+    autoKeepAlive();
+  }
+}
+let perfOverlay: HTMLDivElement | null = null;
+let perfOverlayAt = 0;
+function perfRecordFrame(now: number, frameMs: number) {
+  perfBook.frames++;
+  perfBook.frameMs.push(frameMs);
+  if (perfBook.frameMs.length > 600) perfBook.frameMs.shift();
+  if (now - perfOverlayAt < 500) return;
+  perfOverlayAt = now;
+  if (!perfOverlay) {
+    perfOverlay = document.createElement('div');
+    perfOverlay.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9999;padding:6px 8px;background:rgba(0,0,0,.72);color:#bff;font:11px/1.35 monospace;white-space:pre;pointer-events:none';
+    document.body.append(perfOverlay);
+  }
+  const ms = [...perfBook.frameMs].sort((a, b) => a - b),
+    p50 = ms[Math.floor(ms.length * 0.5)] ?? 0,
+    p95 = ms[Math.floor(ms.length * 0.95)] ?? 0,
+    n = Math.max(1, perfBook.frames),
+    parts = Object.entries(perfBook.sums)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k.padEnd(16)} ${(v / n).toFixed(2)} ms`)
+      .join('\n');
+  perfOverlay.textContent = `frame p50 ${p50.toFixed(1)} ms · p95 ${p95.toFixed(1)} ms · ${(1000 / Math.max(1, p50)).toFixed(0)} fps\nents ${sim.snapshot().entities.length}\n${parts}`;
+}
+let lastFrameNow = 0;
+
 function frame(now: number) {
   const mv = screenMove();
   let frameSnapshot: Snapshot | null = null;
+  const t0 = performance.now();
+  if (autoplay && sim.hasChoice && !choiceLocked) {
+    const snap = sim.snapshot();
+    finishChoiceAction('autoplay', () => autoChoose(snap));
+  }
   if (!paused && !planning && !sim.hasChoice && sim.php > 0 && !sim.finished) {
     acc = Math.min(0.25, acc + (now - last) / 1000);
     while (acc >= sim.dt) {
-      sim.step({ moveX: mv.x, moveZ: mv.z, aimX: aim.x, aimZ: aim.z, dash: dashQueued });
+      const command = autoplay
+        ? autoCommand(autoSnapshot ?? sim.snapshot(), sim.time)
+        : { moveX: mv.x, moveZ: mv.z, aimX: aim.x, aimZ: aim.z, dash: dashQueued };
+      const s0 = performance.now();
+      sim.step(command);
+      perfAdd('sim.step', performance.now() - s0);
+      if (autoplay) autoKeepAlive();
       dashQueued = false;
+      const s1 = performance.now();
       frameSnapshot = sim.snapshot();
+      autoSnapshot = frameSnapshot;
+      perfAdd('sim.snapshot', performance.now() - s1);
+      const s2 = performance.now();
       const cues = presentation.consume(sim.events, sim.time, frameSnapshot);
       renderer.consume(cues, frameSnapshot);
       pushEvents(sim.events, frameSnapshot);
+      perfAdd('events', performance.now() - s2);
       acc -= sim.dt;
       if (sim.hasChoice || sim.php <= 0 || sim.finished) break;
     }
@@ -1877,9 +1981,14 @@ function frame(now: number) {
   // Reuse the post-tick snapshot for every consumer in this render frame. Before this,
   // the same state was serialized again for rendering and once more for hidden debug UI.
   const s = frameSnapshot ?? sim.snapshot();
-  renderer.draw(s, aim, presentation.frame(s.time));
-  updateUi(s);
+  timed('render', () => renderer.draw(s, aim, presentation.frame(s.time)));
+  timed('ui', () => updateUi(s));
   updateDebugState(s);
+  if (perfEnabled) {
+    perfAdd('frame.cpu', performance.now() - t0);
+    if (lastFrameNow) perfRecordFrame(now, now - lastFrameNow);
+    lastFrameNow = now;
+  }
   requestAnimationFrame(frame);
 }
 
@@ -1903,7 +2012,10 @@ async function start() {
       return;
     }
     renderer = new WebGLRenderer(canvas);
+    if (perfEnabled) renderer.perfHook = perfAdd;
+    for (const name of (params.get('skip') ?? '').split(',').filter(Boolean)) renderer.skipPasses.add(name);
     await renderer.load();
+    if (warpTo > 0) warpRun(warpTo);
     $('loading').classList.add('hidden');
     pushLog(
       'Опыт развивает специализации; феномены, катализаторы, предметы и ядра мутаций приходят из отдельных источников.'

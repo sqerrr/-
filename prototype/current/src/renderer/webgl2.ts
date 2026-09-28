@@ -191,6 +191,20 @@ export class WebGLRenderer {
   private heroTrail: { x: number; z: number; t: number }[] = [];
   /** 0.26 s of trail at the 60 Hz simulation step, with headroom. */
   private static readonly HERO_TRAIL_MAX = 24;
+  /** Baked procedural floor (see GROUND_BAKE_FS): world units past the edge and resolution. */
+  private static readonly GROUND_BAKE_MARGIN = 60;
+  private static readonly GROUND_BAKE_TEXELS_PER_UNIT = 10;
+  private groundBakeProgram: WebGLProgram;
+  private groundBakeFbo: WebGLFramebuffer | null = null;
+  private groundTexA: WebGLTexture | null = null;
+  private groundTexB: WebGLTexture | null = null;
+  private groundBakeKey = '';
+  private groundBakeOrigin: [number, number] = [0, 0];
+  private groundBakeSize: [number, number] = [1, 1];
+  /** Optional per-pass CPU timing sink (dev `?perf=1`). */
+  perfHook: ((name: string, ms: number) => void) | null = null;
+  /** Dev-only pass switches (`?skip=ground,shapes`) for isolating GPU fill cost. */
+  skipPasses = new Set<string>();
   private cssW = 1;
   private cssH = 1;
   private dpr = 1;
@@ -212,6 +226,7 @@ export class WebGLRenderer {
     if (!gl) throw new Error('WebGL2 недоступен в этом браузере.');
     this.gl = gl;
     this.groundProgram = this.program(GROUND_VS, GROUND_FS);
+    this.groundBakeProgram = this.program(GROUND_VS, GROUND_BAKE_FS);
     this.spriteProgram = this.program(SPRITE_VS, SPRITE_FS);
     this.shapeProgram = this.program(SHAPE_VS, SHAPE_FS);
     this.lineProgram = this.program(LINE_VS, LINE_FS);
@@ -752,16 +767,24 @@ export class WebGLRenderer {
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clearColor(0.025, 0.035, 0.046, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    this.drawGround(s);
-    this.drawWorldShapes(s, aim, presentation);
-    this.drawLines(s, aim);
-    this.drawSprites(s, presentation);
+    const hook = this.perfHook,
+      pass = (name: string, fn: () => void) => {
+        if (this.skipPasses.has(name)) return;
+        if (!hook) return fn();
+        const t0 = performance.now();
+        fn();
+        hook('render.' + name, performance.now() - t0);
+      };
+    pass('ground', () => this.drawGround(s));
+    pass('shapes', () => this.drawWorldShapes(s, aim, presentation));
+    pass('lines', () => this.drawLines(s, aim));
+    pass('sprites', () => this.drawSprites(s, presentation));
     // Persistent identity lives above the sprite layer: chassis uses authored shape language,
     // affixes use a separate badge channel, and rarity uses edge ticks. None of these reuse red.
-    this.drawEliteIdentityOverlay(s);
+    pass('eliteOverlay', () => this.drawEliteIdentityOverlay(s));
     // Lethal elite preparation is the final world pass. It cannot disappear under the hero's
     // own VFX, projectiles or sprites just because the scene is busy.
-    this.drawDangerOverlay(s);
+    pass('danger', () => this.drawDangerOverlay(s));
     this.fx = this.fx.filter((f) => s.time - f.start < f.ttl + 0.05);
     this.combatFx = this.combatFx.filter((f) => s.time - f.start < f.ttl + 0.05);
   }
@@ -791,18 +814,84 @@ export class WebGLRenderer {
       p = this.groundProgram;
     gl.useProgram(p);
     this.commonUniforms(p, s);
-    gl.uniform1f(gl.getUniformLocation(p, 'u_time'), s.time);
-    // Only permanent cover seeds the floor: temporary Architect walls must not reshuffle it.
+    // Only permanent, indestructible cover seeds the floor: temporary Architect walls and broken
+    // cover must not reshuffle it (and would force a re-bake).
     const terrainSeed = s.world.obstacles.reduce(
-      (acc, o) => (o.expiresAt === undefined ? acc + o.id * 0.137 + o.x * 0.019 + o.z * 0.031 : acc),
+      (acc, o) =>
+        o.expiresAt === undefined && !o.destructible ? acc + o.id * 0.137 + o.x * 0.019 + o.z * 0.031 : acc,
       17.0
     );
-    gl.uniform1f(gl.getUniformLocation(p, 'u_seed'), terrainSeed);
+    this.ensureGroundBake(s, terrainSeed);
+    gl.useProgram(p);
+    gl.uniform2f(gl.getUniformLocation(p, 'u_bakeOrigin'), this.groundBakeOrigin[0], this.groundBakeOrigin[1]);
+    gl.uniform2f(gl.getUniformLocation(p, 'u_bakeSize'), this.groundBakeSize[0], this.groundBakeSize[1]);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.floorTex);
     gl.uniform1i(gl.getUniformLocation(p, 'u_floor'), 1);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.groundTexA);
+    gl.uniform1i(gl.getUniformLocation(p, 'u_groundA'), 2);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, this.groundTexB);
+    gl.uniform1i(gl.getUniformLocation(p, 'u_groundB'), 3);
+    gl.activeTexture(gl.TEXTURE0);
     gl.bindVertexArray(null);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  /**
+   * Bakes the procedural floor layers for the whole playable area (plus the margin the camera
+   * can show past the world edge) once per world seed. See GROUND_BAKE_FS.
+   */
+  private ensureGroundBake(s: Snapshot, seed: number) {
+    const w = s.world,
+      margin = WebGLRenderer.GROUND_BAKE_MARGIN,
+      originX = w.minX - margin,
+      originZ = w.minZ - margin,
+      sizeX = w.maxX - w.minX + margin * 2,
+      sizeZ = w.maxZ - w.minZ + margin * 2;
+    const key = `${seed}|${originX}|${originZ}|${sizeX}|${sizeZ}`;
+    if (this.groundBakeKey === key && !this.gl.isContextLost()) return;
+    const gl = this.gl,
+      tpu = WebGLRenderer.GROUND_BAKE_TEXELS_PER_UNIT,
+      max = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number,
+      texW = Math.min(max, Math.ceil(sizeX * tpu)),
+      texH = Math.min(max, Math.ceil(sizeZ * tpu));
+    const makeTex = (old: WebGLTexture | null) => {
+      if (old) gl.deleteTexture(old);
+      const t = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, texW, texH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      return t;
+    };
+    this.groundTexA = makeTex(this.groundTexA);
+    this.groundTexB = makeTex(this.groundTexB);
+    if (!this.groundBakeFbo) this.groundBakeFbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.groundBakeFbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.groundTexA, 0);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, this.groundTexB, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+    gl.disable(gl.BLEND);
+    gl.viewport(0, 0, texW, texH);
+    const p = this.groundBakeProgram;
+    gl.useProgram(p);
+    // Texels per unit actually used after a possible MAX_TEXTURE_SIZE clamp (x and z share one).
+    const effTpu = Math.min(texW / sizeX, texH / sizeZ);
+    gl.uniform2f(gl.getUniformLocation(p, 'u_origin'), originX, originZ);
+    gl.uniform1f(gl.getUniformLocation(p, 'u_tpu'), effTpu);
+    gl.uniform1f(gl.getUniformLocation(p, 'u_seed'), seed);
+    gl.bindVertexArray(null);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.enable(gl.BLEND);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    this.groundBakeKey = key;
+    this.groundBakeOrigin = [originX, originZ];
+    this.groundBakeSize = [texW / effTpu, texH / effTpu];
   }
 
   private drawWorldShapes(s: Snapshot, aim: Vec2, presentation: PresentationFrame) {
@@ -2172,25 +2261,40 @@ export class WebGLRenderer {
 
 const GROUND_VS = `#version 300 es
 precision highp float;void main(){float x=gl_VertexID==1?3.0:-1.0;float y=gl_VertexID==2?3.0:-1.0;gl_Position=vec4(x,y,0.0,1.0);}`;
-const GROUND_FS = `#version 300 es
-precision highp float;uniform vec2 u_resolution,u_camera,u_iso,u_center;uniform float u_time,u_seed;uniform sampler2D u_floor;out vec4 outColor;
+// v0.14 perf: the procedural floor used to be evaluated per screen pixel per frame (~35 fbm
+// octaves). On integrated GPUs at 1080p+ that alone cost ~30 ms/frame. The procedural part only
+// depends on world position and the run seed, so GROUND_BAKE_FS evaluates it once per run into
+// two world-space textures and GROUND_FS combines them with the live archive texture using the
+// exact same formula as before.
+const GROUND_NOISE = `
 float hash21(vec2 p){p+=u_seed*.013;return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123);}
 float noise2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(hash21(i),hash21(i+vec2(1,0)),f.x),mix(hash21(i+vec2(0,1)),hash21(i+vec2(1,1)),f.x),f.y);}
 float fbm(vec2 p){float v=0.,a=.52;mat2 r=mat2(.80,-.60,.60,.80);for(int i=0;i<5;i++){v+=a*noise2(p);p=r*p*2.03+vec2(13.1,7.7);a*=.49;}return v;}
 float ridged(vec2 p){float n=fbm(p);return 1.-abs(n*2.-1.);}
 float plateEdge(vec2 w){vec2 g=floor(w/6.5),f=fract(w/6.5)-.5;float ang=(hash21(g)-.5)*1.6;mat2 r=mat2(cos(ang),-sin(ang),sin(ang),cos(ang));f=r*f;float d=min(abs(abs(f.x)-.48),abs(abs(f.y)-.48));return 1.-smoothstep(.018,.065,d);}
 float fracture(vec2 w){float n=fbm(w*.18+vec2(31.7,-12.));float q=abs(fract((w.x*.23+w.y*.11)+n*2.2)-.5);float branch=abs(fract((w.x*.07-w.y*.31)+noise2(w*.12)*1.7)-.5);return (1.-smoothstep(.012,.045,q))*.65+(1.-smoothstep(.01,.035,branch))*.35;}
-void main(){vec2 scr=vec2(gl_FragCoord.x,u_resolution.y-gl_FragCoord.y);vec2 c=u_resolution*u_center;float aa=(scr.x-c.x)/u_iso.x,bb=(scr.y-c.y)/u_iso.y;vec2 w=u_camera+vec2((aa+bb)*.5,(bb-aa)*.5);
-  // Keep the archive/library floor as the visual identity. Procedural work now breaks
-  // repetition and adds age/wear instead of repainting the whole world into generic rock.
-  vec2 tuv=(w+vec2(120.,-73.))/31.;vec3 archive=texture(u_floor,tuv).rgb;vec3 archive2=texture(u_floor,tuv*.51+vec2(.37,.19)).rgb;archive=mix(archive,archive2,.10);
+`;
+const GROUND_BAKE_FS = `#version 300 es
+precision highp float;uniform vec2 u_origin;uniform float u_tpu,u_seed;layout(location=0) out vec4 outA;layout(location=1) out vec4 outB;
+${GROUND_NOISE}
+void main(){vec2 w=u_origin+gl_FragCoord.xy/u_tpu;
   float continent=fbm(w*.026+vec2(u_seed*.001,0.)),relief=ridged(w*.06+vec2(4.2,-8.7)),wet=fbm(w*.075+vec2(-14.,19.));
-  vec3 age=mix(vec3(.082,.069,.077),vec3(.076,.093,.091),smoothstep(.32,.72,continent));age=mix(age,vec3(.055,.082,.066),smoothstep(.72,.94,wet)*.28);
-  vec3 stone=mix(archive,age,.16);float crack=clamp(fracture(w),0.,1.),pe=plateEdge(w+fbm(w*.12)*1.6);stone=mix(stone,stone*.62,crack*.24);stone*=1.-pe*.035;
-  float wear=1.-smoothstep(.05,.17,abs(fbm(w*.034+vec2(50.,-20.))-.52));stone=mix(stone,stone*vec3(1.08,1.055,1.02),wear*.10);
-  float seam=smoothstep(.92,.985,ridged(w*.19+vec2(-8.,4.)))*smoothstep(.66,.93,relief);stone+=seam*vec3(.012,.025,.022);
-  vec2 cell=floor(w/12.),cf=fract(w/12.)-.5;float rare=step(.982,hash21(cell)),rune=rare*(1.-smoothstep(.018,.052,min(abs(cf.x),abs(cf.y))))*step(.2,length(cf));stone+=rune*vec3(.016,.055,.048);
-  vec2 uv=scr/u_resolution;float vig=1.-smoothstep(.42,1.04,length((uv-.5)*vec2(1.,u_resolution.y/u_resolution.x)));stone*=.78+.22*vig;outColor=vec4(stone,1.0);} `
+  float crack=clamp(fracture(w),0.,1.),pe=plateEdge(w+fbm(w*.12)*1.6);
+  float s=(1.-.38*crack*.24)*(1.-pe*.035);
+  float wear=1.-smoothstep(.05,.17,abs(fbm(w*.034+vec2(50.,-20.))-.52));
+  float seam=smoothstep(.92,.985,ridged(w*.19+vec2(-8.,4.)))*smoothstep(.66,.93,relief);
+  vec2 cell=floor(w/12.),cf=fract(w/12.)-.5;float rare=step(.982,hash21(cell)),rune=rare*(1.-smoothstep(.018,.052,min(abs(cf.x),abs(cf.y))))*step(.2,length(cf));
+  outA=vec4((s-.8)/.2,wear,smoothstep(.32,.72,continent),smoothstep(.72,.94,wet));
+  outB=vec4(seam,rune,0.,1.);}`;
+const GROUND_FS = `#version 300 es
+precision highp float;uniform vec2 u_resolution,u_camera,u_iso,u_center,u_bakeOrigin,u_bakeSize;uniform sampler2D u_floor,u_groundA,u_groundB;out vec4 outColor;
+void main(){vec2 scr=vec2(gl_FragCoord.x,u_resolution.y-gl_FragCoord.y);vec2 c=u_resolution*u_center;float aa=(scr.x-c.x)/u_iso.x,bb=(scr.y-c.y)/u_iso.y;vec2 w=u_camera+vec2((aa+bb)*.5,(bb-aa)*.5);
+  vec2 tuv=(w+vec2(120.,-73.))/31.;vec3 archive=texture(u_floor,tuv).rgb;vec3 archive2=texture(u_floor,tuv*.51+vec2(.37,.19)).rgb;archive=mix(archive,archive2,.10);
+  vec2 buv=(w-u_bakeOrigin)/u_bakeSize;vec4 A=texture(u_groundA,buv),B=texture(u_groundB,buv);
+  vec3 age=mix(vec3(.082,.069,.077),vec3(.076,.093,.091),A.b);age=mix(age,vec3(.055,.082,.066),A.a*.28);
+  vec3 m=(.8+A.r*.2)*(1.+A.g*.10*vec3(.08,.055,.02));
+  vec3 stone=mix(archive,age,.16)*m+B.r*vec3(.012,.025,.022)+B.g*vec3(.016,.055,.048);
+  vec2 uv=scr/u_resolution;float vig=1.-smoothstep(.42,1.04,length((uv-.5)*vec2(1.,u_resolution.y/u_resolution.x)));stone*=.78+.22*vig;outColor=vec4(stone,1.0);} `;
 const SPRITE_VS = `#version 300 es
 precision highp float;layout(location=0)in vec2 a_corner;layout(location=1)in vec2 a_uv;layout(location=2)in vec2 i_world;layout(location=3)in vec2 i_size;layout(location=4)in vec4 i_uvrect;layout(location=5)in vec4 i_tint;layout(location=6)in float i_flip;uniform vec2 u_resolution,u_camera,u_iso,u_center;out vec2 v_uv;out vec4 v_tint;void main(){vec2 d=i_world-u_camera;vec2 anchor=u_resolution*u_center+vec2((d.x-d.y)*u_iso.x,(d.x+d.y)*u_iso.y);vec2 p=anchor+a_corner*i_size;vec2 clip=vec2(p.x/u_resolution.x*2.0-1.0,1.0-p.y/u_resolution.y*2.0);gl_Position=vec4(clip,0,1);float ux=i_flip>.5?1.0-a_uv.x:a_uv.x;v_uv=mix(i_uvrect.xy,i_uvrect.zw,vec2(ux,a_uv.y));v_tint=i_tint;}`;
 const SPRITE_FS = `#version 300 es
