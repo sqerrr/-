@@ -854,6 +854,16 @@ export class WebGLRenderer {
       shapes.push({ x: f.x, z: f.z, r: f.radius, mode: 0, color: fill });
       shapes.push({ x: f.x, z: f.z, r: f.radius, mode: 1, color: hostile ? rgba('#ff4050',0.82) : [fill[0],fill[1],fill[2],Math.min(0.42,fill[3]+0.1)] });
       if(hostile) shapes.push({x:f.x,z:f.z,r:f.radius*0.78,mode:1,color:rgba('#ff8a82',0.42)});
+      if(hostile && f.kind==='veil') {
+        // Architect veil is gameplay, not decoration: it hides targets, slows the hero and cuts
+        // damage into it. Dense layered ink with drifting rings so it reads as a wall of fog.
+        for(let k=0;k<3;k++){
+          const drift=0.5+0.5*Math.sin(s.time*(1.3+k*0.4)+f.id*1.7+k*2.1);
+          shapes.push({x:f.x,z:f.z,r:f.radius*(0.35+0.2*k+0.08*drift),mode:0,color:rgba('#2a1446',0.22)});
+          shapes.push({x:f.x,z:f.z,r:f.radius*(0.42+0.22*k+0.06*drift),mode:1,color:rgba('#b77dff',0.34+0.2*drift)});
+        }
+        shapes.push({x:f.x,z:f.z,r:f.radius,mode:0,color:rgba('#1a0d2e',0.34)});
+      }
       if(f.behavior==='host') {
         const pulse=1+0.07*Math.sin(s.time*6.5+f.id);
         shapes.push({x:f.x,z:f.z,r:f.radius*0.56*pulse,mode:1,color:rgba('#c8ff75',0.58)});
@@ -926,6 +936,37 @@ export class WebGLRenderer {
         // side is protected and where the punish window opens.
         shapes.push({ x: sx, z: sz, r: 1.05 + (e.shieldState === 'commit' ? 0.18 : 0), mode: 1, color: rgba(sc, sa) });
       }
+      if (e.elite && e.affix === 'shielded') {
+        // The pool itself is a bubble around the whole body; its opacity is the remaining pool,
+        // so a player sees the shield draining long before it breaks.
+        const pool = Math.max(0, Math.min(1, e.shieldPool ?? 0)),
+          rr = e.radius + 0.95;
+        if (e.shieldState === 'broken') {
+          shapes.push({ x: e.x, z: e.z, r: rr + 0.12 * Math.sin(s.time * 14), mode: 1, color: rgba('#ff6a74', 0.55) });
+        } else if (pool > 0.01) {
+          shapes.push({ x: e.x, z: e.z, r: rr, mode: 0, color: rgba('#9fe4ff', 0.08 + 0.16 * pool) });
+          shapes.push({ x: e.x, z: e.z, r: rr, mode: 1, color: rgba('#e9f8ff', 0.35 + 0.55 * pool) });
+        }
+      }
+      if (e.elite && !e.boss && !e.clone) {
+        // Rarity glow. Legendary elites carry a breathing gold aura that no other object in the
+        // game uses; uplifted ones a steady blue rim. Scales with growth like the body.
+        const rarity = e.eliteRarity ?? 'common',
+          gs = Math.pow(1.06, Math.min(8, e.growth ?? 0));
+        if (rarity === 'legendary') {
+          const breath = 0.5 + 0.5 * Math.sin(s.time * 3.1 + e.id);
+          shapes.push({ x: e.x, z: e.z, r: (e.radius + 1.7) * gs, mode: 0, color: rgba('#ffc83d', 0.1 + 0.08 * breath) });
+          shapes.push({ x: e.x, z: e.z, r: (e.radius + 1.1) * gs, mode: 0, color: rgba('#ffe68a', 0.12 + 0.1 * breath) });
+          shapes.push({ x: e.x, z: e.z, r: (e.radius + 1.7 + 0.25 * breath) * gs, mode: 1, color: rgba('#ffe06a', 0.55 + 0.35 * breath) });
+        } else if (rarity === 'uplifted') {
+          shapes.push({ x: e.x, z: e.z, r: (e.radius + 1.2) * gs, mode: 1, color: rgba('#67b7ff', 0.62) });
+        }
+      }
+      if (e.summoned) {
+        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.5, mode: 0, color: rgba('#b04dff', 0.16) });
+        shapes.push({ x: e.x, z: e.z, r: e.radius + 0.5, mode: 1, color: rgba('#d38bff', 0.7) });
+      }
+      if (e.clone) shapes.push({ x: e.x, z: e.z, r: e.radius + 0.6, mode: 1, color: rgba('#9fe7ff', 0.45) });
       if (e.elite && e.affix === 'vanguard') {
         // Vanguard is the one persistent affix that owns an area around itself. Keep only one
         // faint world-space boundary; the affix identity itself is the double-chevron badge.
@@ -1246,7 +1287,12 @@ export class WebGLRenderer {
       const hp = o.destructible ? Math.max(0, o.hp / Math.max(1, o.maxHp)) : 1,
         count = 8 + (o.id % 4), center = this.worldToScreen(o.x, o.z, s), pts: { x: number; y: number }[] = [];
       for (let i = 0; i < count; i++) { const a=(i/count)*Math.PI*2+hash01(o.id*3.1)*0.45,jag=0.68+hash01(o.id*47+i*13)*0.46,squash=0.82+hash01(o.id*19+4)*0.3; pts.push(this.worldToScreen(o.x+Math.cos(a)*o.radius*jag,o.z+Math.sin(a)*o.radius*jag*squash,s)); }
-      const body=rgba(o.destructible?'#27222a':'#171c25',0.96),edge=rgba(o.destructible?'#d49b6a':'#7e8ca5',o.destructible?0.28+hp*0.55:0.72);
+      // Architect walls are temporary: violet ink with a bright rim that flickers during the
+      // last second, so the player sees both who raised them and when the gap will open.
+      const temp=o.expiresAt!==undefined, left=temp?(o.expiresAt as number)-s.time:99,
+        fade=temp&&left<1?0.45+0.55*(0.5+0.5*Math.sin(s.time*22)):1;
+      const body=temp?rgba('#3a1d5c',0.96*fade):rgba(o.destructible?'#27222a':'#171c25',0.96),
+        edge=temp?rgba('#d9a6ff',(0.55+hp*0.4)*fade):rgba(o.destructible?'#d49b6a':'#7e8ca5',o.destructible?0.28+hp*0.55:0.72);
       for(let i=0;i<pts.length;i++)tri(center,pts[i],pts[(i+1)%pts.length],body);
       for(let i=0;i<pts.length;i++){const a=pts[i],b=pts[(i+1)%pts.length];line(a.x,a.y,b.x,b.y,1.2+(i%3===0?0.7:0),edge);}
       for(let k=0;k<3;k++){const a=pts[(k*3+o.id)%pts.length],b=pts[(k*5+o.id+2)%pts.length];line(center.x+(a.x-center.x)*0.12,center.y+(a.y-center.y)*0.12,center.x+(b.x-center.x)*0.62,center.y+(b.y-center.y)*0.62,1,rgba('#0a0c12',0.58));}
@@ -1646,11 +1692,19 @@ export class WebGLRenderer {
       const rarityScale = rarity === 'legendary' ? 1.3 : rarity === 'uplifted' ? 1.13 : 1;
       if (rarity === 'legendary') tint = [tint[0] * 1.75, tint[1] * 1.45, tint[2] * 0.62, tint[3]];
       else if (rarity === 'uplifted') tint = [tint[0] * 0.7, tint[1] * 1.0, tint[2] * 1.5, tint[3]];
+      // v0.14: every growth tier (captured relic, evolution, adaptation) visibly enlarges the
+      // body, matching the +6% collision radius per tier in EliteProgressionSystem.grow().
+      const growthScale = e.elite && !e.boss ? Math.pow(1.06, Math.min(8, e.growth ?? 0)) : 1;
+      // Copies are translucent and cold so the original stays the obvious target; the heavy
+      // retinue is much larger and violet so it never reads as ordinary crowd.
+      const kindScale = e.summoned ? 1.45 : e.clone ? 0.94 : 1;
+      if (e.clone) tint = [tint[0] * 0.72, tint[1] * 1.05, tint[2] * 1.4, 0.7];
+      else if (e.summoned) tint = [tint[0] * 1.2, tint[1] * 0.7, tint[2] * 1.35, tint[3]];
       return {
         cell,
         actor,
-        w: w * rarityScale,
-        h: h * rarityScale,
+        w: w * rarityScale * growthScale * kindScale,
+        h: h * rarityScale * growthScale * kindScale,
         tint,
         flip: e.facingX - e.facingZ < 0 ? 1 : 0
       };

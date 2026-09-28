@@ -1188,6 +1188,98 @@ function drawDashGauge(ctx: CanvasRenderingContext2D, s: Snapshot) {
   ctx.restore();
 }
 
+// v0.14: HP and barrier also live over the hero's head. The corner HUD keeps exact numbers,
+// but the eye is on the hero mid-fight. Colour is never the only channel: a ghost segment
+// shows the size of the last hit, low HP pulses and tints the screen edge.
+let heroGhostHp = -1;
+let heroGhostHold = 0;
+let heroGhostLastHp = -1;
+let heroGhostLastTime = 0;
+function drawHeroVitals(ctx: CanvasRenderingContext2D, s: Snapshot, w: number, h: number) {
+  const pl = s.player;
+  if (pl.hp <= 0) {
+    heroGhostHp = -1;
+    heroGhostLastHp = -1;
+    return;
+  }
+  const dt = Math.max(0, Math.min(0.1, s.time - heroGhostLastTime));
+  heroGhostLastTime = s.time;
+  if (heroGhostHp < 0 || pl.hp > heroGhostHp) heroGhostHp = pl.hp;
+  if (heroGhostLastHp >= 0 && pl.hp < heroGhostLastHp - 0.01) heroGhostHold = s.time + 0.55;
+  heroGhostLastHp = pl.hp;
+  if (s.time > heroGhostHold) heroGhostHp = Math.max(pl.hp, heroGhostHp - pl.maxHp * 0.9 * dt);
+
+  const p = renderer.worldToScreen(pl.x, pl.z, s),
+    bw = 76,
+    bh = 8,
+    x = p.x - bw / 2,
+    y = p.y - 72,
+    total = Math.max(pl.maxHp, pl.hp + pl.barrier),
+    ratio = pl.hp / Math.max(1, pl.maxHp),
+    hpW = (bw - 2) * Math.max(0, pl.hp / total),
+    ghostW = (bw - 2) * Math.max(0, heroGhostHp / total),
+    barrierW = (bw - 2) * Math.max(0, pl.barrier / total),
+    pulse = 0.5 + 0.5 * Math.sin(s.time * 10),
+    hpColor = ratio > 0.6 ? '#5fe07a' : ratio > 0.25 ? '#f2c94c' : '#ff4757';
+  ctx.save();
+  if (ratio < 0.25) {
+    const a = ((0.25 - ratio) / 0.25) * 0.32 + (ratio < 0.1 ? 0.14 * pulse : 0),
+      g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.32, w / 2, h / 2, Math.max(w, h) * 0.72);
+    g.addColorStop(0, 'rgba(255,30,50,0)');
+    g.addColorStop(1, `rgba(255,30,50,${a.toFixed(3)})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.fillStyle = 'rgba(4,7,10,.88)';
+  ctx.fillRect(x, y, bw, bh);
+  if (ghostW > hpW) {
+    ctx.fillStyle = 'rgba(255,236,214,.78)';
+    ctx.fillRect(x + 1 + hpW, y + 1, ghostW - hpW, bh - 2);
+  }
+  ctx.globalAlpha = ratio < 0.25 ? 0.62 + 0.38 * pulse : 1;
+  ctx.fillStyle = hpColor;
+  ctx.fillRect(x + 1, y + 1, hpW, bh - 2);
+  ctx.globalAlpha = 1;
+  if (barrierW > 0.5) {
+    const bx = x + 1 + Math.max(hpW, ghostW);
+    ctx.fillStyle = '#e9f1ff';
+    ctx.fillRect(bx, y + 1, Math.min(barrierW, x + bw - 1 - bx), bh - 2);
+  }
+  // 50-HP ticks give the bar a scale: the same width means more once max HP has grown.
+  ctx.fillStyle = 'rgba(4,7,10,.7)';
+  for (let v = 50; v < total; v += 50) ctx.fillRect(x + 1 + (bw - 2) * (v / total), y + 1, 1, bh - 2);
+  ctx.strokeStyle = ratio < 0.25 ? `rgba(255,71,87,${(0.55 + 0.45 * pulse).toFixed(3)})` : 'rgba(210,225,235,.55)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, bw - 1, bh - 1);
+  ctx.font = '800 10px system-ui';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#05080b';
+  const label = pl.barrier >= 1 ? `${Math.ceil(pl.hp)} +${Math.round(pl.barrier)}` : `${Math.ceil(pl.hp)}`;
+  ctx.strokeText(label, x + bw + 4, y + bh / 2);
+  ctx.fillStyle = pl.barrier >= 1 ? '#e9f1ff' : hpColor;
+  ctx.fillText(label, x + bw + 4, y + bh / 2);
+
+  // Architect veil: the hero standing in a hostile veil is slowed and half-blind, so the
+  // screen itself says so instead of relying on a faint ground tint.
+  const inVeil = s.fields.some((f) => f.kind === 'veil' && f.faction === 'rival' && Math.hypot(f.x - pl.x, f.z - pl.z) < f.radius);
+  if (inVeil) {
+    const g = ctx.createRadialGradient(p.x, p.y - 30, 70, p.x, p.y - 30, Math.max(w, h) * 0.62);
+    g.addColorStop(0, 'rgba(40,18,70,0)');
+    g.addColorStop(1, 'rgba(40,18,70,.62)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    ctx.textAlign = 'center';
+    ctx.font = '900 11px system-ui';
+    const text = 'ЗАВЕСА · скорость −28% · цели за туманом скрыты';
+    ctx.strokeText(text, p.x, y - 14);
+    ctx.fillStyle = '#d9b8ff';
+    ctx.fillText(text, p.x, y - 14);
+  }
+  ctx.restore();
+}
+
 function drawCombatHud(s: Snapshot) {
   const ctx = resize2d(combatHud),
     w = combatHud.clientWidth,
@@ -1196,6 +1288,7 @@ function drawCombatHud(s: Snapshot) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   drawDashGauge(ctx, s);
+  drawHeroVitals(ctx, s, w, h);
   drawHeldItems(ctx, s);
   // Ground items carry their own pictogram at all times. Colour is only the category accent;
   // the symbol is the identity, so two rewards of the same category no longer look identical.
@@ -1245,17 +1338,34 @@ function drawCombatHud(s: Snapshot) {
       }
       continue;
     }
-    const show = e.elite || e.hp < e.maxHp * 0.995;
+    const show = e.elite || e.summoned || e.hp < e.maxHp * 0.995;
     if (!show) continue;
-    const bw = e.boss ? 180 : e.elite ? 106 : 44,
-      bh = e.boss ? 10 : e.elite ? 7 : 4,
-      y = p.y - (e.boss ? 142 : e.elite ? 98 : 54);
+    // Elite bodies grow with every relic/evolution tier, so their bars ride higher.
+    const lift = e.elite && !e.boss ? Math.min(40, (e.growth ?? 0) * 5) : 0,
+      bw = e.boss ? 180 : e.elite ? (e.clone ? 84 : 106) : e.summoned ? 62 : 44,
+      bh = e.boss ? 10 : e.elite ? 7 : e.summoned ? 5 : 4,
+      y = p.y - (e.boss ? 142 : e.elite ? 98 + lift : e.summoned ? 76 : 54);
     ctx.fillStyle = '#05080bd9';
     ctx.fillRect(p.x - bw / 2, y, bw, bh);
-    const tint = e.boss ? '#f4e7c8' : e.elite ? (chassisUiTint[e.chassis??'marshal']??eliteTint(e)) : '#df5262';
+    const tint = e.boss ? '#f4e7c8' : e.elite ? (chassisUiTint[e.chassis??'marshal']??eliteTint(e)) : e.summoned ? '#c46bff' : '#df5262';
     ctx.fillStyle = tint;
     ctx.fillRect(p.x - bw / 2 + 1, y + 1, (bw - 2) * Math.max(0, e.hp / e.maxHp), bh - 2);
-    if(e.elite){
+    if (e.summoned) {
+      ctx.strokeStyle = '#c46bff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(p.x - bw / 2 - 0.5, y - 0.5, bw + 1, bh + 1);
+    }
+    if (e.clone) {
+      // Copies are real threats but not the target: the original is the only one that pays out
+      // and its death takes every copy with it.
+      ctx.font = '900 9px system-ui';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#05080b';
+      ctx.strokeText('КОПИЯ', p.x, y - 9);
+      ctx.fillStyle = '#9fe7ff';
+      ctx.fillText('КОПИЯ', p.x, y - 9);
+    }
+    if(e.elite && !e.clone){
       const rarity=e.boss?'legendary':(e.eliteRarity??'common'),
         rc=rarity==='legendary'?'#ffe06a':rarity==='uplifted'?'#67b7ff':'#6d7f8c';
       ctx.strokeStyle=rc;ctx.lineWidth=rarity==='legendary'?2.3:1;
@@ -1270,11 +1380,27 @@ function drawCombatHud(s: Snapshot) {
       const hasGrowth=(e.relicItems?.length??0)>0||(e.evolutionItems?.length??0)>0;
       drawEliteGrowthRow(ctx,e,p.x,y-15,tint);
       drawRefusalRow(ctx,e.refusalIcons??[],e.refusalTitles??[],e.refusalKinds??[],p.x,y-(hasGrowth?37:15),tint);
+      // Rarity and growth tier in words under the bar: colour alone is not a channel.
+      const tag=[...(!e.boss&&rarity==='legendary'?['ЛЕГЕНДА']:!e.boss&&rarity==='uplifted'?['УСИЛЕНА']:[]),...((e.growth??0)>0?[`РОСТ ${e.growth}`]:[])].join(' · ');
+      if(tag){
+        const ty=y+bh+(e.affix==='shielded'?22:9);
+        ctx.font='900 9px system-ui';ctx.textAlign='right';ctx.lineWidth=3;ctx.strokeStyle='#05080b';
+        ctx.strokeText(tag,p.x+bw/2,ty);ctx.fillStyle=rarity==='legendary'?'#ffe06a':rarity==='uplifted'?'#8cc8ff':'#dfe8ee';ctx.fillText(tag,p.x+bw/2,ty);
+        ctx.textAlign='center';
+      }
     }
     if (e.elite && e.affix === 'shielded') {
-      const sy=y+bh+4, st=e.shieldState==='broken'?'#9fa9b6':e.shieldState==='commit'?'#ffc261':'#73d9ff';
-      ctx.fillStyle='#05080bd9';ctx.fillRect(p.x-bw/2,sy,bw,4);
-      ctx.fillStyle=st;ctx.fillRect(p.x-bw/2+1,sy+1,(bw-2)*Math.max(0,Math.min(1,e.shieldStability/100)),2);
+      // The shield is a second health pool (60% of max HP). It gets a full-height bar and a
+      // word, and its break window is announced on the bar itself.
+      const sy=y+bh+3, sh=6, broken=e.shieldState==='broken', pool=Math.max(0,Math.min(1,e.shieldPool ?? e.shieldStability/100)),
+        st=broken?'#ff6a74':e.shieldState==='commit'?'#ffc261':'#e9f6ff';
+      ctx.fillStyle='#05080bd9';ctx.fillRect(p.x-bw/2,sy,bw,sh);
+      ctx.fillStyle=st;ctx.fillRect(p.x-bw/2+1,sy+1,(bw-2)*pool,sh-2);
+      ctx.strokeStyle=broken?'#ff6a74':'#73d9ff';ctx.lineWidth=1;ctx.strokeRect(p.x-bw/2-.5,sy-.5,bw+1,sh+1);
+      ctx.font='900 9px system-ui';ctx.textAlign='left';ctx.lineWidth=3;ctx.strokeStyle='#05080b';
+      const label=broken?'ЩИТ СЛОМАН · УРОН ×1.3':`ЩИТ ${Math.round(pool*100)}%`;
+      ctx.strokeText(label,p.x-bw/2,sy+sh+7);ctx.fillStyle=broken?'#ff8a92':'#9fdcff';ctx.fillText(label,p.x-bw/2,sy+sh+7);
+      ctx.textAlign='center';
     }
     if(e.boss){
       ctx.font='900 12px system-ui';ctx.fillStyle='#fff';ctx.fillText('ХРАНИТЕЛЬ',p.x,y-28);
