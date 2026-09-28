@@ -647,6 +647,8 @@ assert(eliteSpawnSystem.includes('export class EliteSpawnSystem'),
   'elite/boss construction has no dedicated owner');
 assert(simulation.includes('private eliteSpawns!: EliteSpawnSystem'),
   'Simulation no longer delegates elite/boss construction');
+assert(simulation.includes('this.eliteSpawns = new EliteSpawnSystem({'),
+  'Simulation declares EliteSpawnSystem but never wires it');
 for (const method of [
   ['spawnElite','this.eliteSpawns.spawnRegular(opening)'],
   ['rollEliteRarity','this.eliteSpawns.rollRarity()'],
@@ -701,6 +703,8 @@ assert(enemyRecycleSystem.includes('export class EnemyRecycleSystem'),
   'enemy reacquisition has no dedicated owner');
 assert(simulation.includes('private enemyRecycler!: EnemyRecycleSystem'),
   'Simulation no longer delegates enemy reacquisition');
+assert(simulation.includes('this.enemyRecycler = new EnemyRecycleSystem({'),
+  'Simulation declares EnemyRecycleSystem but never wires it');
 const recycleBlock=simulation.slice(
   simulation.indexOf('  private recycleFarEnemies()'),
   simulation.indexOf('\n  step(cmd: Command', simulation.indexOf('  private recycleFarEnemies()'))
@@ -717,6 +721,8 @@ assert(enemySpawnSystem.includes('export class EnemySpawnSystem'),
   'ordinary enemy construction has no dedicated owner');
 assert(simulation.includes('private enemySpawns!: EnemySpawnSystem'),
   'Simulation no longer delegates ordinary enemy construction');
+assert(simulation.includes('this.enemySpawns = new EnemySpawnSystem({'),
+  'Simulation declares EnemySpawnSystem but never wires it');
 const spawnEnemyBlock=simulation.slice(
   simulation.indexOf('  private spawnEnemy('),
   simulation.indexOf('  private eliteDirector()', simulation.indexOf('  private spawnEnemy('))
