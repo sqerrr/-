@@ -46,8 +46,8 @@ import { OrbitSystem } from './orbitSystem.js';
 import { PhysicalActivationSystem } from './physicalActivationSystem.js';
 import { PhysicalCatalystSystem } from './physicalCatalystSystem.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
-import { PhenomenonCastSystem } from './phenomenonCastSystem.js';
 import { PhenomenonKillReactionSystem } from './phenomenonKillReactionSystem.js';
+import { PhenomenonCastComposition } from './phenomenonCastComposition.js';
 import { PlayerDamageSystem } from './playerDamageSystem.js';
 import { PlayerGrowthSystem } from './playerGrowthSystem.js';
 import { ProgressionComposition } from './progressionComposition.js';
@@ -59,7 +59,6 @@ import { RelicRaceSystem } from './relicRaceSystem.js';
 import { RefusalLedger } from './refusalLedger.js';
 import { Rng } from './rng.js';
 import { SquadDirector } from './squadDirector.js';
-import { StatefulPhenomenonCastSystem } from './statefulPhenomenonCastSystem.js';
 import { StatusSystem } from './statusSystem.js';
 import { WorldGeometrySystem } from './worldGeometrySystem.js';
 import { circleIntersectsCircle, closestPointOnSegment, combatShapeIntersectsCircle } from './geometry.js';
@@ -253,14 +252,13 @@ export class Simulation {
   private physicalCatalysts!: PhysicalCatalystSystem;
   private relicRace!: RelicRaceSystem;
   private poiSystem!: PoiSystem;
-  private phenomenonCasts!: PhenomenonCastSystem;
   private phenomenonKillReactions!: PhenomenonKillReactionSystem;
+  private phenomenonCasting!: PhenomenonCastComposition;
   private playerDamage!: PlayerDamageSystem;
   private playerGrowth!: PlayerGrowthSystem;
   private progression!: ProgressionComposition;
   private pickupSystem!: PickupSystem;
   private playerMovement!: PlayerMovementSystem;
-  private statefulPhenomenonCasts!: StatefulPhenomenonCastSystem;
   private nextId = 1;
   private entityStore = new EntityStore();
   /** Compatibility view for deterministic iteration and legacy regression fixtures. */
@@ -1314,50 +1312,7 @@ export class Simulation {
       this.physicalActivations,
       this.legacyCatalysts
     );
-    this.phenomenonCasts = new PhenomenonCastSystem({
-      time: () => this.time,
-      cycle: () => this.cycle,
-      skillRadius: (runtime, base, slot) => this.skillRadius(runtime, base, slot),
-      skillRange: (runtime, base) => this.skillRange(runtime, base),
-      persistentDuration: (runtime, base, slot) => this.persistentDuration(runtime, base, slot),
-      powerBucket: (runtime) => this.powerBucket(runtime),
-      slotAmp: (slot, target) => this.slotAmp(slot, target),
-      memoryFactor: () => this.memoryFactor(),
-      mutationIs: (runtime, mutation) => this.mutationIs(runtime, mutation),
-      projectileCount: (runtime, slot) => this.projectileCount(runtime, slot),
-      combatShape: (source, shape, intent = 'damage', physicalTrace = true) =>
-        this.combatShape(source, shape, intent, physicalTrace),
-      targetsFor: (source) => this.targetsFor(source),
-      bestTarget: (source, predicate, compare) => this.bestTarget(source, predicate, compare),
-      targetVisible: (source, target) => this.targetVisible(source, target),
-      aimPoint: (source, range) => this.aimPoint(source, range),
-      rotatedAim: (source, radians) => this.rotatedAim(source, radians),
-      rayHits: (source, aimX, aimZ, range, width, maxHits = 99) =>
-        this.rayHits(source, aimX, aimZ, range, width, maxHits),
-      firstBlockingObstacleHit: (x0, z0, x1, z1, padding = 0.08) => {
-        const hit = this.firstBlockingObstacleHit(x0, z0, x1, z1, padding);
-        return hit ? { t: hit.t } : null;
-      },
-      damage: (target, amount, source, directional, sourceX, sourceZ, sourceSlot) =>
-        this.damage(target, amount, source, directional, sourceX, sourceZ, sourceSlot),
-      spawnProjectile: (projectile) => {
-        this.spawnProjectile(projectile);
-      },
-      scheduleStrike: (strike) => this.scheduleStrike(strike),
-      addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
-      addActivationControl: (amount) => this.activation.addControl(amount),
-      noteState: (state) => this.noteState(state),
-      noteReaction: () => {
-        this.metrics.reactions++;
-      },
-      emitReaction: (reaction, x, z, amount) =>
-        this.events.push({ type: 'Reaction', tick: this.tick, reaction, x, z, amount }),
-      emitRareEvent: (title, detail, x, z) =>
-        this.events.push({ type: 'RareEvent', tick: this.tick, title, detail, x, z }),
-      grantBarrier: (amount) => this.grantBarrier(amount),
-      doctrineForce: () => this.doctrines.force
-    });
-    this.statefulPhenomenonCasts = new StatefulPhenomenonCastSystem({
+    this.phenomenonCasting = new PhenomenonCastComposition({
       time: () => this.time,
       cycle: () => this.cycle,
       skillRadius: (runtime, base, slot) => this.skillRadius(runtime, base, slot),
@@ -2194,8 +2149,7 @@ export class Simulation {
 
 
   private dispatchSkill(id: SkillId, st: SkillRuntime, slot: number, src: CastSource) {
-    if (this.phenomenonCasts.cast(id, st, slot, src)) return;
-    this.statefulPhenomenonCasts.cast(id, st, slot, src);
+    this.phenomenonCasting.cast(id, st, slot, src);
   }
   private registerAsyncPhysical(activationId: number) {
     this.physical.registerAsync(activationId);
