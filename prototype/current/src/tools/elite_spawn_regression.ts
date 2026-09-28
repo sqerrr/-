@@ -15,6 +15,7 @@ let mode: RunMode = 'clean';
 let px = 0;
 let pz = 0;
 let worldScale = 2;
+let eliteHealthCurve = 1.25;
 let damageScale = 3;
 let nextId = 100;
 let ecosystemMass = 0;
@@ -44,6 +45,7 @@ const port: EliteSpawnPort = {
     return (min + max) * 0.5;
   },
   worldScale: () => worldScale,
+  eliteHealthCurve: () => eliteHealthCurve,
   damageScale: () => damageScale,
   nextEntityId: () => nextId++,
   pointAroundPlayer: (min, max) => {
@@ -82,7 +84,7 @@ const system = new EliteSpawnSystem(port);
   assert(entity.chassis === 'hunter' && entity.rarity === 'common' && entity.affix === 'none',
     'opening elite identity changed');
   assert(entity.x === 12 && entity.z === -8, 'opening elite placement changed');
-  assert(Math.abs(entity.hp - 840 * worldScale * 2.5 * 0.8) < 1e-9,
+  assert(Math.abs(entity.hp - 840 * worldScale * eliteHealthCurve * 2.5 * 0.8) < 1e-9,
     'opening clean-mode HP formula changed');
   assert(entity.radius === 0.86 && entity.speed === 1.76,
     'opening hunter body/movement changed');
@@ -117,7 +119,7 @@ const system = new EliteSpawnSystem(port);
     entity.affix === 'crowned',
     'late elite rarity/affix sequence changed'
   );
-  assert(Math.abs(entity.hp - 1320 * worldScale * 9.4) < 1e-9,
+  assert(Math.abs(entity.hp - 1320 * worldScale * eliteHealthCurve * 9.4) < 1e-9,
     'legendary Bulwark HP scaling changed');
   assert(Math.abs(entity.radius - 1.02 * 1.25) < 1e-9,
     'legendary Bulwark size scaling changed');

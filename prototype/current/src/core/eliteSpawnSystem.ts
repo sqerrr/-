@@ -75,6 +75,8 @@ export interface EliteSpawnPort {
   randomFloat(): number;
   randomRange(min: number, max: number): number;
   worldScale(): number;
+  /** Time-of-run HP curve for regular elites (EncounterDirector.eliteHealthCurve). */
+  eliteHealthCurve(): number;
   damageScale(): number;
   nextEntityId(): number;
   pointAroundPlayer(min: number, max: number): { x: number; z: number };
@@ -108,7 +110,7 @@ export class EliteSpawnSystem {
     const affix: EliteAffix = opening ? 'none' : this.rollAffix(rarity);
     const point = p.pointAroundPlayer(15, 18.5);
 
-    let hp = BASE_HP[chassis] * p.worldScale() * RARITY_HP[rarity];
+    let hp = BASE_HP[chassis] * p.worldScale() * p.eliteHealthCurve() * RARITY_HP[rarity];
     if (opening && p.mode() === 'clean') hp *= 0.8;
 
     const entity = makeEnt({

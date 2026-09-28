@@ -43,6 +43,15 @@ export class EncounterDirector {
     return 1 + 0.018 * m + 0.00065 * m * m;
   }
 
+  /**
+   * Extra HP curve for regular elites on top of worldScale: lighter while the hero owns one or
+   * two Phenomena, heavier once a full build and doctrine ranks are online (0.6 -> ~2.04).
+   */
+  eliteHealthCurve(time: number, runDuration: number) {
+    const m = this.designMinutes(time, runDuration);
+    return Math.min(2.1, 0.6 + 0.06 * m);
+  }
+
   spawnPressure(time: number, runDuration: number) {
     const m = this.designMinutes(time, runDuration);
     return 1 + 0.055 * m + 0.0023 * m * m;

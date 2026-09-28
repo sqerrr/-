@@ -575,6 +575,7 @@ export class Simulation {
       randomFloat: () => this.rng.float(),
       randomRange: (min, max) => this.rng.range(min, max),
       worldScale: () => this.worldScale(),
+      eliteHealthCurve: () => this.encounterDirector.eliteHealthCurve(this.time, this.runDuration),
       damageScale: () => this.damageScale(),
       nextEntityId: () => this.nextId++,
       pointAroundPlayer: (min, max) => this.pointAroundPlayer(min, max),
