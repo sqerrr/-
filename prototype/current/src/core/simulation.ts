@@ -11,8 +11,8 @@ import {
   skills,
   statBase
 } from '../content/definitions.js';
-import { ActivationPipelineSystem } from './activationPipelineSystem.js';
 import { ActivationRuntime } from './activationRuntime.js';
+import { ActivationComposition } from './activationComposition.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
 import {
   CANONICAL_SCHEMA_VERSION as CANONICAL_RUN_SCHEMA_VERSION,
@@ -41,10 +41,7 @@ import { EnemyRecycleSystem } from './enemyRecycleSystem.js';
 import { EnemyDamageModifierSystem } from './enemyDamageModifierSystem.js';
 import { EntityStore } from './entityStore.js';
 import { FieldSystem } from './fieldSystem.js';
-import { LegacyCatalystSystem } from './legacyCatalystSystem.js';
 import { OrbitSystem } from './orbitSystem.js';
-import { PhysicalActivationSystem } from './physicalActivationSystem.js';
-import { PhysicalCatalystSystem } from './physicalCatalystSystem.js';
 import { PhysicalLifecycle } from './physicalLifecycle.js';
 import { PhenomenonKillReactionSystem } from './phenomenonKillReactionSystem.js';
 import { PhenomenonCastComposition } from './phenomenonCastComposition.js';
@@ -241,15 +238,11 @@ export class Simulation {
   private constructSystem!: ConstructSystem;
   private combatLedger!: CombatLedger;
   private combatTargeting!: CombatTargetingSystem;
-  private legacyCatalysts!: LegacyCatalystSystem;
   private orbitSystem!: OrbitSystem;
   private deathResolution!: DeathResolutionSystem;
   private delayedStrikeSystem!: DelayedStrikeSystem;
-  private physicalActivations!: PhysicalActivationSystem;
   private canonicalSerializer = new CanonicalStateSerializer();
   private snapshotBuilder = new SnapshotBuilder();
-  private activationPipeline!: ActivationPipelineSystem;
-  private physicalCatalysts!: PhysicalCatalystSystem;
   private relicRace!: RelicRaceSystem;
   private poiSystem!: PoiSystem;
   private phenomenonKillReactions!: PhenomenonKillReactionSystem;
@@ -356,6 +349,7 @@ export class Simulation {
   private charge = 0;
   private butcherStacks = 0;
   private activation = new ActivationRuntime();
+  private activationFlow!: ActivationComposition;
   private capacitorCharge = 0;
   private capacitorConsumed = false;
   private overflowCharge = 0;
@@ -1123,47 +1117,45 @@ export class Simulation {
       corePower: () => this.corePower(),
       grantBarrier: (amount) => this.grantBarrier(amount)
     });
-    this.legacyCatalysts = new LegacyCatalystSystem({
-      time: () => this.time,
-      tick: () => this.tick,
-      playerX: () => this.px,
-      playerZ: () => this.pz,
-      movePlayer: (dx, dz) => {
-        this.px += dx;
-        this.pz += dz;
-        this.clampWorld();
-      },
-      getAliveEntity: (id) => this.entityStore.getAlive(id),
-      entities: () => this.ents,
-      skillAt: (slot) => this.slots[slot] ?? null,
-      skillRuntime: (id) => this.skillsRuntime.get(id),
-      applyState: (entity, state, potency) => this.applyState(entity, state, potency),
-      healPlayer: (amount) => this.healPlayer(amount),
-      grantBarrier: (amount) => this.grantBarrier(amount),
-      damageEcho: (entity, amount, x, z) =>
-        this.activation.withDerived({}, () =>
-          this.damage(entity, amount, 'echo', false, x, z)
-        ),
-      castDerived: (skill, runtime, slot, scale) =>
-        this.activation.withDerived({ slot, scale }, () =>
-          this.castWithTrace(skill, runtime, slot, this.heroSource())
-        ),
-      noteReaction: () => {
-        this.metrics.reactions++;
-      },
-      emitReaction: (reaction, x, z, amount) =>
-        this.events.push({
-          type: 'Reaction',
-          tick: this.tick,
-          reaction,
-          x,
-          z,
-          ...(amount === undefined ? {} : { amount })
-        }),
-      emitCatalystTriggered: (catalyst, fromSlot, toSlot, sourceX, sourceZ, targetX, targetZ) =>
-        this.events.push({
-          type: 'CatalystTriggered',
-          tick: this.tick,
+    this.activationFlow = new ActivationComposition(
+      {
+        time: () => this.time,
+        tick: () => this.tick,
+        playerX: () => this.px,
+        playerZ: () => this.pz,
+        movePlayer: (dx, dz) => {
+          this.px += dx;
+          this.pz += dz;
+          this.clampWorld();
+        },
+        getAliveEntity: (id) => this.entityStore.getAlive(id),
+        entities: () => this.ents,
+        skillAt: (slot) => this.slots[slot] ?? null,
+        skillRuntime: (id) => this.skillsRuntime.get(id),
+        applyState: (entity, state, potency) => this.applyState(entity, state, potency),
+        healPlayer: (amount) => this.healPlayer(amount),
+        grantBarrier: (amount) => this.grantBarrier(amount),
+        damageEcho: (entity, amount, x, z) =>
+          this.activation.withDerived({}, () =>
+            this.damage(entity, amount, 'echo', false, x, z)
+          ),
+        castDerived: (skill, runtime, slot, scale) =>
+          this.activation.withDerived({ slot, scale }, () =>
+            this.castWithTrace(skill, runtime, slot, this.heroSource())
+          ),
+        noteReaction: () => {
+          this.metrics.reactions++;
+        },
+        emitReaction: (reaction, x, z, amount) =>
+          this.events.push({
+            type: 'Reaction',
+            tick: this.tick,
+            reaction,
+            x,
+            z,
+            ...(amount === undefined ? {} : { amount })
+          }),
+        emitCatalystTriggered: (
           catalyst,
           fromSlot,
           toSlot,
@@ -1171,8 +1163,50 @@ export class Simulation {
           sourceZ,
           targetX,
           targetZ
-        })
-    });
+        ) =>
+          this.events.push({
+            type: 'CatalystTriggered',
+            tick: this.tick,
+            catalyst,
+            fromSlot,
+            toSlot,
+            sourceX,
+            sourceZ,
+            targetX,
+            targetZ
+          }),
+        activeSpan: () => this.activeSpan(),
+        incomingCatalyst: (slot) => this.incomingCatalyst(slot),
+        conductivity: () => this.resonance.conductivity,
+        playerPosition: () => ({ x: this.px, z: this.pz }),
+        aim: () => ({ x: this.aimX, z: this.aimZ }),
+        setAim: (x, z) => {
+          this.aimX = x;
+          this.aimZ = z;
+        },
+        heroSource: () => this.heroSource(),
+        choreographySource: (x, z, aimX, aimZ) =>
+          this.choreographySource(x, z, aimX, aimZ),
+        entityPosition: (id) => {
+          const entity = this.entityStore.get(id);
+          return entity ? { x: entity.x, z: entity.z } : null;
+        },
+        castWithTrace: (skill, runtime, slot, source) =>
+          this.castWithTrace(skill, runtime, slot, source),
+        prepareOrbitPayload: (x, z) => this.setOrbitChoreography(x, z),
+        noteActivation: () => {
+          this.metrics.activations++;
+        },
+        flushPhysicalEvents: () => this.flushPhysicalEvents(),
+        catalystAt: (slot) => this.catalysts[slot] ?? null,
+        addBinding: (binding) => this.physical.addBinding(binding),
+        queueEvent: (event) => this.physical.queue(event),
+        emit: (event) => this.events.push(event)
+      },
+      this.activation,
+      this.choreography,
+      this.physical
+    );
     this.orbitSystem = new OrbitSystem({
       time: () => this.time,
       tick: () => this.tick,
@@ -1259,59 +1293,6 @@ export class Simulation {
       addField: (field) => this.fields.push({ id: this.nextId++, ...field }),
       finishAsyncPhysical: (activationId, x, z) => this.finishAsyncPhysical(activationId, x, z)
     });
-    this.physicalCatalysts = new PhysicalCatalystSystem({
-      time: () => this.time,
-      tick: () => this.tick,
-      aimX: () => this.aimX,
-      aimZ: () => this.aimZ,
-      entities: () => this.ents,
-      castPayload: (binding, x, z, aimX, aimZ) =>
-        this.activationPipeline.castPayload(binding, x, z, aimX, aimZ),
-      emit: (event) => this.events.push(event),
-      noteReaction: () => {
-        this.metrics.reactions++;
-      }
-    });
-    this.physicalActivations = new PhysicalActivationSystem({
-      catalystAt: (slot) => this.catalysts[slot] ?? null,
-      skillAt: (slot) => this.slots[slot] ?? null,
-      addBinding: (binding) => this.physical.addBinding(binding),
-      queueEvent: (event) => this.physical.queue(event)
-    });
-    this.activationPipeline = new ActivationPipelineSystem(
-      {
-        activeSpan: () => this.activeSpan(),
-        skillAt: (slot) => this.slots[slot] ?? null,
-        skillRuntime: (skill) => this.skillsRuntime.get(skill),
-        incomingCatalyst: (slot) => this.incomingCatalyst(slot),
-        conductivity: () => this.resonance.conductivity,
-        playerPosition: () => ({ x: this.px, z: this.pz }),
-        aim: () => ({ x: this.aimX, z: this.aimZ }),
-        setAim: (x, z) => {
-          this.aimX = x;
-          this.aimZ = z;
-        },
-        heroSource: () => this.heroSource(),
-        choreographySource: (x, z, aimX, aimZ) =>
-          this.choreographySource(x, z, aimX, aimZ),
-        entityPosition: (id) => {
-          const entity = this.entityStore.get(id);
-          return entity ? { x: entity.x, z: entity.z } : null;
-        },
-        castWithTrace: (skill, runtime, slot, source) =>
-          this.castWithTrace(skill, runtime, slot, source),
-        prepareOrbitPayload: (x, z) => this.setOrbitChoreography(x, z),
-        noteActivation: () => {
-          this.metrics.activations++;
-        },
-        flushPhysicalEvents: () => this.flushPhysicalEvents()
-      },
-      this.activation,
-      this.choreography,
-      this.physical,
-      this.physicalActivations,
-      this.legacyCatalysts
-    );
     this.phenomenonCasting = new PhenomenonCastComposition({
       time: () => this.time,
       cycle: () => this.cycle,
@@ -2067,7 +2048,7 @@ export class Simulation {
     while (this.beatAcc + 1e-9 >= beatTime) {
       this.beatAcc -= beatTime;
       if (this.beat >= span) this.beat = 0;
-      this.activationPipeline.activate(this.beat);
+      this.activationFlow.activate(this.beat);
       this.beat++;
       if (this.beat >= span) {
         this.beat = 0;
@@ -2169,7 +2150,7 @@ export class Simulation {
 
   private flushPhysicalEvents() {
     this.physical.flush(
-      (binding, event) => this.physicalCatalysts.handle(binding, event),
+      (binding, event) => this.activationFlow.handlePhysical(binding, event),
       (activationId) => this.constructs.some((construct) => construct.activationId === activationId)
     );
   }

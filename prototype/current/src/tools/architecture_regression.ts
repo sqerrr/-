@@ -21,6 +21,7 @@ const choiceRuntime=readFileSync('src/core/choiceRuntime.ts','utf8');
 const mutationChoiceSystem=readFileSync('src/core/mutationChoiceSystem.ts','utf8');
 const activationRuntime=readFileSync('src/core/activationRuntime.ts','utf8');
 const activationPipeline=readFileSync('src/core/activationPipelineSystem.ts','utf8');
+const activationComposition=readFileSync('src/core/activationComposition.ts','utf8');
 const combatLedger=readFileSync('src/core/combatLedger.ts','utf8');
 const combatTargeting=readFileSync('src/core/combatTargetingSystem.ts','utf8');
 const relicRace=readFileSync('src/core/relicRaceSystem.ts','utf8');
@@ -96,16 +97,32 @@ assert(!simulation.includes('type CatalystBinding ='), 'Simulation owns Catalyst
 assert(physical.includes('export class PhysicalLifecycle'), 'physical lifecycle has no dedicated owner');
 assert(physicalActivation.includes('export class PhysicalActivationSystem'),
   'Catalyst 2.x activation protocol has no dedicated owner');
-assert(simulation.includes('private physicalActivations!: PhysicalActivationSystem'),
-  'Simulation no longer delegates physical activation protocol');
+assert(physicalCatalyst.includes('export class PhysicalCatalystSystem'),
+  'Catalyst 2.x binding policy has no dedicated owner');
+assert(activationComposition.includes('export class ActivationComposition'),
+  'activation/Catalyst protocols have no composition boundary');
+assert(activationComposition.includes('private readonly physicalActivations: PhysicalActivationSystem') &&
+       activationComposition.includes('this.physicalActivations = new PhysicalActivationSystem({'),
+  'ActivationComposition no longer owns physical activation protocol');
+assert(activationComposition.includes('private readonly physicalCatalysts: PhysicalCatalystSystem') &&
+       activationComposition.includes('this.physicalCatalysts = new PhysicalCatalystSystem({'),
+  'ActivationComposition no longer owns physical Catalyst policy');
+assert(simulation.includes('private activationFlow!: ActivationComposition'),
+  'Simulation no longer delegates activation protocols to ActivationComposition');
+assert(simulation.includes('this.activationFlow.handlePhysical(binding, event)'),
+  'physical event flush no longer routes through ActivationComposition');
+for (const token of [
+  'private physicalActivations!: PhysicalActivationSystem',
+  'private physicalCatalysts!: PhysicalCatalystSystem',
+  'this.physicalActivations.',
+  'this.physicalCatalysts.',
+  'new PhysicalActivationSystem(',
+  'new PhysicalCatalystSystem('
+])
+  assert(!simulation.includes(token),
+    'physical activation implementation leaked back into Simulation: '+token);
 for (const method of ['isPhysicalCatalyst','armOutgoingPhysicalCatalyst','publishImmediatePhysicalTrace','tracePath'])
   assert(!simulation.includes('private '+method+'('), 'physical activation protocol leaked back into Simulation: '+method);
-
-assert(physicalCatalyst.includes('export class PhysicalCatalystSystem'), 'Catalyst 2.x binding policy has no dedicated owner');
-assert(simulation.includes('private physicalCatalysts!: PhysicalCatalystSystem'),
-  'Simulation no longer delegates Catalyst 2.x binding policy');
-assert(simulation.includes('this.physicalCatalysts.handle(binding, event)'),
-  'physical event flush no longer routes through Catalyst 2.x policy');
 for (const method of ['handlePhysicalBinding','fireCollapse','appendBindingPath','trailAim','emitChoreography'])
   assert(!simulation.includes('private '+method+'('), 'Catalyst 2.x policy leaked back into Simulation: '+method);
 for (const token of ['activationPending =','catalystBindings:','physicalEvents:','activationMeta ='])
@@ -222,12 +239,20 @@ for (const field of [
   assert(!simulation.includes('private '+field), 'activation state leaked back into Simulation: '+field);
 assert(activationPipeline.includes('export class ActivationPipelineSystem'),
   'Phenomenon activation ordering has no dedicated coordinator');
-assert(simulation.includes('private activationPipeline!: ActivationPipelineSystem'),
-  'Simulation no longer delegates Phenomenon activation ordering');
-assert(simulation.includes('this.activationPipeline.activate(this.beat)'),
-  'chain clock no longer routes through ActivationPipelineSystem');
-assert(simulation.includes('this.activationPipeline.castPayload(binding, x, z, aimX, aimZ)'),
-  'physical Catalyst payload no longer routes through ActivationPipelineSystem');
+assert(activationComposition.includes('private readonly pipeline: ActivationPipelineSystem') &&
+       activationComposition.includes('this.pipeline = new ActivationPipelineSystem('),
+  'ActivationComposition no longer owns activation ordering');
+assert(simulation.includes('this.activationFlow.activate(this.beat)'),
+  'chain clock no longer routes through ActivationComposition');
+assert(activationComposition.includes('return this.pipeline.castPayload(binding, x, z, aimX, aimZ)'),
+  'physical Catalyst payload no longer routes through composed activation pipeline');
+for (const token of [
+  'private activationPipeline!: ActivationPipelineSystem',
+  'this.activationPipeline.',
+  'new ActivationPipelineSystem('
+])
+  assert(!simulation.includes(token),
+    'activation pipeline implementation leaked back into Simulation: '+token);
 assert(activationPipeline.includes('this.activation.begin(slot)'),
   'top-level slot activation no longer opens an ActivationRuntime frame');
 assert(activationPipeline.includes('this.activation.suspend()') && activationPipeline.includes('this.activation.restore(activationFrame)'),
@@ -606,9 +631,18 @@ for (const token of ['sentry_hunter_battery','sentry_gravity_grid','sentry_crawl
   assert(!constructUpdate.includes(token), 'construct runtime behavior leaked back into Simulation: '+token);
 assert(!simulation.includes('private sentryGridAcc =') && !simulation.includes('private sentryBatteryAt ='),
   'construct-specific cadence state leaked back into Simulation');
-assert(legacyCatalyst.includes('export class LegacyCatalystSystem'), 'Catalyst 1.x compatibility has no dedicated owner');
-assert(simulation.includes('private legacyCatalysts!: LegacyCatalystSystem'),
-  'Simulation no longer delegates Catalyst 1.x compatibility');
+assert(legacyCatalyst.includes('export class LegacyCatalystSystem'),
+  'Catalyst 1.x compatibility has no dedicated owner');
+assert(activationComposition.includes('private readonly legacy: LegacyCatalystSystem') &&
+       activationComposition.includes('this.legacy = new LegacyCatalystSystem(port)'),
+  'ActivationComposition no longer contains Catalyst 1.x compatibility');
+for (const token of [
+  'private legacyCatalysts!: LegacyCatalystSystem',
+  'this.legacyCatalysts.',
+  'new LegacyCatalystSystem('
+])
+  assert(!simulation.includes(token),
+    'Catalyst 1.x compatibility leaked back into Simulation: '+token);
 const activationMethod=simulation.slice(
   simulation.indexOf('private activateSlot('),
   simulation.indexOf('private isPhysicalCatalyst(', simulation.indexOf('private activateSlot('))
@@ -858,6 +892,7 @@ console.log('architecture-regression OK', {
   mutationChoiceSystem:true,
   activationRuntime:true,
   activationPipelineSystem:true,
+  activationComposition:true,
   combatLedger:true,
   combatTargetingSystem:true,
   relicRaceSystem:true,
