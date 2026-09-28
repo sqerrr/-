@@ -74,6 +74,7 @@ export interface ProgressionCompositionPort {
  * no longer knows how those systems are connected to each other.
  */
 export class ProgressionComposition {
+  static readonly MUTATION_BRANCHES = MutationChoiceSystem.BRANCHES;
   private readonly choices = new ChoiceRuntime();
   private readonly loadout: BuildLoadoutSystem;
   private readonly offers: ProgressionOfferSystem;
