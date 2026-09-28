@@ -17,6 +17,8 @@
 
 Documents 34/35 and older Catalyst reports are research/defect evidence only where documents 39/37 supersede them.
 
+Pending work order: `40_MUTATION_REWORK_SPEC_2026-09-28.md` — ТЗ on the mutation rework (facets on tiers II/III, dead triggers, count/crit accounting, sentry shots as Catalyst signals). Not implemented yet; code remains the factual source.
+
 ## Current source-of-truth order
 
 1. Latest explicit owner instruction in chat.
