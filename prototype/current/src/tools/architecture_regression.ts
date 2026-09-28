@@ -27,6 +27,7 @@ const rewardOfferFactory=readFileSync('src/core/rewardOfferFactory.ts','utf8');
 const refusalLedger=readFileSync('src/core/refusalLedger.ts','utf8');
 const progressionOfferSystem=readFileSync('src/core/progressionOfferSystem.ts','utf8');
 const progressionRuntime=readFileSync('src/core/progressionRuntime.ts','utf8');
+const progressionComposition=readFileSync('src/core/progressionComposition.ts','utf8');
 const poiSystem=readFileSync('src/core/poiSystem.ts','utf8');
 const worldGeometry=readFileSync('src/core/worldGeometrySystem.ts','utf8');
 const delayedStrikeSystem=readFileSync('src/core/delayedStrikeSystem.ts','utf8');
@@ -137,29 +138,34 @@ assert(simulation.includes('this.statefulPhenomenonCasts.cast(id, st, slot, src)
   'dispatchSkill no longer routes through the stateful Phenomenon family');
 assert(choiceRuntime.includes('export class ChoiceRuntime'),
   'progression choice window has no dedicated runtime owner');
-assert(simulation.includes('private choiceRuntime = new ChoiceRuntime()'),
-  'Simulation no longer delegates progression choice state');
+assert(mutationChoiceSystem.includes('export class MutationChoiceSystem'),
+  'mutation graph/application policy has no dedicated owner');
+assert(progressionComposition.includes('export class ProgressionComposition'),
+  'player progression slice has no composition boundary');
+assert(progressionComposition.includes('private readonly choices = new ChoiceRuntime()') &&
+       progressionComposition.includes('private readonly mutations: MutationChoiceSystem'),
+  'progression composition no longer owns choice/mutation wiring');
+assert(simulation.includes('private progression!: ProgressionComposition'),
+  'Simulation no longer delegates the progression slice to its composition');
+assert(simulation.includes('return this.progression.hasChoice'),
+  'Simulation.hasChoice bypasses progression composition');
 for (const field of [
   'rewardOffers: RewardOffer[]','mutationOffer: MutationOffer',
   'mutationRefusalToken =','choiceSerial =','pendingMutationTarget ='
 ])
   assert(!simulation.includes('private '+field),
     'raw progression choice state leaked back into Simulation: '+field);
-assert(simulation.includes('return this.choiceRuntime.hasChoice'),
-  'Simulation.hasChoice no longer reads the choice runtime');
-for (const call of [
-  'this.choiceRuntime.openRewards(','this.choiceRuntime.takeReward(index)',
-  'this.choiceRuntime.beginMutationTarget()'
+for (const token of [
+  'private choiceRuntime = new ChoiceRuntime()',
+  'private mutationChoices!: MutationChoiceSystem',
+  'this.choiceRuntime.',
+  'this.mutationChoices.'
 ])
-  assert(simulation.includes(call),
-    'reward choice lifecycle no longer routes through ChoiceRuntime: '+call);
-assert(mutationChoiceSystem.includes('export class MutationChoiceSystem'),
-  'mutation graph/application policy has no dedicated owner');
-assert(simulation.includes('private mutationChoices!: MutationChoiceSystem'),
-  'Simulation no longer delegates mutation choice policy');
-assert(simulation.includes('return this.mutationChoices.choose(index)') &&
-       simulation.includes('return this.mutationChoices.refuse(index)'),
-  'public mutation commands stopped delegating to MutationChoiceSystem');
+  assert(!simulation.includes(token),
+    'progression implementation detail leaked back into Simulation: '+token);
+assert(simulation.includes('return this.progression.chooseMutation(index)') &&
+       simulation.includes('return this.progression.refuseMutation(index)'),
+  'public mutation commands stopped delegating to ProgressionComposition');
 for (const call of [
   'this.choices.openMutation(','this.choices.closeMutation()',
   'this.choices.consumeMutationTarget()','this.choices.replaceMutationChoice('
@@ -361,28 +367,30 @@ for (const token of ['areaPoints=[0,1,2,3]','fieldKind','_impact'])
 
 assert(progressionRuntime.includes('export class ProgressionRuntime'),
   'run progression has no dedicated orchestration owner');
-assert(simulation.includes('private progressionRuntime!: ProgressionRuntime'),
-  'Simulation no longer delegates progression orchestration');
+assert(progressionOfferSystem.includes('export class ProgressionOfferSystem'),
+  'progression reward selection has no dedicated policy owner');
+assert(progressionComposition.includes('private readonly offers: ProgressionOfferSystem') &&
+       progressionComposition.includes('private readonly runtime: ProgressionRuntime'),
+  'progression composition no longer owns offer/runtime wiring');
 for (const seam of [
-  'this.progressionRuntime.check()',
-  'return this.progressionRuntime.chooseReward(index)',
-  'return this.progressionRuntime.rerollRewards()',
-  'return this.progressionRuntime.skipReward()'
+  'this.progression.check()',
+  'return this.progression.chooseReward(index)',
+  'return this.progression.rerollRewards()',
+  'return this.progression.skipReward()'
 ])
-  assert(simulation.includes(seam), 'progression runtime seam stopped delegating: '+seam);
+  assert(simulation.includes(seam), 'progression composition seam stopped delegating: '+seam);
 for (const token of [
-  'if (this.mutationCores > 0 && this.progressionOffers.hasEvolvableSkill())',
+  'private progressionOffers!: ProgressionOfferSystem',
+  'private progressionRuntime!: ProgressionRuntime',
+  'this.progressionOffers.',
+  'this.progressionRuntime.',
+  'if (this.mutationCores > 0 &&',
   'const chosen = this.choiceRuntime.takeReward(index)',
   'this.rerolls <= 0',
   'this.xp += this.xpNeed * 0.3'
 ])
   assert(!simulation.includes(token),
-    'progression orchestration leaked back into Simulation: '+token);
-
-assert(progressionOfferSystem.includes('export class ProgressionOfferSystem'),
-  'progression reward selection has no dedicated policy owner');
-assert(simulation.includes('private progressionOffers!: ProgressionOfferSystem'),
-  'Simulation no longer delegates progression offer selection');
+    'progression orchestration/selection leaked back into Simulation: '+token);
 
 assert(poiSystem.includes('export class PoiSystem'), 'world POIs have no dedicated owner');
 assert(simulation.includes('private poiSystem!: PoiSystem'), 'Simulation no longer delegates POI lifecycle');
@@ -409,23 +417,23 @@ for (const token of ["kind: 'phenomenon', x: 14","type: 'PoiAwakened'","type: 'P
   assert(!poiDirectorBlock.includes(token), 'POI lifecycle/policy leaked back into Simulation: '+token);
 for (const method of [
   'generateDiscovery','generateLevelOffers','generateMutationTargetOffers','generateEliteCache'
-]) {
-  const start=simulation.indexOf('  private '+method+'(');
-  const next=simulation.indexOf('\n  private ', start + 3);
-  const block=simulation.slice(start, next > start ? next : start + 500);
-  assert(block.includes('this.progressionOffers.'),
-    'progression wrapper stopped delegating to ProgressionOfferSystem: '+method);
-}
+])
+  assert(!simulation.includes('private '+method+'('),
+    'obsolete progression wrapper remained in Simulation: '+method);
 for (const token of [
   'private skillOrderUnowned(','private catalystOrderUnowned(',
   'this.shuffle([...doctrineOrder])','usefulUnowned =','preferred: DoctrineId[]'
 ])
   assert(!simulation.includes(token),
     'progression selection policy leaked back into Simulation: '+token);
-assert(simulation.includes('this.progressionOffers.hasUnownedSkills()'),
-  'Phenomenon POI no longer asks progression policy about discoveries');
-assert(simulation.includes('this.progressionOffers.hasEvolvableSkill()'),
-  'mutation-core progression no longer asks progression policy about eligibility');
+assert(simulation.includes('this.progression.hasUnownedSkills()'),
+  'Phenomenon POI no longer asks progression composition about discoveries');
+assert(simulation.includes('this.progression.openDiscovery()') &&
+       simulation.includes('this.progression.openCatalystDiscovery()') &&
+       simulation.includes('this.progression.openResonanceChoice()'),
+  'POI reward openings bypass progression composition');
+assert(progressionComposition.includes('hasEvolvableSkill: () => this.hasEvolvableSkill()'),
+  'mutation-core progression no longer asks composed offer policy about eligibility');
 assert(refusalLedger.includes('export class RefusalLedger'),
   'declined reward history has no dedicated owner');
 assert(simulation.includes('private refusalLedger!: RefusalLedger'),
@@ -444,20 +452,23 @@ for (const token of [
     'refusal storage/presentation policy leaked back into Simulation: '+token);
 assert(buildLoadout.includes('export class BuildLoadoutSystem'),
   'structural build/loadout transitions have no dedicated owner');
-assert(simulation.includes('private buildLoadout!: BuildLoadoutSystem'),
-  'Simulation no longer delegates build/loadout transitions');
+assert(progressionComposition.includes('private readonly loadout: BuildLoadoutSystem'),
+  'progression composition no longer owns build/loadout wiring');
+assert(!simulation.includes('private buildLoadout!: BuildLoadoutSystem') &&
+       !simulation.includes('this.buildLoadout.'),
+  'BuildLoadoutSystem leaked back into Simulation');
 for (const method of [
-  ['allOwnedSkills','this.buildLoadout.allOwnedSkills()'],
-  ['allOwnedCatalysts','this.buildLoadout.allOwnedCatalysts()'],
-  ['catalystCompatibleEdges','this.buildLoadout.catalystCompatibleEdges(id)'],
-  ['placeCatalyst','this.buildLoadout.placeCatalyst(id)'],
-  ['addSkill','this.buildLoadout.addSkill(id)'],
-  ['swapInSkill','this.buildLoadout.swapInSkill(id, slot)'],
-  ['swapSkillLocations','this.buildLoadout.swapSkillLocations(za, a, zb, b)'],
-  ['swapCatalystLocations','this.buildLoadout.swapCatalystLocations(za, a, zb, b)']
+  ['allOwnedSkills','this.progression.allOwnedSkills()'],
+  ['allOwnedCatalysts','this.progression.allOwnedCatalysts()'],
+  ['catalystCompatibleEdges','this.progression.catalystCompatibleEdges(id)'],
+  ['placeCatalyst','this.progression.placeCatalyst(id)'],
+  ['addSkill','this.progression.addSkill(id)'],
+  ['swapInSkill','this.progression.swapInSkill(id, slot)'],
+  ['swapSkillLocations','this.progression.swapSkillLocations(za, a, zb, b)'],
+  ['swapCatalystLocations','this.progression.swapCatalystLocations(za, a, zb, b)']
 ] as const)
   assert(simulation.includes(method[1]),
-    'build/loadout compatibility seam stopped delegating: '+method[0]);
+    'build/loadout compatibility seam stopped delegating through ProgressionComposition: '+method[0]);
 for (const token of [
   'this.mutationCores += 1 +','[A[a], B[b]] = [B[b], A[a]]',
   'this.slots.findIndex((x) => !x)','this.skillReserve.findIndex((x) => !x)'
@@ -506,8 +517,11 @@ for (const token of [
 
 assert(rewardOfferFactory.includes('export class RewardOfferFactory'),
   'player-facing reward cards have no dedicated factory');
-assert(simulation.includes('private rewardOfferFactory!: RewardOfferFactory'),
-  'Simulation no longer delegates reward card construction');
+assert(progressionComposition.includes('const factory = new RewardOfferFactory('),
+  'progression composition no longer owns reward card construction');
+assert(!simulation.includes('private rewardOfferFactory!: RewardOfferFactory') &&
+       !simulation.includes('new RewardOfferFactory('),
+  'RewardOfferFactory leaked back into Simulation');
 for (const call of [
   'this.factory.catalystAdd(id)',
   'this.factory.resonance(id)',
@@ -633,6 +647,8 @@ assert(eliteSpawnSystem.includes('export class EliteSpawnSystem'),
   'elite/boss construction has no dedicated owner');
 assert(simulation.includes('private eliteSpawns!: EliteSpawnSystem'),
   'Simulation no longer delegates elite/boss construction');
+assert(simulation.includes('this.eliteSpawns = new EliteSpawnSystem({'),
+  'Simulation declares EliteSpawnSystem but never wires it');
 for (const method of [
   ['spawnElite','this.eliteSpawns.spawnRegular(opening)'],
   ['rollEliteRarity','this.eliteSpawns.rollRarity()'],
@@ -687,6 +703,8 @@ assert(enemyRecycleSystem.includes('export class EnemyRecycleSystem'),
   'enemy reacquisition has no dedicated owner');
 assert(simulation.includes('private enemyRecycler!: EnemyRecycleSystem'),
   'Simulation no longer delegates enemy reacquisition');
+assert(simulation.includes('this.enemyRecycler = new EnemyRecycleSystem({'),
+  'Simulation declares EnemyRecycleSystem but never wires it');
 const recycleBlock=simulation.slice(
   simulation.indexOf('  private recycleFarEnemies()'),
   simulation.indexOf('\n  step(cmd: Command', simulation.indexOf('  private recycleFarEnemies()'))
@@ -703,6 +721,8 @@ assert(enemySpawnSystem.includes('export class EnemySpawnSystem'),
   'ordinary enemy construction has no dedicated owner');
 assert(simulation.includes('private enemySpawns!: EnemySpawnSystem'),
   'Simulation no longer delegates ordinary enemy construction');
+assert(simulation.includes('this.enemySpawns = new EnemySpawnSystem({'),
+  'Simulation declares EnemySpawnSystem but never wires it');
 const spawnEnemyBlock=simulation.slice(
   simulation.indexOf('  private spawnEnemy('),
   simulation.indexOf('  private eliteDirector()', simulation.indexOf('  private spawnEnemy('))
@@ -821,6 +841,7 @@ console.log('architecture-regression OK', {
   refusalLedger:true,
   rewardOfferFactory:true,
   progressionOfferSystem:true,
+  progressionComposition:true,
   poiSystem:true,
   worldGeometrySystem:true,
   delayedStrikeSystem:true,

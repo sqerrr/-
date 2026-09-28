@@ -3,12 +3,16 @@ import { Simulation } from '../core/simulation.js';
 
 const assert = (ok: unknown, message: string) => { if (!ok) throw new Error(message); };
 const skill = 'frost_ring' as const;
-const sim = new Simulation({ seed: 301991, hz: 60, benchmark: true }) as any;
+const sim = new Simulation({ seed: 301991, hz: 60 }) as any;
 sim.configureBenchmarkLoadout({ slots: [skill], catalysts: [] });
 sim.mutationCores = 3;
 
-sim.generateMutationTargetOffers();
-assert(sim.rewardOffers?.length === 1, 'expected one eligible mutation target');
+const openMutationTarget = () => {
+  sim.step({ moveX: 0, moveZ: 0, aimX: 1, aimZ: 0 });
+  assert(sim.rewardOffers?.length === 1, 'expected one eligible mutation target');
+};
+
+openMutationTarget();
 assert(sim.chooseReward(0), 'failed to select mutation target');
 let offer = sim.mutationOffer;
 assert(offer?.tier === 1 && offer.choices.length === 3, 'Tier I must offer three roots');
@@ -16,14 +20,14 @@ const root = offer.choices[0];
 assert(!mutationDef(skill, root).parent, 'Tier I leaked a continuation');
 assert(sim.chooseMutation(0), 'failed Tier I');
 
-sim.generateMutationTargetOffers(); assert(sim.chooseReward(0), 'failed Tier II target');
+openMutationTarget(); assert(sim.chooseReward(0), 'failed Tier II target');
 offer = sim.mutationOffer;
 assert(offer?.tier === 2 && offer.choices.length === 1, 'Tier II must continue chosen branch');
 const child = offer.choices[0];
 assert(mutationDef(skill, child).parent === root, 'Tier II parent mismatch');
 assert(sim.chooseMutation(0), 'failed Tier II');
 
-sim.generateMutationTargetOffers(); assert(sim.chooseReward(0), 'failed Tier III target');
+openMutationTarget(); assert(sim.chooseReward(0), 'failed Tier III target');
 offer = sim.mutationOffer;
 assert(offer?.tier === 3 && offer.choices.length === 1, 'Tier III must offer one Apotheosis');
 const apoth = offer.choices[0];
