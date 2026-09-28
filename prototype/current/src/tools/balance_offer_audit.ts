@@ -8,15 +8,16 @@
  *   unplaceableSkill    a phenomenon card (skill_add / elite with skill) offered while every
  *                       phenomenon place (4 active + reserve) is occupied;
  *   unplaceableCatalyst a catalyst card offered while every catalyst place is occupied;
- *   swapOffered         skill_swap cards (their slot is chosen randomly, not by the player);
+ *   swapOffered         skill_swap cards offered / taken (the bot takes them without a target);
  *   phenomenonDeleted   a phenomenon disappeared from the build after a swap
  *                       (reserve overflow), with mutation cores before/after;
  *   rerollChannelSwitch reroll turned a phenomenon/catalyst/resonance window into doctrines;
  *   poiRewardLost       non-vital POI cleared in a step that could not open its window;
- *   deadAxisOffered     resonance "conductivity" (catalyst power) offered / taken - it only
- *                       feeds Catalyst 1.x and Broodmaker replication;
+ *   catalystPowerOffered resonance "conductivity" (Catalyst power) offered / taken;
+ *   catalystPowerUnlinked ... of those offers, made while no Catalyst stands on an edge
+ *                       (the card does nothing yet; should stay 0);
  *   fortuneOffered      global "fortune" card offered / taken;
- *   doctrineRankAtOffer max doctrine rank seen on offer (doctrines have no cap).
+ *   doctrineRankAtOffer max doctrine rank seen on offer.
  *
  * Measurement only; not part of `npm test`.
  *
@@ -49,8 +50,9 @@ const counters: Record<string, number> = {
   rerolls: 0,
   rerollChannelSwitch: 0,
   poiRewardLost: 0,
-  deadAxisOffered: 0,
-  deadAxisTaken: 0,
+  catalystPowerOffered: 0,
+  catalystPowerTaken: 0,
+  catalystPowerUnlinked: 0,
   fortuneOffered: 0,
   fortuneTaken: 0,
   doctrineRankAtOffer: 0
@@ -98,7 +100,10 @@ function auditRun(start: SkillId, seed: number) {
           if (offer.catalyst && (offer.kind === 'catalyst_add' || offer.kind === 'elite') && freeCatalystPlaces(s) === 0)
             example('unplaceableCatalyst', { seed, start, time, window: windowKind(s), catalyst: offer.catalyst });
           if (offer.kind === 'skill_swap') counters.swapOffered++;
-          if (offer.resonance === 'conductivity') counters.deadAxisOffered++;
+          if (offer.resonance === 'conductivity') {
+            counters.catalystPowerOffered++;
+            if (!s.chain.catalysts.some((x) => !!x)) counters.catalystPowerUnlinked++;
+          }
           if (offer.kind === 'global' && offer.stat === 'fortune') counters.fortuneOffered++;
           if (offer.doctrine)
             counters.doctrineRankAtOffer = Math.max(counters.doctrineRankAtOffer, s.doctrines[offer.doctrine] + 1);
@@ -130,7 +135,7 @@ function auditRun(start: SkillId, seed: number) {
           freeSkill: freeSkillPlaces(s), freeCatalyst: freeCatalystPlaces(s), windowStillOpen: !!after.rewardOffers
         });
       if (offer.kind === 'skill_swap') counters.swapTaken++;
-      if (offer.resonance === 'conductivity') counters.deadAxisTaken++;
+      if (offer.resonance === 'conductivity') counters.catalystPowerTaken++;
       if (offer.kind === 'global' && offer.stat === 'fortune') counters.fortuneTaken++;
       const lost = before.filter((id) => !owned(after).includes(id));
       if (lost.length)

@@ -1,7 +1,7 @@
 import { effectGrammar, skills } from '../content/definitions.js';
 import { combatShapeIntersectsCircle } from './geometry.js';
 import type { PhenomenonCastPort } from './phenomenonCastSystem.js';
-import type { CastSource, Construct, Ent, Pickup } from './state.js';
+import type { CastFaction, CastSource, Construct, Ent, Pickup } from './state.js';
 import type { SkillId, SkillRuntime } from './types.js';
 
 export interface StatefulPhenomenonCastPort extends PhenomenonCastPort {
@@ -29,7 +29,8 @@ export interface StatefulPhenomenonCastPort extends PhenomenonCastPort {
   freeOf(x: number, z: number, radius: number): { x: number; z: number };
   currentPhysicalActivationId(): number;
   addSentryConstruct(construct: Omit<Construct, 'id'>): number;
-  trimConstructs(max: number): void;
+  /** Drops the oldest constructs above max; with a faction, only that faction is counted and trimmed. */
+  trimConstructs(max: number, faction?: CastFaction): void;
 
   charge(): number;
   setCharge(value: number): void;
@@ -47,6 +48,9 @@ export interface StatefulPhenomenonCastPort extends PhenomenonCastPort {
  * only explicit combat/run callbacks, never Simulation itself.
  */
 export class StatefulPhenomenonCastSystem {
+  /** Most hero sentries standing at once; Duration and Quantity cannot stack a battery past it. */
+  static readonly HERO_SENTRY_CAP = 6;
+
   constructor(private readonly port: StatefulPhenomenonCastPort) {}
 
   cast(id: SkillId, runtime: SkillRuntime, slot: number, source: CastSource): boolean {
@@ -593,8 +597,11 @@ export class StatefulPhenomenonCastSystem {
       Math.max(1, Math.round(st.count)) +
       p.activationCountBonus() +
       p.mutationCountAdd(st);
-    count += Math.ceil(p.multiplicityFor(st) / 2);
-    if (!src.owner) count += Math.min(2, Math.floor(p.doctrineQuantity() / 2));
+    // Resonance and the Quantity doctrine share one budget of extra sentries per cast.
+    count += Math.min(
+      2,
+      Math.ceil(p.multiplicityFor(st) / 2) + (src.owner ? 0 : Math.floor(p.doctrineQuantity() / 2))
+    );
     count = Math.max(1, Math.min(5, count));
 
     const perpX = -src.aimZ,
@@ -636,6 +643,8 @@ export class StatefulPhenomenonCastSystem {
     }
 
     p.trimConstructs(18);
+    // Duration keeps sentries alive across cycles; the hero battery stays readable and bounded.
+    if (src.faction === 'hero') p.trimConstructs(StatefulPhenomenonCastSystem.HERO_SENTRY_CAP, 'hero');
     p.noteState('construct');
   }
 

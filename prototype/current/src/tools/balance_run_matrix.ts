@@ -61,6 +61,8 @@ interface RunResult {
   eliteTtk: { spawnedAt: number; ttk: number; contact: number; rarity: string; chassis: string }[];
   eliteUnkilled: number;
   damageShare: Record<string, number>;
+  /** Damage the hero took, by source, over the whole run. */
+  heroDamage: Record<string, number>;
   doctrines: Record<string, number>;
   build: (string | null)[];
 }
@@ -81,6 +83,7 @@ function runOne(start: SkillId, seed: number, policy: OfferPolicy): RunResult {
   const firstHit = new Map<number, number>();
   let lastSerial = -1, failures = 0, cmd: Command = { moveX: 0, moveZ: 0, aimX: 1, aimZ: 0 };
   let damageTakenBefore = 0;
+  const heroDamage: Record<string, number> = {};
   const maxTicks = Math.ceil(runDuration * 1.15 * HZ);
 
   for (let i = 0; i < maxTicks; i++) {
@@ -102,6 +105,10 @@ function runOne(start: SkillId, seed: number, policy: OfferPolicy): RunResult {
           firstHit.delete(ev.entity);
         }
       } else if (ev.type === 'LevelUp') bucket.levelUps++;
+      else if (ev.type === 'PlayerHit' && ev.hpDamage > 0) {
+        const who = ev.attackerBoss ? 'boss' : ev.attackerKind === 'elite' ? `elite:${ev.source}` : (ev.attackerKind ?? ev.source);
+        heroDamage[who] = (heroDamage[who] ?? 0) + ev.hpDamage;
+      }
     }
     let guard = 0;
     while (sim.hasChoice && guard++ < 16) {
@@ -151,6 +158,7 @@ function runOne(start: SkillId, seed: number, policy: OfferPolicy): RunResult {
       .map((e) => ({ spawnedAt: round(e.spawnedAt, 1), ttk: round(e.endedAt - e.engagedAt, 2), contact: round(e.contactTime, 2), rarity: e.rarity, chassis: e.chassis })),
     eliteUnkilled: encounters.filter((e) => !e.killed).length,
     damageShare,
+    heroDamage,
     doctrines: { ...end.doctrines },
     build: [...end.chain.slots, ...end.chain.skillReserve]
   };
@@ -182,6 +190,9 @@ function aggregate(runs: RunResult[]) {
     };
   });
   const allElite = runs.flatMap((r) => r.eliteTtk.map((e) => e.ttk));
+  const heroDamage: Record<string, number> = {};
+  for (const r of runs) for (const [k, v] of Object.entries(r.heroDamage)) heroDamage[k] = (heroDamage[k] ?? 0) + v;
+  const heroDamageTotal = Object.values(heroDamage).reduce((a, b) => a + b, 0) || 1;
   return {
     runs: runs.length,
     survival: round(runs.filter((r) => r.alive).length / runs.length, 2),
@@ -192,6 +203,12 @@ function aggregate(runs: RunResult[]) {
     eliteTtkP90: round(percentile(allElite, 0.9), 1),
     eliteUnkilledMean: round(mean(runs.map((r) => r.eliteUnkilled)), 1),
     topSources: runs.map((r) => Object.keys(r.damageShare)[0] + ':' + Object.values(r.damageShare)[0]),
+    heroDamageShare: Object.fromEntries(
+      Object.entries(heroDamage)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6)
+        .map(([source, amount]) => [source, round(amount / heroDamageTotal, 2)])
+    ),
     perBucket
   };
 }

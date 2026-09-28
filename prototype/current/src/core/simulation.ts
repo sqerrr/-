@@ -1398,10 +1398,18 @@ export class Simulation {
         });
         return id;
       },
-      trimConstructs: (max) => {
-        while (this.constructs.length > max) {
-          const removed = this.constructs.shift();
-          if (removed?.activationId)
+      trimConstructs: (max, faction) => {
+        for (;;) {
+          const removed = faction
+            ? this.constructs.filter((construct) => construct.faction === faction).length > max
+              ? this.constructs.find((construct) => construct.faction === faction)
+              : undefined
+            : this.constructs.length > max
+              ? this.constructs[0]
+              : undefined;
+          if (!removed) break;
+          this.constructs.splice(this.constructs.indexOf(removed), 1);
+          if (removed.activationId)
             this.finishAsyncPhysical(removed.activationId, removed.x, removed.z);
         }
       },
@@ -2122,8 +2130,9 @@ export class Simulation {
   private projectileCount(st: SkillRuntime, _slot: number) {
     let c = Math.max(1, Math.round(st.count)) + this.activation.countBonus;
     const mult = this.supportsAxis(st.id, 'multiplicity') ? this.resonance.multiplicity : 0;
-    c += Math.min(3, mult);
-    if (!this.castOwner) c += Math.min(3, Math.floor(this.doctrines.quantity / 2));
+    // Resonance and the Quantity doctrine feed one shared budget of extra copies.
+    const quantity = this.castOwner ? 0 : Math.floor(this.doctrines.quantity / 2);
+    c += Math.min(3, mult + quantity);
     c += this.mutationContinuation(st)?.countAdd ?? 0;
     return Math.max(1, c);
   }

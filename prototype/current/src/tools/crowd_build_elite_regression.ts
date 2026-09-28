@@ -22,6 +22,22 @@ const railWide=railAmounts.reduce((a,b)=>a+b,0), wideRays=railAmounts.length;
 assert(baseRays===1&&wideRays===3,`rail quantity rays ${baseRays}->${wideRays}`);
 assert(railWide>=railBase*2.9,`rail count still carries hidden damage tax: ${railBase}->${railWide}`);
 
+// Resonance and the Quantity doctrine share one +3 budget of extra copies.
+railAmounts.length=0; rail.doctrines.quantity=6; rail.resonance.multiplicity=3;
+railHarness.castSkill('rail_spear',rst,0,railHarness.heroSource());
+const sharedRays=railAmounts.length;
+assert(sharedRays===4,`resonance + quantity stacked past the shared copy budget: ${sharedRays} rays`);
+rail.resonance.multiplicity=0;
+
+// Duration cannot stack an unbounded hero sentry battery: at most six stand at once.
+const capHarness=SimulationHarness.create({seed:91004,hz:60,benchmark:true,mode:'clean'});
+const capSim:any=capHarness.sim;
+capSim.configureBenchmarkLoadout({slots:['sentry'],catalysts:[],level:1,globalPower:0,skillPower:0,skillCoverage:0,skillRange:0});
+const capSt=capSim.skillsRuntime.get('sentry'); capSt.count=1; capSim.resonance.multiplicity=0; capSim.doctrines.quantity=6;
+for(let i=0;i<5;i++) capHarness.castSkill('sentry',capSt,0,capHarness.heroSource());
+const heroSentries=capSim.constructs.filter((c:any)=>c.faction==='hero').length;
+assert(heroSentries===6,`hero sentry battery cap changed: ${heroSentries}`);
+
 // Mortar count creates full-strength nearby impacts rather than normalized copies.
 const mortarHarness=SimulationHarness.create({seed:91002,hz:60,benchmark:true,mode:'clean'});
 const mortar:any=mortarHarness.sim;
