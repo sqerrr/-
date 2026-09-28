@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Лаборатория анимаций</title>
+<style>
+:root{font-family:Inter,system-ui,sans-serif;color:#dcebf0;background:#0d1118}body{margin:0;padding:24px;max-width:1150px}
+h1{font-size:24px;margin:0 0 8px}p{color:#91a8b2;max-width:850px;line-height:1.5}.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:18px 0}
+button,select{background:#16212b;color:#dcebf0;border:1px solid #31515d;border-radius:8px;padding:8px 10px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px}
+.card{background:#121922;border:1px solid #22333e;border-radius:14px;padding:14px}canvas{width:100%;aspect-ratio:1;background:linear-gradient(145deg,#151d25,#0c1016);border-radius:10px}
+.meta{display:flex;justify-content:space-between;color:#7f9aa5;font-size:13px;margin-top:8px}.items{width:min(100%,640px);background:#111821;border-radius:12px;border:1px solid #253944}
+kbd{background:#1b2832;border:1px solid #39535e;border-bottom-width:2px;border-radius:5px;padding:2px 6px;color:#c9e9e8}
+</style></head>
+<body>
+<h1>Лаборатория directional-анимаций</h1>
+<p>Изолированный просмотрщик новых листов. Стрелки меняют экранное направление, диагонали — сочетанием двух клавиш, Space включает нейтральный центр. Игровая логика здесь не запускается.</p>
+<div class="bar"><label>Анимация героя <select id="clip"><option value="idle">ожидание</option><option value="run" selected>бег</option><option value="cast">каст</option></select></label><button id="restart">с начала</button><span id="dir">SE</span></div>
+<div class="grid"><div class="card"><canvas id="hero" width="384" height="384"></canvas><div class="meta"><span>ГГ v2</span><span>fixed pivot, без trim/stretch</span></div></div><div class="card"><canvas id="axe" width="384" height="384"></canvas><div class="meta"><span>Топор v2</span><span>6 фаз, активные 2–4</span></div></div></div>
+<h2>Предметы v2</h2><img class="items" src="/assets/items/item_icons_v2.png" alt="лист иконок предметов">
+<script type="module">
+const rows=['c','n','ne','e','se','s','sw','w','nw'],row=d=>rows.indexOf(d),cell=192;
+const clips={idle:{frames:4,fps:5},run:{frames:8,fps:12},cast:{frames:6,fps:16}},keys=new Set();
+let dir='se',start=performance.now();const imgs={};
+for(const n of ['idle','run','cast']){const i=new Image();i.src='/assets/animation/hero_v2_'+n+'.png';imgs[n]=i}
+const axeImg=new Image();axeImg.src='/assets/animation/cleaver_v2.png';
+function resolve(){const u=keys.has('arrowup'),d=keys.has('arrowdown'),l=keys.has('arrowleft'),r=keys.has('arrowright');if(u&&l)return'nw';if(u&&r)return'ne';if(d&&l)return'sw';if(d&&r)return'se';if(u)return'n';if(d)return's';if(l)return'w';if(r)return'e';return dir}
+function drawSheet(ctx,img,frames,fps,direction,t,loop=true){ctx.clearRect(0,0,384,384);if(!img.complete)return;let f=Math.floor(t/1000*fps);f=loop?f%frames:Math.min(frames-1,f);ctx.save();ctx.translate(192,324);ctx.scale(1.55,1.55);ctx.translate(-96,-169);ctx.drawImage(img,f*cell,row(direction)*cell,cell,cell,0,0,cell,cell);ctx.restore()}
+function tick(now){const clip=document.querySelector('#clip').value,c=clips[clip],d=resolve();document.querySelector('#dir').textContent=d.toUpperCase();drawSheet(document.querySelector('#hero').getContext('2d'),imgs[clip],c.frames,c.fps,d,now-start,clip!=='cast');drawSheet(document.querySelector('#axe').getContext('2d'),axeImg,6,18,d,(now-start)%520,false);requestAnimationFrame(tick)}
+addEventListener('keydown',e=>{if(e.code==='Space'){dir='c';e.preventDefault()}if(e.key.startsWith('Arrow')){keys.add(e.key.toLowerCase());dir=resolve();e.preventDefault()}});
+addEventListener('keyup',e=>{if(e.key.startsWith('Arrow'))keys.delete(e.key.toLowerCase())});
+document.querySelector('#restart').onclick=()=>start=performance.now();document.querySelector('#clip').onchange=()=>start=performance.now();requestAnimationFrame(tick);
+</script></body></html>
