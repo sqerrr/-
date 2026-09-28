@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "cellWidth": 192,
+  "cellHeight": 192,
+  "rows": [
+    "c",
+    "n",
+    "ne",
+    "e",
+    "se",
+    "s",
+    "sw",
+    "w",
+    "nw"
+  ],
+  "pivot": [
+    96,
+    146
+  ],
+  "clip": {
+    "image": "/assets/animation/cleaver_v2.png",
+    "frames": 6,
+    "fps": 18,
+    "loop": false,
+    "activeFrames": [
+      2,
+      3,
+      4
+    ]
+  },
+  "notes": "Physical axe silhouette + motion arc; hit geometry stays simulation-authoritative."
+}
