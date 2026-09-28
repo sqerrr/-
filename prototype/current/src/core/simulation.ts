@@ -530,6 +530,97 @@ export class Simulation {
         this.events.push({ type: 'RewardChosen', tick: this.tick, title }),
       concedeRefusal: (passed) => this.concedeRefusal(passed)
     });
+    this.enemySpawns = new EnemySpawnSystem({
+      time: () => this.time,
+      randomRange: (min, max) => this.rng.range(min, max),
+      worldScale: () => this.worldScale(),
+      damageScale: () => this.damageScale(),
+      populationTarget: () => this.populationTarget(),
+      normalCount: () => this.entityStore.countAlive((entity) => entity.kind !== 'elite'),
+      nextEntityId: () => this.nextId++,
+      pointAroundPlayer: (min, max) => this.pointAroundPlayer(min, max),
+      addEntity: (entity) => this.entityStore.add(entity),
+      onSpawn: (entity) => {
+        this.metrics.spawned++;
+        this.events.push({
+          type: 'EntitySpawned',
+          tick: this.tick,
+          entity: entity.id,
+          kind: entity.kind,
+          x: entity.x,
+          z: entity.z
+        });
+      }
+    });
+    this.enemyRecycler = new EnemyRecycleSystem({
+      dt: () => this.dt,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      entities: () => this.ents,
+      pointAroundPlayer: (min, max) => this.pointAroundPlayer(min, max),
+      emitEliteReacquired: (entity) => {
+        this.events.push({
+          type: 'EliteReacquired',
+          tick: this.tick,
+          entity: entity.id,
+          x: entity.x,
+          z: entity.z
+        });
+      }
+    });
+    this.eliteSpawns = new EliteSpawnSystem({
+      time: () => this.time,
+      runDuration: () => this.runDuration,
+      mode: () => this.mode,
+      playerX: () => this.px,
+      playerZ: () => this.pz,
+      worldBounds: () => this.world,
+      randomInt: (maxExclusive) => this.rng.int(maxExclusive),
+      randomFloat: () => this.rng.float(),
+      randomRange: (min, max) => this.rng.range(min, max),
+      worldScale: () => this.worldScale(),
+      damageScale: () => this.damageScale(),
+      nextEntityId: () => this.nextId++,
+      pointAroundPlayer: (min, max) => this.pointAroundPlayer(min, max),
+      claimRepertoire: (entity) => this.claimRepertoire(entity),
+      inheritLegacy: (entity, all) => this.inheritEliteLegacy(entity, all),
+      inheritEvolution: (entity) => this.inheritEliteEvolution(entity),
+      grantNativeGrowth: (entity) => this.grantNativeEliteGrowth(entity),
+      ecosystemMass: () => this.eliteLegacyItems.length + this.eliteEvolutionHistory.length,
+      pois: () => this.pois,
+      activePoiGuardians: () =>
+        this.entityStore.countAlive(
+          (entity) => entity.kind === 'elite' && !entity.boss && entity.guardianPoi > 0
+        ),
+      commitElite: (entity, options) => {
+        if (options.trackEncounter) this.noteEliteSpawn(entity);
+        this.entityStore.add(entity);
+        this.metrics.spawned++;
+        this.metrics.eliteSpawned++;
+        this.events.push({
+          type: 'EntitySpawned',
+          tick: this.tick,
+          entity: entity.id,
+          kind: 'elite',
+          x: entity.x,
+          z: entity.z,
+          chassis: entity.chassis,
+          affix: entity.affix,
+          ...(options.bossEvent ? { boss: true } : {})
+        });
+      },
+      emitBossSpawned: (entity, supports, uncleared) => {
+        this.events.push({
+          type: 'BossSpawned',
+          tick: this.tick,
+          entity: entity.id,
+          x: entity.x,
+          z: entity.z,
+          supports,
+          uncleared
+        });
+      }
+    });
     this.poiSystem = new PoiSystem({
       tick: () => this.tick,
       bossSpawned: () => this.bossSpawned,
