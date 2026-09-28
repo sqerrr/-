@@ -3,7 +3,7 @@ import { Simulation } from '../core/simulation.js';
 
 const assert = (ok: unknown, message: string) => { if (!ok) throw new Error(message); };
 const skill = 'frost_ring' as const;
-const sim = new Simulation({ seed: 301991, hz: 60, benchmark: true }) as any;
+const sim = new Simulation({ seed: 301991, hz: 60 }) as any;
 sim.configureBenchmarkLoadout({ slots: [skill], catalysts: [] });
 sim.mutationCores = 3;
 
