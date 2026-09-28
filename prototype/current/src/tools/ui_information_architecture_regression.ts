@@ -46,7 +46,7 @@ assert(hit && hit.source==='null_harvest', 'PlayerHit lost its attack source');
 assert(hit.attackerId===elite.id && hit.attackerChassis===elite.chassis, 'PlayerHit lost elite identity');
 assert(hit.barrierDamage>0 && hit.hpDamage>0, 'PlayerHit does not split barrier and health damage');
 
-assert(eliteAffix.includes("p.hitPlayer(14 * p.damageScale(), entity, 'temporal_shift')"),
+assert(eliteAffix.includes("p.hitPlayer(30 * p.damageScale(), entity, 'temporal_shift')"),
   'temporal hit still lacks a named death-recap source');
 
 console.log('ui-information-architecture-regression OK', {

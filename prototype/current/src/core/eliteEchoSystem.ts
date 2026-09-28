@@ -67,7 +67,7 @@ export class EliteEchoSystem {
 
     const ready = this.readyAt.get(entity.id);
     if (ready === undefined) {
-      this.readyAt.set(entity.id, p.time() + p.randomRange(2.6, 4.6));
+      this.readyAt.set(entity.id, p.time() + p.randomRange(1.2, 2.4));
       return;
     }
     if (p.time() < ready) return;
@@ -90,9 +90,12 @@ export class EliteEchoSystem {
         const card = p.refusalStore().find((candidate) => candidate.serial === serial);
         return !!card?.skill;
       });
+      // A ready Echo out of reach makes the elite close the gap instead of waiting at range.
+      if (holdsExecutable) entity.closeInUntil = p.time() + 1.2;
       this.readyAt.set(entity.id, p.time() + (holdsExecutable ? 0.35 : 4));
       return;
     }
+    entity.closeInUntil = 0;
 
     this.start(entity, usable[p.randomInt(usable.length)]);
   }
@@ -194,8 +197,8 @@ export class EliteEchoSystem {
 
       this.states.delete(entityId);
       const rawGap = Math.max(
-        2.25,
-        p.randomRange(3.4, 5.0) - entity.repertoire.length * 0.22
+        1.5,
+        p.randomRange(5.2, 7.2) - entity.repertoire.length * 0.25
       );
       const gap =
         p.patternCooldown(rawGap, entity) *

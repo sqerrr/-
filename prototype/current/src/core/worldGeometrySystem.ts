@@ -227,6 +227,33 @@ export class WorldGeometrySystem {
     return !this.firstBlockingHit(x0, z0, x1, z1, padding);
   }
 
+  /** Adds temporary elite-raised cover. Pieces overlapping the hero are skipped. */
+  addTemporary(pieces: Obstacle[], heroX: number, heroZ: number, heroRadius: number) {
+    let added = 0;
+    for (const piece of pieces) {
+      if (Math.hypot(piece.x - heroX, piece.z - heroZ) < piece.radius + heroRadius + 0.15) continue;
+      if (
+        piece.x < this.world.minX + 0.5 || piece.x > this.world.maxX - 0.5 ||
+        piece.z < this.world.minZ + 0.5 || piece.z > this.world.maxZ - 0.5
+      ) continue;
+      this.obstacles.push(piece);
+      added++;
+    }
+    if (added) this.rebuild();
+    return added;
+  }
+
+  /** Removes temporary cover whose lifetime ended. */
+  expire(time: number) {
+    const before = this.obstacles.length;
+    if (!this.obstacles.some((obstacle) => obstacle.expiresAt !== undefined && obstacle.expiresAt <= time))
+      return;
+    this.obstacles = this.obstacles.filter(
+      (obstacle) => obstacle.expiresAt === undefined || obstacle.expiresAt > time
+    );
+    if (this.obstacles.length !== before) this.rebuild();
+  }
+
   damageObstacle(obstacle: Obstacle, amount: number) {
     if (!obstacle.destructible || obstacle.hp <= 0) return false;
 

@@ -68,11 +68,14 @@ export class EnemySpawnSystem {
     x: number,
     z: number,
     buffedFor = 0,
-    cloneParent = 0
+    cloneParent = 0,
+    summoned = false
   ) {
     const normalCount = this.port.normalCount();
-    if (normalCount >= 198) return undefined;
+    // Elite retinue is bounded by its summoner, so it only respects the hard ceiling.
+    if (normalCount >= (summoned ? 236 : 198)) return undefined;
     if (
+      !summoned &&
       buffedFor > 0 &&
       normalCount >= Math.min(180, this.port.populationTarget() + 18)
     )

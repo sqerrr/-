@@ -52,6 +52,16 @@ export class EncounterDirector {
     return Math.min(2.1, 0.6 + 0.06 * m);
   }
 
+  /**
+   * Outgoing damage curve for regular elites (strikes, rival Phenomena, contact) on top of
+   * damageScale: the opening elite is fast and aggressive but hits for ~65%, while the hero has
+   * one Phenomenon and 180 HP; full weight arrives around 4 minutes (0.65 -> 1.0 -> 1.15).
+   */
+  eliteThreatCurve(time: number, runDuration: number) {
+    const m = this.designMinutes(time, runDuration);
+    return Math.min(1.15, 0.65 + 0.03 * m);
+  }
+
   spawnPressure(time: number, runDuration: number) {
     const m = this.designMinutes(time, runDuration);
     return 1 + 0.055 * m + 0.0023 * m * m;
@@ -106,7 +116,9 @@ export class EncounterDirector {
   }): EliteSpawnRequest | null {
     if (args.bossSpawned) return null;
     this.eliteAcc += args.dt;
-    const cap = args.time < 85 ? 1 : args.time < 180 ? 2 : 3;
+    // Elites now keep pace with the hero and press their patterns, so two at once is held back
+    // until the build usually has three Phenomena online.
+    const cap = args.time < 150 ? 1 : args.time < 300 ? 2 : 3;
     if (!this.firstElite && args.time >= 22) {
       this.firstElite = true;
       this.eliteAcc = 0;

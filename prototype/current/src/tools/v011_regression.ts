@@ -45,6 +45,7 @@ const shield:any=new Simulation({seed:99001,hz:60,benchmark:true});
 shield.spawnElite();
 const e=shield.ents.find((x:any)=>x.kind==='elite'); assert(e,'shield test: no elite');
 e.affix='shielded'; e.shieldState='guard'; e.shieldStability=100; e.shieldAngle=0; e.hp=e.maxHp=1e9;
+e.shieldMax=e.shieldHp=2000; // v0.14 absorbing pool; sized so one Force-backed melee hit cracks it
 shield.doctrines.force=12; shield.events=[];
 shield.damage(e,3000,'cleaver',true,e.x+5,e.z);
 assert(e.shieldState==='broken','Force/melee failed to break shield state');

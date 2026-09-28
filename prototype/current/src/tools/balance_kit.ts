@@ -152,6 +152,18 @@ export function routeSteer(s: Snapshot, tick: number) {
   );
   const e = threats[0];
   let aimX = 1, aimZ = 0, danger = false;
+  // Crowd pressure: a competent player does not walk through bodies. Every body within six
+  // units pushes the route away, elites three times as hard.
+  let pushX = 0, pushZ = 0;
+  for (const body of s.entities) {
+    const dx = s.player.x - body.x, dz = s.player.z - body.z, d = Math.hypot(dx, dz);
+    if (d > 6 || d < 1e-3) continue;
+    const w = (body.elite ? 3 : 1) * (6 - d) / (6 * d);
+    pushX += dx * w;
+    pushZ += dz * w;
+  }
+  moveX += pushX * 0.6;
+  moveZ += pushZ * 0.6;
   if (e) {
     const dx = e.x - s.player.x, dz = e.z - s.player.z, m = Math.hypot(dx, dz) || 1;
     aimX = dx / m;
@@ -159,9 +171,22 @@ export function routeSteer(s: Snapshot, tick: number) {
     danger =
       !!e.elite &&
       (!!e.eliteAction || e.echoPhase === 'tell' || e.echoPhase === 'active' || e.telegraph > 0);
+    if (e.elite && !danger && m < 5) {
+      // Kite: circle-strafe outward instead of standing in contact range.
+      moveX = -aimX * 0.7 - aimZ * 0.7;
+      moveZ = -aimZ * 0.7 + aimX * 0.7;
+    }
     if (danger) {
       const directional = ['hunter', 'bulwark', 'harvester'].includes(e.chassis ?? '');
-      if (directional) {
+      const lineEcho =
+        e.echoPhase === 'tell' &&
+        ['rail_spear', 'mass_driver', 'shard_fan', 'tether_drag'].includes(e.echoSkill ?? '');
+      if (lineEcho) {
+        // Step off the firing line: perpendicular to elite -> hero.
+        const side = (tick >> 7) & 1 ? 1 : -1;
+        moveX = -aimZ * side;
+        moveZ = aimX * side;
+      } else if (directional) {
         const fx = e.facingX || aimX, fz = e.facingZ || aimZ;
         moveX = -fz;
         moveZ = fx;
@@ -171,7 +196,14 @@ export function routeSteer(s: Snapshot, tick: number) {
       }
     }
   }
-  return { moveX, moveZ, aimX, aimZ, dash: danger && s.player.dashReady };
+  const len = Math.hypot(moveX, moveZ);
+  if (len > 1) {
+    moveX /= len;
+    moveZ /= len;
+  }
+  const close =
+    !!e && !!e.elite && (dist(e.x, e.z) < 7 || (e.echoPhase === 'tell' && dist(e.x, e.z) < 14));
+  return { moveX, moveZ, aimX, aimZ, dash: danger && close && s.player.dashReady };
 }
 
 /** Kinds of choice windows, as seen by the player. */

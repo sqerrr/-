@@ -23,6 +23,8 @@ export interface PlayerDamagePort {
   eliteEncounter(entityId: number): EliteEncounter | undefined;
   randomFloat(): number;
   rivalAxisCount(entity: Ent, axis: 'precision' | 'multiplicity'): number;
+  /** Time-of-run weight of regular elite damage (EncounterDirector.eliteThreatCurve). */
+  eliteThreatScale(): number;
   emit(event: Extract<GameEvent, { type: 'PlayerHit' }>): void;
 }
 
@@ -64,8 +66,10 @@ export class PlayerDamageSystem {
         Math.hypot(entity.x - p.playerX(), entity.z - p.playerZ()) < 3.6
     );
     const guardMultiplier = closeThreat ? Math.pow(0.94, p.guardDoctrine()) : 1;
+    const eliteThreat = attacker?.kind === 'elite' && !attacker.boss ? p.eliteThreatScale() : 1;
     const mitigated =
       amount *
+      eliteThreat *
       (1 - reduction) *
       p.itemDamageTakenMultiplier() *
       guardMultiplier;

@@ -1,4 +1,5 @@
 import { itemOrder } from '../content/items.js';
+import { eliteSpeedCap } from './eliteSpawnSystem.js';
 import type { Ent } from './state.js';
 import type { ItemId, RefusedCard, ResonanceId } from './types.js';
 
@@ -88,57 +89,61 @@ export class EliteProgressionSystem {
 
     // Persistence is mirrored elsewhere by field/construct duration. Do not touch max HP here.
     const sharp = this.rivalAxisCount(entity, 'conductivity');
-    if (sharp) entity.contactDps *= Math.pow(1.12, sharp);
+    if (sharp) entity.contactDps *= Math.pow(1.2, sharp);
 
     const quick = this.rivalAxisCount(entity, 'mobility');
-    if (quick) entity.speed *= Math.pow(1.12, quick);
+    if (quick) entity.speed *= Math.pow(1.15, quick);
+    this.clampSpeed(entity);
   }
 
   applyItem(entity: Ent, id: ItemId, allowClaim: boolean) {
+    // Elite growth must read at a glance: every gain is roughly twice the pre-v0.14 step and
+    // also enlarges the body (see grow()).
+    this.grow(entity);
     switch (id) {
       case 'plating':
-        this.scaleDurability(entity, 1.16);
+        this.scaleDurability(entity, 1.3);
         break;
       case 'vitality':
-        this.scaleDurability(entity, 1.22);
+        this.scaleDurability(entity, 1.35);
         break;
       case 'aegis_core':
-        entity.relicDamageTakenMul = (entity.relicDamageTakenMul ?? 1) * 0.88;
+        entity.relicDamageTakenMul = (entity.relicDamageTakenMul ?? 1) * 0.8;
         break;
       case 'ablation':
-        entity.relicDamageTakenMul = (entity.relicDamageTakenMul ?? 1) * 0.9;
+        entity.relicDamageTakenMul = (entity.relicDamageTakenMul ?? 1) * 0.85;
         break;
       case 'keen_edge':
-        entity.relicCastMul = (entity.relicCastMul ?? 1) * 1.16;
-        entity.contactDps *= 1.08;
+        entity.relicCastMul = (entity.relicCastMul ?? 1) * 1.3;
+        entity.contactDps *= 1.15;
         if (allowClaim)
-          entity.groundRelicCastMul = (entity.groundRelicCastMul ?? 1) * 1.16;
+          entity.groundRelicCastMul = (entity.groundRelicCastMul ?? 1) * 1.3;
         break;
       case 'hollow_point':
-        entity.relicCritChance = (entity.relicCritChance ?? 0) + 0.12;
+        entity.relicCritChance = (entity.relicCritChance ?? 0) + 0.2;
         break;
       case 'siphon':
-        entity.relicSiphon = (entity.relicSiphon ?? 0) + 0.035;
+        entity.relicSiphon = (entity.relicSiphon ?? 0) + 0.06;
         break;
       case 'bane':
-        entity.relicCastMul = (entity.relicCastMul ?? 1) * 1.18;
-        entity.relicReachMul = (entity.relicReachMul ?? 1) * 1.08;
+        entity.relicCastMul = (entity.relicCastMul ?? 1) * 1.3;
+        entity.relicReachMul = (entity.relicReachMul ?? 1) * 1.15;
         if (allowClaim)
-          entity.groundRelicCastMul = (entity.groundRelicCastMul ?? 1) * 1.18;
+          entity.groundRelicCastMul = (entity.groundRelicCastMul ?? 1) * 1.3;
         break;
       case 'light_step':
-        entity.speed *= 1.12;
+        entity.speed *= 1.2;
         break;
       case 'quickened':
-        entity.relicGapMul = (entity.relicGapMul ?? 1) * 0.82;
+        entity.relicGapMul = (entity.relicGapMul ?? 1) * 0.7;
         break;
       case 'short_cord':
-        entity.relicGapMul = (entity.relicGapMul ?? 1) * 0.9;
-        entity.speed *= 1.05;
+        entity.relicGapMul = (entity.relicGapMul ?? 1) * 0.82;
+        entity.speed *= 1.08;
         break;
       case 'afterimage':
-        entity.relicDamageTakenMul = (entity.relicDamageTakenMul ?? 1) * 0.92;
-        entity.speed *= 1.04;
+        entity.relicDamageTakenMul = (entity.relicDamageTakenMul ?? 1) * 0.88;
+        entity.speed *= 1.08;
         break;
       case 'lodestone':
         entity.relicSeekMul = (entity.relicSeekMul ?? 1) * 1.55;
@@ -148,31 +153,45 @@ export class EliteProgressionSystem {
         if (allowClaim) this.claimOneMoreRefusal(entity);
         break;
       case 'scavenger':
-        this.scaleDurability(entity, 1.08);
-        entity.relicCastMul = (entity.relicCastMul ?? 1) * 1.06;
+        this.scaleDurability(entity, 1.15);
+        entity.relicCastMul = (entity.relicCastMul ?? 1) * 1.12;
         break;
       case 'beacon':
         entity.relicSeekMul = (entity.relicSeekMul ?? 1) * 1.75;
         entity.relicGapMul = (entity.relicGapMul ?? 1) * 0.94;
         break;
       case 'spoils':
-        entity.affixPulse = Math.min(entity.affixPulse, 1.5);
-        entity.buffUntil = Math.max(entity.buffUntil, this.port.time() + 1.8);
+        entity.affixPulse = Math.min(entity.affixPulse, 0.5);
+        entity.buffUntil = Math.max(entity.buffUntil, this.port.time() + 7);
         break;
       case 'unravel':
-        entity.relicDamageTakenMul = (entity.relicDamageTakenMul ?? 1) * 0.88;
+        entity.relicDamageTakenMul = (entity.relicDamageTakenMul ?? 1) * 0.8;
         break;
       case 'tribute':
-        this.scaleDurability(entity, 1.15);
-        entity.contactDps *= 1.08;
+        this.scaleDurability(entity, 1.25);
+        entity.contactDps *= 1.15;
         break;
       case 'reprisal':
-        entity.relicCastMul = (entity.relicCastMul ?? 1) * 1.2;
-        entity.relicGapMul = (entity.relicGapMul ?? 1) * 0.92;
+        entity.relicCastMul = (entity.relicCastMul ?? 1) * 1.3;
+        entity.relicGapMul = (entity.relicGapMul ?? 1) * 0.85;
         if (allowClaim)
-          entity.groundRelicCastMul = (entity.groundRelicCastMul ?? 1) * 1.2;
+          entity.groundRelicCastMul = (entity.groundRelicCastMul ?? 1) * 1.3;
         break;
     }
+    this.clampSpeed(entity);
+  }
+
+  /** One visible growth tier: +6% body radius per tier, compounding up to 8 tiers (~+59%). */
+  grow(entity: Ent) {
+    const tier = entity.growth ?? 0;
+    entity.growth = tier + 1;
+    if (tier < EliteProgressionSystem.MAX_GROWTH && !entity.boss) entity.radius *= 1.06;
+  }
+
+  static readonly MAX_GROWTH = 8;
+
+  private clampSpeed(entity: Ent) {
+    entity.speed = Math.min(entity.speed, eliteSpeedCap(entity));
   }
 
   grantNativeGrowth(entity: Ent) {
@@ -247,9 +266,10 @@ export class EliteProgressionSystem {
     if (card.kind === 'item' && card.item)
       this.applyItem(entity, card.item, false);
     else if (card.kind === 'axis' && card.resonance === 'conductivity')
-      entity.contactDps *= 1.12;
+      entity.contactDps *= 1.2;
     else if (card.kind === 'axis' && card.resonance === 'mobility')
-      entity.speed *= 1.12;
+      entity.speed *= 1.15;
+    this.clampSpeed(entity);
   }
 
   private inheritanceBudget(entity: Ent) {

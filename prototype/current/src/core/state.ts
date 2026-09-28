@@ -82,6 +82,25 @@ export interface EliteRuntimeComponent {
   affixPulse: number;
   rarity: EliteRarity;
   repertoire: number[];
+  /** Predator dash chain: remaining re-aimed dashes and whether the current dash already hit. */
+  dashChain?: number;
+  dashHit?: boolean;
+  /** Echo wants a close-range card: the elite closes distance until this time. */
+  closeInUntil?: number;
+  /** Replicator hit counter and clone cadence (kept off affixPulse, which affixes also use). */
+  broodHits?: number;
+  cloneReadyAt?: number;
+  /** Architect wall cadence. */
+  wallReadyAt?: number;
+  /** Shielded affix: absorbing pool in HP units and regeneration gate. */
+  shieldHp?: number;
+  shieldMax?: number;
+  /** Prism: recent damage by source key for dominant-source resistance. */
+  prismLedger?: Record<string, number>;
+  /** Visible growth tier from captured relics, evolution and adaptation. */
+  growth?: number;
+  /** Heavy elite retinue (brood/fractured summons). */
+  summonedBy?: number;
 }
 
 export interface StatusComponent {
@@ -333,6 +352,8 @@ export type Obstacle = {
   hp: number;
   maxHp: number;
   destructible: boolean;
+  /** Temporary elite-raised wall: removed by WorldGeometrySystem.expire() at this run time. */
+  expiresAt?: number;
 };
 
 export type Poi = {

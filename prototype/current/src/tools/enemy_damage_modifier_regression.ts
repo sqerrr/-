@@ -56,6 +56,7 @@ const affixDamage: AffixDamageModifier = {
 };
 
 const port: EnemyDamageModifierPort = {
+  veilDamageMultiplier: () => 1,
   time: () => now,
   itemDamageMultiplier: () => 2,
   itemEliteDamageMultiplier: () => 1.5,

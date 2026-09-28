@@ -154,8 +154,9 @@ export class RelicRaceSystem {
 
     if (!best || bestDistance <= RelicRaceSystem.ELITE_REACH) return false;
 
-    // Immediate melee still has priority over looting.
-    if (playerDistance < 3.2 && bestDistance > playerDistance * 0.8) return false;
+    // A relic hunter stays a fighter: while the hero is within engagement range it attacks
+    // instead of walking past, unless the find is practically underfoot.
+    if (playerDistance < 8.5 && bestDistance > 2.5) return false;
 
     p.steerTo(entity, best.x, best.z, speed, 1.24);
     return true;

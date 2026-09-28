@@ -147,12 +147,10 @@ export class CombatTargetingSystem {
       const observerInside =
         Math.hypot(source.x - field.x, source.z - field.z) < field.radius;
 
-      if (
-        inside &&
-        !observerInside &&
-        Math.hypot(entity.x - source.x, entity.z - source.z) > 3.6
-      )
-        return false;
+      const distance = Math.hypot(entity.x - source.x, entity.z - source.z);
+      if (inside && !observerInside && distance > 3.6) return false;
+      // A blinded observer inside the fog only acquires what is close.
+      if (observerInside && !inside && distance > 4.5) return false;
     }
 
     return true;

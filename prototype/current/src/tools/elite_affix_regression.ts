@@ -1,4 +1,4 @@
-import { EliteAffixSystem, type EliteAffixPort } from '../core/eliteAffixSystem.js';
+import { EliteAffixSystem, SHIELD_POOL_SHARE, type EliteAffixPort } from '../core/eliteAffixSystem.js';
 import { makeEnt, type Ent } from '../core/state.js';
 import type { DamageSourceId, EliteOrderId } from '../core/types.js';
 
@@ -11,9 +11,8 @@ const entities:Ent[]=[];
 const orders:{order:EliteOrderId;count?:number}[]=[];
 const hits:DamageSourceId[]=[];
 const tells:string[]=[];
-const spawned:string[]=[];
+const retinue:number[]=[];
 const rare:string[]=[];
-let randomCalls=0;
 
 const port:EliteAffixPort={
   world:{minX:-20,maxX:20,minZ:-20,maxZ:20},
@@ -21,8 +20,8 @@ const port:EliteAffixPort={
   playerX:()=>px, playerZ:()=>pz, playerVX:()=>pvx, playerVZ:()=>pvz,
   hasEcho:()=>false,
   entities:()=>entities,
-  randomRange:(min,max)=>{randomCalls++;return (min+max)/2;},
-  spawnEnemyAt:(kind)=>{spawned.push(kind);},
+  randomRange:(min,max)=>(min+max)/2,
+  spawnRetinue:(_entity,count)=>{retinue.push(count);},
   emitOrder:(_entity,order,count)=>orders.push({order,count}),
   emitTemporalTell:()=>tells.push('temporal'),
   emitShieldTell:()=>tells.push('shield'),
@@ -37,26 +36,28 @@ function elite(affix:Ent['affix'],id:number){
   return e;
 }
 
-// Crowned modifies only authored cooldown cadence.
+// Crowned patterns recover 60% faster.
 {
   entities.length=0;
   const e=elite('crowned',1);
   e.cooldown=1;
   system.earlyTick(e);
-  assert(Math.abs(e.cooldown-(1-(1/60)*0.24))<1e-9,'crowned cooldown modifier changed');
+  assert(Math.abs(e.cooldown-(1-(1/60)*0.6))<1e-9,'crowned cooldown modifier changed');
 }
 
-// Brood summons exactly three supports using six RNG pulls, preserving call cadence.
+// Brood keeps a heavy retinue: two bodies every 3.5 s (three for legendary).
 {
-  entities.length=0; spawned.length=0; orders.length=0; randomCalls=0;
+  entities.length=0; retinue.length=0; orders.length=0;
   const e=elite('brood',2);
   e.affixPulse=0;
   system.earlyTick(e);
-  assert(spawned.length===3,'brood support count changed');
-  assert(spawned[0]==='bookmark' && spawned[1]==='palimpsest' && spawned[2]==='palimpsest',
-    'brood support composition changed');
-  assert(randomCalls===6,'brood RNG cadence changed');
-  assert(orders.some(o=>o.order==='brood'&&o.count===3),'brood order event changed');
+  assert(retinue.length===1 && retinue[0]===2,'brood retinue size changed');
+  assert(Math.abs(e.affixPulse-3.5)<1e-9,'brood summon cadence changed');
+  assert(orders.some(o=>o.order==='brood'&&o.count===2),'brood order event changed');
+  const legend=elite('brood',22);
+  legend.rarity='legendary'; legend.affixPulse=0;
+  system.earlyTick(legend);
+  assert(retinue[1]===3,'legendary brood retinue size changed');
 }
 
 // Temporal starts with a tell and deliberately skips chassis/contact behavior that tick.
@@ -66,25 +67,28 @@ function elite(affix:Ent['affix'],id:number){
   e.affixPulse=0;
   const r=system.beforeBehavior(e,5);
   assert(r.skipBehavior,'temporal tell no longer suppresses same-tick chassis/contact behavior');
-  assert(e.state==='telegraph' && Number(e.stateTimer)===0.76,'temporal tell state changed');
+  assert(e.state==='telegraph' && Number(e.stateTimer)===0.6,'temporal tell state changed');
   assert(tells.includes('temporal'),'temporal tell presentation missing');
 
   e.stateTimer=0;
-  e.lockedX=px; e.lockedZ=pz;
+  e.lockedX=px+2; e.lockedZ=pz;
   const resolved=system.beforeBehavior(e,0);
   assert(!resolved.skipBehavior,'resolved temporal shift still suppresses chassis behavior');
-  assert(String(e.state)==='normal' && hits.includes('temporal_shift'),'temporal shift resolution changed');
+  assert(String(e.state)==='normal' && hits.includes('temporal_shift'),'temporal shift no longer lands within 2.6');
+  assert(Math.abs(e.affixPulse-2.8)<1e-9,'temporal blink cadence changed');
 }
 
-// Regeneration keeps its half-second cadence and 1.6% max-HP pulse.
+// Regeneration never stops: 1%/s under fire, 5%/s after 2 s without damage.
 {
   entities.length=0;
   const e=elite('regenerating',4);
-  e.hp=500; e.lastDamageAt=0; e.regenTick=0.49;
-  now=10;
+  const step=0.25+1/60;
+  e.hp=500; e.lastDamageAt=now; e.regenTick=0.25;
   system.beforeBehavior(e,5);
-  assert(Math.abs(e.hp-516)<1e-9,'regeneration pulse amount changed');
-  assert(e.regenTick<0.01,'regeneration cadence changed');
+  assert(Math.abs(e.hp-(500+1000*0.01*step))<1e-6,'under-fire regeneration changed');
+  e.lastDamageAt=0; e.regenTick=0.25; const before=e.hp;
+  system.beforeBehavior(e,5);
+  assert(Math.abs(e.hp-(before+1000*0.05*step))<1e-6,'idle regeneration changed');
 }
 
 // Shielded commit preserves tell and temporary speed multiplier.
@@ -95,31 +99,43 @@ function elite(affix:Ent['affix'],id:number){
   const start=system.beforeBehavior(e,5);
   assert(!start.skipBehavior && e.shieldState==='commit','shield commit did not arm');
   assert(tells.includes('shield'),'shield commit tell missing');
+  assert(e.shieldMax===1000*SHIELD_POOL_SHARE && e.shieldHp===e.shieldMax,'shield pool not armed at 60% HP');
 
   const commit=system.beforeBehavior(e,5);
-  assert(Math.abs(commit.speedMultiplier-1.18)<1e-9,'shield commit speed multiplier changed');
+  assert(Math.abs(commit.speedMultiplier-1.25)<1e-9,'shield commit speed multiplier changed');
 }
 
-// Shielded damage semantics live with the affix: frontal guard, rear exposure and Force break.
+// Shield pool absorbs all damage first; frontal hits are cut; a drained pool breaks the shield.
 {
   entities.length=0; rare.length=0;
   const e=elite('shielded',6);
-  e.shieldState='guard'; e.shieldAngle=0; e.shieldStability=10;
-  const front=system.modifyIncomingDamage(e,100,true,5,0);
-  const rear=system.modifyIncomingDamage(e,100,true,-5,0);
+  e.shieldState='guard'; e.shieldAngle=0;
   const nondirectional=system.modifyIncomingDamage(e,100,false,5,0);
-  assert(Math.abs(front-42)<1e-9,'shield frontal guard multiplier changed');
-  assert(Math.abs(rear-120)<1e-9,'shield rear multiplier changed');
-  assert(nondirectional===100,'shield started modifying non-directional damage');
-
-  system.afterCloseDamage(e,200,10);
-  assert(String(e.shieldState)==='broken','Force damage no longer breaks depleted shield stability');
-  assert((e.shieldCommitUntil??0)===now+1.65,'shield break recovery timing changed');
-  assert(e.exposedUntil===now+1.65,'shield break vulnerability timing changed');
+  assert(nondirectional===0 && Math.abs((e.shieldHp??0)-500)<1e-9,'shield pool no longer absorbs area damage');
+  const front=system.modifyIncomingDamage(e,100,true,5,0);
+  assert(front===0 && Math.abs((e.shieldHp??0)-470)<1e-9,'frontal guard no longer cuts to 30% before absorption');
+  const overflow=system.modifyIncomingDamage(e,1000,true,-5,0);
+  assert(Math.abs(overflow-(1100-470))<1e-9,'rear overflow no longer passes through a drained pool');
+  assert(String(e.shieldState)==='broken','drained pool did not break the shield');
+  assert((e.shieldCommitUntil??0)===now+3.5 && e.exposedUntil===now+3.5,'shield break window changed');
   assert(rare.includes('ЩИТ СЛОМАН'),'shield break feedback disappeared');
 
   const broken=system.modifyIncomingDamage(e,100,true,5,0);
   assert(Math.abs(broken-130)<1e-9,'broken-shield vulnerability multiplier changed');
+
+  now+=3.6;
+  system.beforeBehavior(e,20);
+  assert(String(e.shieldState)==='guard' && e.shieldHp===e.shieldMax,'shield did not return at full strength');
 }
 
-console.log('elite-affix-regression OK',{orders,spawned,randomCalls,tells,hits,rare});
+// Impulse doctrine cracks the pool directly on close hits.
+{
+  entities.length=0; rare.length=0;
+  const e=elite('shielded',7);
+  e.shieldState='guard';
+  system.beforeBehavior(e,20);
+  system.afterCloseDamage(e,1000,10);
+  assert(String(e.shieldState)==='broken','Force damage no longer breaks the shield pool');
+}
+
+console.log('elite-affix-regression OK',{orders,retinue,tells,hits,rare});

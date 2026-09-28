@@ -110,6 +110,9 @@ for (const [cat, n] of byCategory) assert(n >= 2, `category ${cat} has only ${n}
       mx = (best.x - sim.px) / d;
       mz = (best.z - sim.pz) / d;
     }
+    // This block measures the relic supply, not survival: elites now keep pace with the hero
+    // and a driver that walks at every relic would die in the opening, so its HP is topped up.
+    if (sim.php < 60) sim.php = sim.maxHp;
     sim.step({ moveX: mx, moveZ: mz, aimX: mx, aimZ: mz });
     if (sim.hasChoice) sim.chooseReward(0);
     for (const e of sim.events) if (e.type === 'RelicAppeared') seen++;

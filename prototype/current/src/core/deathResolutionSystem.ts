@@ -114,9 +114,17 @@ export class DeathResolutionSystem {
         }
       }
 
-      const elite = entity.kind === 'elite';
+      // Replicator copies look and fight like elites but carry no elite rewards.
+      const eliteBody = entity.kind === 'elite';
+      const clone = eliteBody && !!entity.cloneParent;
+      const elite = eliteBody && !clone;
       p.noteKill(elite);
-      if (elite) p.resolveEliteDeath(entity);
+      if (elite) {
+        p.resolveEliteDeath(entity);
+        // Copies die with their original.
+        for (const other of p.entities())
+          if (other.kind === 'elite' && other.cloneParent === entity.id && other.hp > 0) other.hp = 0;
+      }
 
       p.emit({
         type: 'EntityDied',
@@ -125,7 +133,7 @@ export class DeathResolutionSystem {
         kind: entity.kind,
         x: entity.x,
         z: entity.z,
-        elite,
+        elite: eliteBody,
         boss: entity.boss
       });
 
@@ -137,7 +145,7 @@ export class DeathResolutionSystem {
       if (entity.cloneParent) {
         const parent = p.getAliveEntity(entity.cloneParent);
         if (parent) {
-          const feedback = parent.maxHp * 0.055;
+          const feedback = parent.maxHp * (clone ? 0.1 : 0.055);
           parent.hp -= feedback;
           p.emit({
             type: 'DamageResolved',
@@ -168,13 +176,13 @@ export class DeathResolutionSystem {
         });
       }
 
-      if (elite && entity.affix === 'volatile') {
+      if (eliteBody && entity.affix === 'volatile') {
         p.scheduleStrike({
           at: time + 0.62,
           x: entity.x,
           z: entity.z,
-          radius: 2.6,
-          damage: 24 * p.damageScale(),
+          radius: 3.4,
+          damage: 45 * p.damageScale(),
           faction: 'rival',
           ownerId: entity.id,
           source: 'elite_volatile',
@@ -185,7 +193,9 @@ export class DeathResolutionSystem {
       }
 
       const xpValue =
-        elite
+        clone
+          ? 6
+          : elite
           ? 30
           : entity.kind === 'binder' ||
               entity.kind === 'redactor' ||

@@ -49,10 +49,10 @@ const system=new EliteEchoSystem(port);
 // fieldRefusals owns initial cooldown and only starts once the cooldown matures.
 system.fieldRefusals(owner,8);
 assert(!system.has(owner.id)&&rangeCalls===1,'initial rival cooldown ownership changed');
-now=2.59;
+now=1.19;
 system.fieldRefusals(owner,8);
 assert(!system.has(owner.id),'Echo started before initial cooldown');
-now=2.61;
+now=1.21;
 system.fieldRefusals(owner,8);
 const tell=system.get(owner.id);
 assert(tell?.phase==='tell'&&tell.skill==='rail_spear','eligible refusal did not enter tell phase');
@@ -86,7 +86,7 @@ assert(Number(rangeCalls)===2,'recovery cooldown RNG cadence changed');
 // Recovery cooldown blocks immediate reuse, then allows the next authored Echo.
 system.fieldRefusals(owner,8);
 assert(!system.has(owner.id),'Echo ignored recovery cooldown');
-now+=3.2;
+now+=5.3;
 system.fieldRefusals(owner,8);
 assert(system.has(owner.id),'Echo failed to re-arm after recovery cooldown');
 

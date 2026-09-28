@@ -51,13 +51,13 @@ function elite(id:number,rarity:Ent['rarity']='common'){
 {
   const e=elite(3);
   system.applyItem(e,'keen_edge',true);
-  assert(Math.abs((e.relicCastMul??0)-1.16)<1e-9,'keen_edge cast multiplier changed');
-  assert(Math.abs(e.contactDps-10.8)<1e-9,'keen_edge contact pressure changed');
-  assert(Math.abs((e.groundRelicCastMul??0)-1.16)<1e-9,'captured keen_edge ground legacy changed');
+  assert(Math.abs((e.relicCastMul??0)-1.3)<1e-9,'keen_edge cast multiplier changed');
+  assert(Math.abs(e.contactDps-11.5)<1e-9,'keen_edge contact pressure changed');
+  assert(Math.abs((e.groundRelicCastMul??0)-1.3)<1e-9,'captured keen_edge ground legacy changed');
 
   const hp=e.hp,max=e.maxHp;
   system.applyItem(e,'plating',false);
-  assert(Math.abs(e.maxHp-max*1.16)<1e-9&&Math.abs(e.hp-hp*1.16)<1e-9,
+  assert(Math.abs(e.maxHp-max*1.3)<1e-9&&Math.abs(e.hp-hp*1.3)<1e-9,
     'plating durability scaling changed');
 }
 
@@ -118,8 +118,8 @@ function elite(id:number,rarity:Ent['rarity']='common'){
   const warden=elite(9,'legendary');
   system.inheritLegacy(warden,true);
   assert(warden.relicItems?.length===3,'full legacy stopped preserving repeated captured history');
-  assert(Math.abs(warden.maxHp-116)<1e-9,'duplicate legacy item compounded mechanically');
-  assert(Math.abs((warden.relicCastMul??0)-1.16)<1e-9,'distinct full-legacy rule was not applied');
+  assert(Math.abs(warden.maxHp-130)<1e-9,'duplicate legacy item compounded mechanically');
+  assert(Math.abs((warden.relicCastMul??0)-1.3)<1e-9,'distinct full-legacy rule was not applied');
 }
 
 console.log('elite-progression-regression OK',{

@@ -86,9 +86,10 @@ const system = new EliteSpawnSystem(port);
   assert(entity.x === 12 && entity.z === -8, 'opening elite placement changed');
   assert(Math.abs(entity.hp - 840 * worldScale * eliteHealthCurve * 2.5 * 0.8) < 1e-9,
     'opening clean-mode HP formula changed');
-  assert(entity.radius === 0.86 && entity.speed === 1.76,
+  // v0.14: the Predator is authored relative to the hero (1.28 x 4.8 u/s).
+  assert(entity.radius === 0.86 && Math.abs(entity.speed - 4.8 * 1.28) < 1e-9,
     'opening hunter body/movement changed');
-  assert(Math.abs(entity.contactDps - 34 * damageScale * 0.62) < 1e-9,
+  assert(Math.abs(entity.contactDps - 34 * damageScale * 0.4) < 1e-9,
     'opening elite contact DPS changed');
   assert(rangeCalls.length === 1 && rangeCalls[0][0] === 1.7 && rangeCalls[0][1] === 3.0,
     'opening elite cooldown RNG cadence/bounds changed');

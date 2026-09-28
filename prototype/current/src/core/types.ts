@@ -113,7 +113,8 @@ export type DamageSourceId =
   | 'shepherd_pulse'
   | 'warden_sweep'
   | 'warden_rupture'
-  | 'elite_volatile';
+  | 'elite_volatile'
+  | 'predator_dash';
 export type MutationId = string;
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 export type RunMode = 'clean' | 'showcase';
@@ -275,6 +276,14 @@ export interface SnapshotEntity {
   bossPhase: number;
   bossPattern: BossPatternId | '';
   status: StatusSnapshot;
+  /** Visible elite growth tier (captured relics, evolution, adaptation). Drives body scale. */
+  growth?: number;
+  /** Replicator copy of an elite: same body, reduced value, dies with its original. */
+  clone?: boolean;
+  /** Heavy retinue summoned by an elite (brood/fractured): larger and far tougher than the crowd. */
+  summoned?: boolean;
+  /** Elite shield pool fraction 0..1 while the shielded affix still holds. */
+  shieldPool?: number;
 }
 export interface PickupSnapshot {
   id: number;
@@ -347,6 +356,8 @@ export interface ObstacleSnapshot {
   hp: number;
   maxHp: number;
   destructible: boolean;
+  /** Temporary elite wall; presentation must not treat it as terrain. */
+  expiresAt?: number;
 }
 export interface WorldSnapshot {
   minX: number;

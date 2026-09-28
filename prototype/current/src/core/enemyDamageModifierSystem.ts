@@ -32,6 +32,8 @@ export interface EnemyDamageModifierPort {
   skillRuntime(source: string): SkillRuntime | undefined;
   getAliveEntity(id: number): Ent | undefined;
   derived(): boolean;
+  /** Architect veil cover for this target (1 when uncovered). */
+  veilDamageMultiplier(entity: Ent): number;
 }
 
 export interface EnemyDamageResolution {
@@ -100,6 +102,8 @@ export class EnemyDamageModifierSystem {
     }
 
     if (entity.exposedUntil > p.time()) actual *= 1.3;
+
+    actual *= p.veilDamageMultiplier(entity);
 
     if (entity.kind !== 'binder' && entity.linkedTo) {
       const binder = p.getAliveEntity(entity.linkedTo);

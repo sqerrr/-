@@ -94,6 +94,7 @@ const port: PlayerDamagePort = {
   eliteEncounter: (id) => id === encounter.id ? encounter : undefined,
   randomFloat: () => { randomCalls++; return 0.1; },
   rivalAxisCount: (_entity, axis) => axis === 'precision' ? 1 : 2,
+  eliteThreatScale: () => 1,
   emit: (event) => events.push(event)
 };
 

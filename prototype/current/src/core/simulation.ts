@@ -37,7 +37,20 @@ import { EliteDamageResponseSystem } from './eliteDamageResponseSystem.js';
 import { EliteEchoSystem } from './eliteEchoSystem.js';
 import { EliteEncounterLedger } from './eliteEncounterLedger.js';
 import { EliteProgressionSystem } from './eliteProgressionSystem.js';
-import { EliteSpawnSystem } from './eliteSpawnSystem.js';
+import { CLONE_CAP, EliteSpawnSystem, HERO_BASE_SPEED } from './eliteSpawnSystem.js';
+
+/** Elite retinue bodies are this many times tougher than the same crowd kind. */
+const RETINUE_HP_MUL = 8;
+/** Architect veil: hero fire into the fog from outside is cut to this share. */
+const VEIL_COVER_MUL = 0.35;
+/** Hero pace while standing inside a veil bank. */
+const VEIL_HERO_SLOW = 0.72;
+/** Killing a regular elite restores this share of the hero's max HP (risk -> recovery loop). */
+const ELITE_KILL_HEAL = 0.25;
+/** Each level-up restores this share of max HP. */
+const LEVEL_UP_HEAL = 0.05;
+/** Each level-up raises max HP by this much (180 -> ~280 by level 33). */
+const LEVEL_UP_MAX_HP = 3;
 import { EnemyBehaviorSystem } from './enemyBehaviorSystem.js';
 import { EnemyRuntimeSystem } from './enemyRuntimeSystem.js';
 import { EnemySpawnSystem } from './enemySpawnSystem.js';
@@ -514,8 +527,11 @@ export class Simulation {
       setLevel: (value) => { this.level = value; },
       setXpNeed: (value) => { this.xpNeed = value; },
       noteLevel: () => { this.metrics.levels++; },
-      emitLevelUp: (level) =>
-        this.events.push({ type: 'LevelUp', tick: this.tick, level }),
+      emitLevelUp: (level) => {
+        this.maxHp += LEVEL_UP_MAX_HP;
+        this.healPlayer(LEVEL_UP_MAX_HP + this.maxHp * LEVEL_UP_HEAL);
+        this.events.push({ type: 'LevelUp', tick: this.tick, level });
+      },
       rerolls: () => this.rerolls,
       spendReroll: () => { this.rerolls--; },
       grantItem: (item) => this.grantItem(item),
@@ -644,7 +660,8 @@ export class Simulation {
       },
       aimX: () => this.aimX,
       aimZ: () => this.aimZ,
-      moveSpeed: () => this.moveSpeed * (1 + this.catalystAttunement('moveSpeed')),
+      moveSpeed: () =>
+        this.moveSpeed * (1 + this.catalystAttunement('moveSpeed')) * (this.heroInVeil() ? VEIL_HERO_SLOW : 1),
       dashCooldownMultiplier: () =>
         this.dashCooldownMul / (1 + this.catalystAttunement('dashRecovery')),
       dashIFrameMultiplier: () => this.dashIFrameMul,
@@ -774,7 +791,8 @@ export class Simulation {
         }),
       hitPlayer: (amount, attacker, source) => this.hitPlayer(amount, attacker, source),
       damageScale: () => this.damageScale(),
-      spawnReplicant: (entity) => this.spawnReplicant(entity),
+      spawnClone: (entity) => this.spawnEliteClone(entity),
+      raiseWalls: (entity, x, z, openX, openZ) => this.raiseEliteWalls(entity, x, z, openX, openZ),
       playerInSector: (x, z, ax, az, radius, halfAngle) =>
         this.playerInSector(x, z, ax, az, radius, halfAngle),
       movePlayer: (dx, dz) => {
@@ -860,9 +878,7 @@ export class Simulation {
       hasEcho: (entityId) => this.eliteEchoSystem.has(entityId),
       entities: () => this.ents,
       randomRange: (min, max) => this.rng.range(min, max),
-      spawnEnemyAt: (kind, x, z, buffedFor = 0) => {
-        this.spawnEnemyAt(kind, x, z, buffedFor);
-      },
+      spawnRetinue: (entity, count) => this.spawnEliteRetinue(entity, count),
       emitOrder: (entity, order, count) =>
         this.events.push({
           type: 'EliteOrder',
@@ -879,7 +895,7 @@ export class Simulation {
           tick: this.tick,
           source: 'telegraph_temporal_shift',
           intent: 'control',
-          shape: { kind: 'circle', x: entity.lockedX, z: entity.lockedZ, radius: 1.8 }
+          shape: { kind: 'circle', x: entity.lockedX, z: entity.lockedZ, radius: 2.6 }
         }),
       emitShieldTell: (entity, aimX, aimZ) =>
         this.events.push({
@@ -916,7 +932,11 @@ export class Simulation {
     this.eliteDamageResponse = new EliteDamageResponseSystem({
       time: () => this.time,
       corePower: () => this.corePower(),
-      spawnReplicant: (entity) => this.spawnReplicant(entity),
+      spawnClone: (entity) => this.spawnEliteClone(entity),
+      spawnRetinue: (entity, count) => this.spawnEliteRetinue(entity, count),
+      grow: (entity) => this.eliteProgression.grow(entity),
+      announce: (entity, title, detail) =>
+        this.events.push({ type: 'RareEvent', tick: this.tick, title, detail, x: entity.x, z: entity.z }),
       emitOrder: (entity, order, count) =>
         this.events.push({
           type: 'EliteOrder',
@@ -941,7 +961,8 @@ export class Simulation {
         randomFloat: () => this.rng.float(),
         skillRuntime: (source) => this.skillsRuntime.get(source as SkillId),
         getAliveEntity: (id) => this.entityStore.getAlive(id),
-        derived: () => this.activation.derived
+        derived: () => this.activation.derived,
+        veilDamageMultiplier: (entity) => this.veilDamageMultiplier(entity)
       },
       this.eliteDamageResponse,
       this.eliteAffix
@@ -974,6 +995,7 @@ export class Simulation {
       guardDoctrine: () => this.doctrines.guard,
       itemDamageTakenMultiplier: () => this.itemDamageTakenMul,
       itemRefusalDamageMultiplier: () => this.itemRefusalDamageMul,
+      eliteThreatScale: () => this.encounterDirector.eliteThreatCurve(this.time, this.runDuration),
       dashIFramesUntil: () => this.dashIFramesUntil,
       dashWindowSaved: () => this.dashWindowSaved,
       setDashWindowSaved: (value) => {
@@ -1267,6 +1289,7 @@ export class Simulation {
       resolveEliteDeath: (entity) => {
         this.releaseRepertoire(entity);
         this.grantBarrier(this.itemBarrierOnEliteKill);
+        if (!entity.boss) this.healPlayer(this.maxHp * ELITE_KILL_HEAL);
         this.eliteCore += this.itemCoreBonus;
         this.eliteEncountersLedger.finish(entity.id, this.time, true);
       },
@@ -1685,6 +1708,7 @@ export class Simulation {
     this.updateDots();
     this.updatePickups();
     this.updateRelics();
+    this.worldGeometry.expire(this.time);
     this.updateOrbitBlades();
     this.flushPhysicalEvents();
     this.chainTick();
@@ -1748,7 +1772,7 @@ export class Simulation {
   }
 
   private eliteDirector() {
-    const active = this.entityStore.countAlive((e) => e.kind === 'elite' && !e.boss);
+    const active = this.entityStore.countAlive((e) => e.kind === 'elite' && !e.boss && !e.cloneParent);
     const request = this.encounterDirector.tickElite({
       time: this.time,
       dt: this.dt,
@@ -2017,6 +2041,17 @@ export class Simulation {
     this.metrics.relicsTakenByElites++;
     this.eliteProgression.recordCapturedRelic(e, r.item);
     this.eliteEncountersLedger.noteItem(e.id, r.item);
+    // Capturing a relic is a visible power spike: heal, frenzy and a named announcement.
+    e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.15);
+    e.buffUntil = Math.max(e.buffUntil, this.time + 4);
+    this.events.push({
+      type: 'RareEvent',
+      tick: this.tick,
+      title: `ЭЛИТА ЗАБРАЛА: ${def.name.toUpperCase()}`,
+      detail: `${itemRivalEffect[r.item]} · ярость 4 с, +15% здоровья, тело растёт`,
+      x: e.x,
+      z: e.z
+    });
     this.events.push({
       type: 'RelicTaken',
       tick: this.tick,
@@ -2379,31 +2414,129 @@ export class Simulation {
     return this.combatTargeting.targetVisible(src, e);
   }
 
-  private spawnReplicant(parent: Ent) {
-    const a = this.rng.range(0, Math.PI * 2),
-      r = this.rng.range(0.8, 1.8);
-    const q = this.spawnEnemyAt(
-      'footnote',
-      parent.x + Math.cos(a) * r,
-      parent.z + Math.sin(a) * r,
-      0,
-      parent.id
+  /**
+   * Replicator: a real copy of the elite (same chassis/affix/rarity body). Copies carry 30/60/100%
+   * of the original's max HP by rarity, are capped per original and die with it.
+   */
+  private spawnEliteClone(parent: Ent) {
+    if (parent.cloneParent || parent.hp <= 0 || parent.boss) return;
+    const alive = this.entityStore.countAlive(
+      (entity) => entity.kind === 'elite' && entity.cloneParent === parent.id
     );
-    if (q) {
-      q.maxHp *= 1.25;
-      q.hp = q.maxHp;
-      q.speed *= 1.28;
-      q.radius = 0.4;
+    if (alive >= CLONE_CAP[parent.rarity]) return;
+    this.eliteSpawns.spawnClone(parent);
+    this.events.push({
+      type: 'EliteOrder',
+      tick: this.tick,
+      entity: parent.id,
+      order: 'replicate',
+      x: parent.x,
+      z: parent.z,
+      count: alive + 1
+    });
+    if (alive === 0)
       this.events.push({
-        type: 'EliteOrder',
+        type: 'RareEvent',
         tick: this.tick,
-        entity: parent.id,
-        order: 'replicate',
+        title: 'РЕПЛИКАТОР РАЗДВОИЛСЯ',
+        detail: 'Копии живут, пока жив оригинал. Смерть копии ранит оригинал.',
         x: parent.x,
-        z: parent.z,
-        count: 1
+        z: parent.z
+      });
+  }
+
+  /**
+   * Elite retinue: heavy, enlarged crowd bodies (x8 HP, x1.8 contact, ~0.7 hero pace) that stay
+   * with their summoner. Bounded per summoner; bypasses the soft crowd admission cap.
+   */
+  private spawnEliteRetinue(parent: Ent, count: number) {
+    if (parent.hp <= 0) return;
+    const cap = parent.rarity === 'legendary' ? 9 : parent.rarity === 'uplifted' ? 7 : 6;
+    const alive = this.entityStore.countAlive((entity) => entity.summonedBy === parent.id);
+    const room = Math.max(0, Math.min(count, cap - alive));
+    for (let i = 0; i < room; i++) {
+      const a = this.rng.range(0, Math.PI * 2),
+        r = this.rng.range(1.4, 2.4);
+      const q = this.enemySpawns.spawnAt(
+        i % 2 === 0 ? 'bookmark' : 'palimpsest',
+        parent.x + Math.cos(a) * r,
+        parent.z + Math.sin(a) * r,
+        2.5,
+        0,
+        true
+      );
+      if (!q) break;
+      q.maxHp *= RETINUE_HP_MUL;
+      q.hp = q.maxHp;
+      q.radius = 0.74;
+      q.speed = Math.max(q.speed * 1.35, HERO_BASE_SPEED * 0.7);
+      q.contactDps *= 1.8;
+      q.revivesLeft = 0;
+      q.summonedBy = parent.id;
+    }
+  }
+
+  private insideVeil(x: number, z: number) {
+    for (const field of this.fields)
+      if (field.kind === 'veil' && Math.hypot(x - field.x, z - field.z) < field.radius) return true;
+    return false;
+  }
+
+  private heroInVeil() {
+    return this.insideVeil(this.px, this.pz);
+  }
+
+  /** Targets hidden in a veil bank take a fraction of hero damage unless the hero steps in. */
+  private veilDamageMultiplier(entity: Ent) {
+    for (const field of this.fields) {
+      if (field.kind !== 'veil') continue;
+      if (Math.hypot(entity.x - field.x, entity.z - field.z) >= field.radius) continue;
+      // Covered unless the hero stands inside the same bank.
+      if (Math.hypot(this.px - field.x, this.pz - field.z) >= field.radius) return VEIL_COVER_MUL;
+    }
+    return 1;
+  }
+
+  /** Architect wall ring around the hero with one opening toward (openX, openZ). */
+  private raiseEliteWalls(owner: Ent, cx: number, cz: number, openX: number, openZ: number) {
+    const gap = Math.atan2(openZ, openX);
+    const radius = 4.4;
+    const pieces: Obstacle[] = [];
+    const hp = 90 * this.worldScale();
+    for (let i = 0; i < 14; i++) {
+      const angle = gap + ((i + 0.5) / 14) * Math.PI * 2;
+      let diff = angle - gap;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      if (Math.abs(diff) < 0.62) continue;
+      pieces.push({
+        id: this.nextId++,
+        x: cx + Math.cos(angle) * radius,
+        z: cz + Math.sin(angle) * radius,
+        radius: 0.95,
+        hp,
+        maxHp: hp,
+        destructible: true,
+        expiresAt: this.time + 6.5
       });
     }
+    if (!this.worldGeometry.addTemporary(pieces, this.px, this.pz, HERO_HIT_RADIUS)) return;
+    this.events.push({
+      type: 'CombatShape',
+      tick: this.tick,
+      source: 'elite_architect_wall',
+      intent: 'control',
+      shape: { kind: 'circle', x: cx, z: cz, radius }
+    });
+    this.events.push({
+      type: 'EliteOrder',
+      tick: this.tick,
+      entity: owner.id,
+      order: 'wall',
+      x: owner.x,
+      z: owner.z,
+      count: pieces.length
+    });
   }
 
   private aimPoint(src: CastSource, range: number) {
@@ -2478,9 +2611,14 @@ export class Simulation {
       source === 'frost_ring' || source === 'tether_drag';
     if (closeSource && this.doctrines.guard > 0 && Math.hypot(e.x - this.px, e.z - this.pz) < 4.2)
       this.grantBarrier(Math.min(3.5, actual * (0.0025 + this.doctrines.guard * 0.0014)));
-    // Impulse erodes elite shield stability from every Phenomenon hit; close work erodes twice as fast.
+    // Impulse cracks the elite shield pool from every Phenomenon hit (pre-absorption strength);
+    // close work cracks twice as fast.
     if (skill || closeSource)
-      this.eliteAffix.afterCloseDamage(e, closeSource ? actual : actual * 0.5, this.doctrines.force);
+      this.eliteAffix.afterCloseDamage(
+        e,
+        closeSource ? resolved.scaledBase : resolved.scaledBase * 0.5,
+        this.doctrines.force
+      );
     if (skill && this.activation.slot >= 0) {
       this.activation.recordHit(e.id, actual);
       if (this.choreography.matchesSkill(skill.id))

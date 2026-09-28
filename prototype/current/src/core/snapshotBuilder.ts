@@ -149,7 +149,14 @@ export class SnapshotBuilder {
           shieldStability: entity.shieldStability ?? 100,
           echoPhase: echo?.phase ?? 'none',
           echoSkill: echo?.skill,
-          regenerating: entity.affix === 'regenerating' && time - entity.lastDamageAt > 3,
+          regenerating: entity.affix === 'regenerating' && time - entity.lastDamageAt > 2,
+          growth: entity.growth ?? 0,
+          clone: entity.kind === 'elite' && !!entity.cloneParent,
+          summoned: !!entity.summonedBy,
+          shieldPool:
+            entity.affix === 'shielded' && entity.shieldMax
+              ? Math.max(0, (entity.shieldHp ?? 0) / entity.shieldMax)
+              : 0,
           orderX: entity.orderX,
           orderZ: entity.orderZ,
           orderActive: entity.orderUntil > time,

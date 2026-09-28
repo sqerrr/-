@@ -31,16 +31,52 @@ const BASE_HP: Record<EliteChassis, number> = {
   warden: 5600
 };
 
+/** Hero base move speed; elite pace is authored relative to it. */
+export const HERO_BASE_SPEED = 4.8;
+
+/**
+ * Elites used to walk at 0.15-0.37 of hero speed, so every pattern could be kited forever.
+ * Regular chassis now move at 0.75-0.9 of the hero; the Predator is faster than the hero.
+ */
 const SPEED: Record<EliteChassis, number> = {
-  marshal: 1.02,
-  hunter: 1.76,
-  bulwark: 0.74,
-  architect: 0.92,
-  harvester: 0.9,
-  shepherd: 1.08,
-  broodmaker: 0.88,
-  archivist: 1.02,
-  warden: 0.84
+  marshal: HERO_BASE_SPEED * 0.83,
+  hunter: HERO_BASE_SPEED * 1.28,
+  bulwark: HERO_BASE_SPEED * 0.75,
+  architect: HERO_BASE_SPEED * 0.8,
+  harvester: HERO_BASE_SPEED * 0.86,
+  shepherd: HERO_BASE_SPEED * 0.9,
+  broodmaker: HERO_BASE_SPEED * 0.78,
+  archivist: HERO_BASE_SPEED * 0.83,
+  warden: HERO_BASE_SPEED * 0.66
+};
+
+/** Hard pace ceiling after relic/axis growth (Predator keeps a higher one). */
+export function eliteSpeedCap(entity: { chassis?: EliteChassis; affix: EliteAffix }) {
+  const fast = entity.chassis === 'hunter' || entity.affix === 'swift';
+  return HERO_BASE_SPEED * (fast ? 1.75 : 1.3);
+}
+
+/** «Быстрый» must be unmistakable: +45% pace on top of the chassis. */
+export const SWIFT_SPEED_MUL = 1.45;
+
+/** Replicator copies carry more of the original's body as rarity rises (up to a full copy). */
+const CLONE_HP_SHARE: Record<EliteRarity, number> = {
+  common: 0.3,
+  uplifted: 0.6,
+  legendary: 1
+};
+
+/** Affixes that describe the body and therefore carry over to Replicator copies. */
+const CLONE_BODY_AFFIXES: ReadonlySet<EliteAffix> = new Set<EliteAffix>([
+  'swift',
+  'shielded',
+  'regenerating'
+]);
+
+export const CLONE_CAP: Record<EliteRarity, number> = {
+  common: 2,
+  uplifted: 3,
+  legendary: 3
 };
 
 const CONTACT_DPS: Record<EliteChassis, number> = {
@@ -126,7 +162,9 @@ export class EliteSpawnSystem {
             ? 0.94
             : 0.86) * RARITY_SIZE[rarity],
       speed: SPEED[chassis],
-      contactDps: CONTACT_DPS[chassis] * p.damageScale() * 0.62,
+      // Elites now keep pace with the hero, so contact is pressure, not the main threat:
+      // authored patterns carry the burst damage.
+      contactDps: CONTACT_DPS[chassis] * p.damageScale() * 0.4,
       cooldown: p.randomRange(1.7, 3.0),
       chassis,
       affix,
@@ -134,13 +172,51 @@ export class EliteSpawnSystem {
       rarity
     });
 
+    if (affix === 'swift') entity.speed *= SWIFT_SPEED_MUL;
     if (!opening) {
       p.claimRepertoire(entity);
       p.inheritLegacy(entity);
       p.grantNativeGrowth(entity);
     }
+    if (affix === 'shielded') this.armShield(entity);
+    entity.speed = Math.min(entity.speed, eliteSpeedCap(entity));
 
     p.commitElite(entity, { trackEncounter: true, bossEvent: false });
+    return entity;
+  }
+
+  /**
+   * Replicator copy: same chassis/affix/rarity body, a rarity-scaled share of the original's
+   * max HP, no repertoire and no rewards. The copy dies with its original.
+   */
+  spawnClone(parent: Ent) {
+    const p = this.port;
+    const angle = p.randomRange(0, Math.PI * 2);
+    const world = p.worldBounds();
+    const x = Math.max(world.minX + 1, Math.min(world.maxX - 1, parent.x + Math.cos(angle) * 2.2));
+    const z = Math.max(world.minZ + 1, Math.min(world.maxZ - 1, parent.z + Math.sin(angle) * 2.2));
+    const hp = parent.maxHp * CLONE_HP_SHARE[parent.rarity];
+    const entity = makeEnt({
+      id: p.nextEntityId(),
+      kind: 'elite',
+      cloneParent: parent.id,
+      x,
+      z,
+      hp,
+      radius: parent.radius * 0.92,
+      speed: parent.speed * 1.08,
+      contactDps: parent.contactDps * 0.75,
+      cooldown: p.randomRange(0.6, 1.4),
+      chassis: parent.chassis,
+      // Copies inherit the body (speed, shield, regeneration) but not the original's attack
+      // affix, so the true Replicator stays the only source of temporal/volatile/vanguard.
+      affix: CLONE_BODY_AFFIXES.has(parent.affix) ? parent.affix : 'none',
+      adaptAt: -1,
+      rarity: parent.rarity,
+      growth: parent.growth ?? 0
+    });
+    if (entity.affix === 'shielded') this.armShield(entity);
+    p.commitElite(entity, { trackEncounter: false, bossEvent: false });
     return entity;
   }
 
@@ -229,9 +305,16 @@ export class EliteSpawnSystem {
       adaptAt: hp * 0.55,
       guardianPoi: -1
     });
+    if (affix === 'shielded') this.armShield(entity);
 
     p.commitElite(entity, { trackEncounter: false, bossEvent: false });
     return entity;
+  }
+
+  /** Shielded elites carry an absorbing pool worth 60% of their body (RoR2 Overloading-like). */
+  armShield(entity: Ent) {
+    entity.shieldMax = entity.maxHp * 0.6;
+    entity.shieldHp = entity.shieldMax;
   }
 
   rollRarity(): EliteRarity {
@@ -251,7 +334,7 @@ export class EliteSpawnSystem {
 
     if (rarity === 'common') {
       if (this.port.randomFloat() < 0.58 - progress * 0.18) return 'none';
-      const pool: EliteAffix[] = ['regenerating', 'volatile', 'shielded'];
+      const pool: EliteAffix[] = ['regenerating', 'volatile', 'shielded', 'swift'];
       return pool[this.port.randomInt(pool.length)];
     }
 
@@ -262,7 +345,8 @@ export class EliteSpawnSystem {
         'shielded',
         'vanguard',
         'temporal',
-        'brood'
+        'brood',
+        'swift'
       ];
       return pool[this.port.randomInt(pool.length)];
     }
