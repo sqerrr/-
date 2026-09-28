@@ -51,9 +51,9 @@ function until(sim:any,pred:()=>boolean,maxTicks=600){
 const cue=(sim:any,mode:string)=>sim.events.find((e:any)=>e.type==='CatalystChoreography'&&e.mode===mode);
 const casts=(sim:any,id:SkillId)=>sim.events.filter((e:any)=>e.type==='SkillActivated'&&e.skill===id);
 const damage=(sim:any,id:string)=>sim.events.filter((e:any)=>e.type==='DamageResolved'&&e.source===id);
-const activateSlot=(sim:any,slot:number)=>sim.activationPipeline.activate(slot);
+const activateSlot=(sim:any,slot:number)=>sim.activationFlow.activate(slot);
 const castCatalystPayload=(sim:any,binding:any,x:number,z:number,aimX?:number,aimZ?:number)=>
-  sim.activationPipeline.castPayload(binding,x,z,aimX,aimZ);
+  sim.activationFlow.castPayload(binding,x,z,aimX,aimZ);
 
 // Shared geometry: actor radius belongs to the same test as the shape visible to the renderer.
 assert(circleIntersectsCircle(0,0,1,1.35,0,.4),'circle overlap ignores target radius');

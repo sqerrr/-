@@ -44,7 +44,7 @@ interface SimulationInternals {
   spawnProjectile(projectile: Omit<Projectile, 'id' | 'guarded'>): number;
   updateProjectiles(): void;
   newSkill(id: SkillId): SkillRuntime;
-  activationPipeline: { activate(slot: number): boolean };
+  activationFlow: { activate(slot: number): boolean };
   dispatchSkill(id: SkillId, runtime: SkillRuntime, slot: number, source: CastSource): void;
   heroSource(): CastSource;
   flushPhysicalEvents(): void;
@@ -137,7 +137,7 @@ export class SimulationHarness {
   }
 
   activateSlot(slot: number) {
-    return this.internals.activationPipeline.activate(slot);
+    return this.internals.activationFlow.activate(slot);
   }
 
   castSkill(id: SkillId, runtime: SkillRuntime, slot: number, source: CastSource) {

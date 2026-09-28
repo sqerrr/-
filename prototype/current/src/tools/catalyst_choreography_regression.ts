@@ -13,7 +13,7 @@ function assert(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error('catalyst-choreography-regression: ' + message);
 }
 const dist=(a:{x:number;z:number},b:{x:number;z:number})=>Math.hypot(a.x-b.x,a.z-b.z);
-const activateSlot=(sim:any,slot:number)=>sim.activationPipeline.activate(slot);
+const activateSlot=(sim:any,slot:number)=>sim.activationFlow.activate(slot);
 
 function fixture(left:SkillId,right:SkillId,catalyst:CatalystId){
   const sim:any=new Simulation({seed:96000+left.length*37+right.length*11+catalyst.length,hz:60,benchmark:true,mode:'clean'});
