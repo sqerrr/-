@@ -1,6 +1,5 @@
 import {
   activeSkillOrder,
-  catalystPairCompatible,
   doctrines,
   effectGrammar,
   initialCatalystReserve,
@@ -15,7 +14,6 @@ import {
 import { ActivationPipelineSystem } from './activationPipelineSystem.js';
 import { ActivationRuntime } from './activationRuntime.js';
 import { BossBehaviorSystem } from './bossBehaviorSystem.js';
-import { BuildLoadoutSystem } from './buildLoadoutSystem.js';
 import {
   CANONICAL_SCHEMA_VERSION as CANONICAL_RUN_SCHEMA_VERSION,
   CanonicalStateSerializer,
@@ -24,7 +22,6 @@ import {
 import { ConstructSystem } from './constructSystem.js';
 import { SnapshotBuilder, type SnapshotBuilderInput } from './snapshotBuilder.js';
 import { ChoreographyTraceSystem } from './choreographyTraceSystem.js';
-import { ChoiceRuntime } from './choiceRuntime.js';
 import { CombatLedger } from './combatLedger.js';
 import { CombatTargetingSystem } from './combatTargetingSystem.js';
 import { DeathResolutionSystem } from './deathResolutionSystem.js';
@@ -45,7 +42,6 @@ import { EnemyDamageModifierSystem } from './enemyDamageModifierSystem.js';
 import { EntityStore } from './entityStore.js';
 import { FieldSystem } from './fieldSystem.js';
 import { LegacyCatalystSystem } from './legacyCatalystSystem.js';
-import { MutationChoiceSystem } from './mutationChoiceSystem.js';
 import { OrbitSystem } from './orbitSystem.js';
 import { PhysicalActivationSystem } from './physicalActivationSystem.js';
 import { PhysicalCatalystSystem } from './physicalCatalystSystem.js';
@@ -54,14 +50,12 @@ import { PhenomenonCastSystem } from './phenomenonCastSystem.js';
 import { PhenomenonKillReactionSystem } from './phenomenonKillReactionSystem.js';
 import { PlayerDamageSystem } from './playerDamageSystem.js';
 import { PlayerGrowthSystem } from './playerGrowthSystem.js';
+import { ProgressionComposition } from './progressionComposition.js';
 import { PickupSystem } from './pickupSystem.js';
 import { PoiSystem } from './poiSystem.js';
 import { PlayerMovementSystem } from './playerMovementSystem.js';
 import { ProjectileSystem } from './projectileSystem.js';
-import { ProgressionOfferSystem } from './progressionOfferSystem.js';
-import { ProgressionRuntime } from './progressionRuntime.js';
 import { RelicRaceSystem } from './relicRaceSystem.js';
-import { RewardOfferFactory } from './rewardOfferFactory.js';
 import { RefusalLedger } from './refusalLedger.js';
 import { Rng } from './rng.js';
 import { SquadDirector } from './squadDirector.js';
@@ -236,7 +230,6 @@ export class Simulation {
   private eliteSpawns!: EliteSpawnSystem;
   private eliteAffix!: EliteAffixSystem;
   private bossBehavior!: BossBehaviorSystem;
-  private buildLoadout!: BuildLoadoutSystem;
   private enemyBehavior!: EnemyBehaviorSystem;
   private enemyRuntime!: EnemyRuntimeSystem;
   private enemySpawns!: EnemySpawnSystem;
@@ -259,15 +252,12 @@ export class Simulation {
   private activationPipeline!: ActivationPipelineSystem;
   private physicalCatalysts!: PhysicalCatalystSystem;
   private relicRace!: RelicRaceSystem;
-  private rewardOfferFactory!: RewardOfferFactory;
-  private progressionOffers!: ProgressionOfferSystem;
-  private progressionRuntime!: ProgressionRuntime;
-  private mutationChoices!: MutationChoiceSystem;
   private poiSystem!: PoiSystem;
   private phenomenonCasts!: PhenomenonCastSystem;
   private phenomenonKillReactions!: PhenomenonKillReactionSystem;
   private playerDamage!: PlayerDamageSystem;
   private playerGrowth!: PlayerGrowthSystem;
+  private progression!: ProgressionComposition;
   private pickupSystem!: PickupSystem;
   private playerMovement!: PlayerMovementSystem;
   private statefulPhenomenonCasts!: StatefulPhenomenonCastSystem;
@@ -382,19 +372,18 @@ export class Simulation {
   private orbitChoreoX = 0;
   private orbitChoreoZ = 0;
   private orbitChoreoCarrier: ChoreographyCarrier | null = null;
-  private choiceRuntime = new ChoiceRuntime();
   // Compatibility accessors keep deterministic tooling/private fixtures stable while the
   // transient choice window is owned by ChoiceRuntime.
-  private get rewardOffers() { return this.choiceRuntime.rewardOffers; }
-  private set rewardOffers(value) { this.choiceRuntime.rewardOffers = value; }
-  private get mutationOffer() { return this.choiceRuntime.mutationOffer; }
-  private set mutationOffer(value) { this.choiceRuntime.mutationOffer = value; }
-  private get mutationRefusalToken() { return this.choiceRuntime.mutationRefusalToken; }
-  private set mutationRefusalToken(value: boolean) { this.choiceRuntime.mutationRefusalToken = value; }
-  private get choiceSerial() { return this.choiceRuntime.serial; }
-  private set choiceSerial(value: number) { this.choiceRuntime.serial = value; }
-  private get pendingMutationTarget() { return this.choiceRuntime.pendingMutationTarget; }
-  private set pendingMutationTarget(value: boolean) { this.choiceRuntime.pendingMutationTarget = value; }
+  private get rewardOffers() { return this.progression.rewardOffers; }
+  private set rewardOffers(value) { this.progression.rewardOffers = value; }
+  private get mutationOffer() { return this.progression.mutationOffer; }
+  private set mutationOffer(value) { this.progression.mutationOffer = value; }
+  private get mutationRefusalToken() { return this.progression.mutationRefusalToken; }
+  private set mutationRefusalToken(value: boolean) { this.progression.mutationRefusalToken = value; }
+  private get choiceSerial() { return this.progression.serial; }
+  private set choiceSerial(value: number) { this.progression.serial = value; }
+  private get pendingMutationTarget() { return this.progression.pendingMutationTarget; }
+  private set pendingMutationTarget(value: boolean) { this.progression.pendingMutationTarget = value; }
 
   private refusalLedger!: RefusalLedger;
   /** Compatibility view for systems/snapshots that consume the live refusal records. */
@@ -416,7 +405,7 @@ export class Simulation {
    * useful for ownership/LOS/reach data; it is not an excuse to mirror player geometry.
    */
   /** Compatibility constant for content/tooling; branch policy is owned by MutationChoiceSystem. */
-  static readonly MUTATION_BRANCHES = MutationChoiceSystem.BRANCHES;
+  static readonly MUTATION_BRANCHES = ProgressionComposition.MUTATION_BRANCHES;
   private static rivalReach(id: SkillId): number {
     const def = skills[id];
     return Math.max(def.baseRange ?? 0, def.baseRadius ?? 0);
@@ -494,7 +483,14 @@ export class Simulation {
       playerZ: () => this.pz
     });
     this.runDuration = cfg.runDuration ?? 480;
-    this.buildLoadout = new BuildLoadoutSystem({
+    this.progression = new ProgressionComposition({
+      randomInt: (maxExclusive) => this.rng.int(maxExclusive),
+      randomFloat: () => this.rng.float(),
+      nextU32: () => this.rng.nextU32(),
+      refusalInt: (maxExclusive) => this.refusalLedger.pickIndex(maxExclusive),
+      fortune: () => this.fortune,
+      resonanceLevel: (id) => this.resonance[id],
+      doctrineLevel: (id) => this.doctrines[id],
       slots: () => this.slots,
       skillReserve: () => this.skillReserve,
       catalysts: () => this.catalysts,
@@ -505,155 +501,15 @@ export class Simulation {
       deleteSkillRuntime: (id) => this.skillsRuntime.delete(id),
       setCatalystRuntime: (id, runtime) => this.catalystRuntime.set(id, runtime),
       mutationCores: () => this.mutationCores,
-      setMutationCores: (value) => {
-        this.mutationCores = value;
-      },
-      resetCapacitor: () => {
-        this.capacitorCharge = 0;
-      }
-    });
-    this.enemySpawns = new EnemySpawnSystem({
-      time: () => this.time,
-      randomRange: (min, max) => this.rng.range(min, max),
-      worldScale: () => this.worldScale(),
-      damageScale: () => this.damageScale(),
-      populationTarget: () => this.populationTarget(),
-      normalCount: () => this.entityStore.countAlive((entity) => entity.kind !== 'elite'),
-      nextEntityId: () => this.nextId++,
-      pointAroundPlayer: (min, max) => this.pointAroundPlayer(min, max),
-      addEntity: (entity) => this.entityStore.add(entity),
-      onSpawn: (entity) => {
-        this.metrics.spawned++;
-        this.events.push({
-          type: 'EntitySpawned',
-          tick: this.tick,
-          entity: entity.id,
-          kind: entity.kind,
-          x: entity.x,
-          z: entity.z
-        });
-      }
-    });
-    this.enemyRecycler = new EnemyRecycleSystem({
-      dt: () => this.dt,
-      playerX: () => this.px,
-      playerZ: () => this.pz,
-      entities: () => this.ents,
-      pointAroundPlayer: (min, max) => this.pointAroundPlayer(min, max),
-      emitEliteReacquired: (entity) => {
-        this.events.push({
-          type: 'EliteReacquired',
-          tick: this.tick,
-          entity: entity.id,
-          x: entity.x,
-          z: entity.z
-        });
-      }
-    });
-    this.eliteSpawns = new EliteSpawnSystem({
-      time: () => this.time,
-      runDuration: () => this.runDuration,
-      mode: () => this.mode,
-      playerX: () => this.px,
-      playerZ: () => this.pz,
-      worldBounds: () => this.world,
-      randomInt: (maxExclusive) => this.rng.int(maxExclusive),
-      randomFloat: () => this.rng.float(),
-      randomRange: (min, max) => this.rng.range(min, max),
-      worldScale: () => this.worldScale(),
-      damageScale: () => this.damageScale(),
-      nextEntityId: () => this.nextId++,
-      pointAroundPlayer: (min, max) => this.pointAroundPlayer(min, max),
-      claimRepertoire: (entity) => this.claimRepertoire(entity),
-      inheritLegacy: (entity, all) => this.inheritEliteLegacy(entity, all),
-      inheritEvolution: (entity) => this.inheritEliteEvolution(entity),
-      grantNativeGrowth: (entity) => this.grantNativeEliteGrowth(entity),
-      ecosystemMass: () => this.eliteLegacyItems.length + this.eliteEvolutionHistory.length,
-      pois: () => this.pois,
-      activePoiGuardians: () =>
-        this.entityStore.countAlive(
-          (entity) => entity.kind === 'elite' && !entity.boss && entity.guardianPoi > 0
-        ),
-      commitElite: (entity, options) => {
-        if (options.trackEncounter) this.noteEliteSpawn(entity);
-        this.entityStore.add(entity);
-        this.metrics.spawned++;
-        this.metrics.eliteSpawned++;
-        this.events.push({
-          type: 'EntitySpawned',
-          tick: this.tick,
-          entity: entity.id,
-          kind: 'elite',
-          x: entity.x,
-          z: entity.z,
-          chassis: entity.chassis,
-          affix: entity.affix,
-          ...(options.bossEvent ? { boss: true } : {})
-        });
-      },
-      emitBossSpawned: (entity, supports, uncleared) => {
-        this.events.push({
-          type: 'BossSpawned',
-          tick: this.tick,
-          entity: entity.id,
-          x: entity.x,
-          z: entity.z,
-          supports,
-          uncleared
-        });
-      }
-    });
-    this.rewardOfferFactory = new RewardOfferFactory({
-      randomInt: (maxExclusive) => this.rng.int(maxExclusive),
-      randomFloat: () => this.rng.float(),
-      nextU32: () => this.rng.nextU32(),
-      fortune: () => this.fortune,
-      resonanceLevel: (id) => this.resonance[id],
-      doctrineLevel: (id) => this.doctrines[id],
-      slots: () => this.slots,
-      catalystCompatibleEdges: (id) => this.catalystCompatibleEdges(id)
-    });
-    this.progressionOffers = new ProgressionOfferSystem(
-      {
-        randomInt: (maxExclusive) => this.rng.int(maxExclusive),
-        randomFloat: () => this.rng.float(),
-        refusalInt: (maxExclusive) => this.refusalLedger.pickIndex(maxExclusive),
-        slots: () => this.slots,
-        skillReserve: () => this.skillReserve,
-        catalysts: () => this.catalysts,
-        catalystReserve: () => this.catalystReserve,
-        skillState: (id) => this.skillState(id),
-        mutationCores: () => this.mutationCores,
-        catalystCompatibleEdges: (id) => this.catalystCompatibleEdges(id)
-      },
-      this.rewardOfferFactory
-    );
-    this.mutationChoices = new MutationChoiceSystem(
-      {
-        randomInt: (maxExclusive) => this.rng.int(maxExclusive),
-        skillState: (id) => this.skillState(id),
-        mutationCores: () => this.mutationCores,
-        setMutationCores: (value) => {
-          this.mutationCores = value;
-        },
-        noteMutation: () => {
-          this.metrics.mutations++;
-        },
-        emitMutationChosen: (skill, mutation) =>
-          this.events.push({ type: 'MutationChosen', tick: this.tick, skill, mutation }),
-        emitRareEvent: (title, detail) =>
-          this.events.push({ type: 'RareEvent', tick: this.tick, title, detail })
-      },
-      this.choiceRuntime
-    );
-    this.progressionRuntime = new ProgressionRuntime({
-      hasChoice: () => this.hasChoice,
-      mutationCores: () => this.mutationCores,
-      hasEvolvableSkill: () => this.progressionOffers.hasEvolvableSkill(),
-      openMutationTargets: () => this.generateMutationTargetOffers(),
+      setMutationCores: (value) => { this.mutationCores = value; },
+      resetCapacitor: () => { this.capacitorCharge = 0; },
+      noteMutation: () => { this.metrics.mutations++; },
+      emitMutationChosen: (skill, mutation) =>
+        this.events.push({ type: 'MutationChosen', tick: this.tick, skill, mutation }),
+      emitRareEvent: (title, detail) =>
+        this.events.push({ type: 'RareEvent', tick: this.tick, title, detail }),
       eliteCore: () => this.eliteCore,
       spendEliteCore: (amount) => { this.eliteCore -= amount; },
-      openEliteCache: () => this.generateEliteCache(),
       xp: () => this.xp,
       xpNeed: () => this.xpNeed,
       spendXp: (amount) => { this.xp -= amount; },
@@ -662,20 +518,11 @@ export class Simulation {
       setLevel: (value) => { this.level = value; },
       setXpNeed: (value) => { this.xpNeed = value; },
       noteLevel: () => { this.metrics.levels++; },
-      openLevelOffers: () => this.generateLevelOffers(),
       emitLevelUp: (level) =>
         this.events.push({ type: 'LevelUp', tick: this.tick, level }),
-      takeReward: (index) => this.choiceRuntime.takeReward(index),
-      rewardOffers: () => this.rewardOffers,
-      clearRewards: () => this.choiceRuntime.clearRewards(),
       rerolls: () => this.rerolls,
       spendReroll: () => { this.rerolls--; },
-      beginMutationTarget: () => this.choiceRuntime.beginMutationTarget(),
-      openMutation: (skill) => { this.mutationChoices.open(skill); },
       grantItem: (item) => this.grantItem(item),
-      swapInSkill: (skill, slot) => this.swapInSkill(skill, slot),
-      addSkill: (skill) => this.addSkill(skill),
-      placeCatalyst: (id) => this.placeCatalyst(id),
       applyDoctrine: (id, amount) => this.applyDoctrine(id, amount),
       applyCoreAxis: (id, amount) => this.applyCoreAxis(id, amount),
       applyGlobal: (stat, amount) => this.applyGlobal(stat, amount),
@@ -689,17 +536,14 @@ export class Simulation {
       playerX: () => this.px,
       playerZ: () => this.pz,
       maxHp: () => this.maxHp,
-      hasChoice: () => this.choiceRuntime.hasChoice,
-      hasUnownedSkills: () => this.progressionOffers.hasUnownedSkills(),
+      hasChoice: () => this.progression.hasChoice,
+      hasUnownedSkills: () => this.progression.hasUnownedSkills(),
       emit: (event) => this.events.push(event),
       healPlayer: (amount) => this.healPlayer(amount),
       grantBarrier: (amount) => this.grantBarrier(amount),
-      openPhenomenonDiscovery: () =>
-        this.choiceRuntime.openRewards(this.progressionOffers.discovery()),
-      openCatalystDiscovery: () =>
-        this.choiceRuntime.openRewards(this.progressionOffers.catalystDiscovery()),
-      openResonanceChoice: () =>
-        this.choiceRuntime.openRewards(this.progressionOffers.resonanceChoice())
+      openPhenomenonDiscovery: () => this.progression.openDiscovery(),
+      openCatalystDiscovery: () => this.progression.openCatalystDiscovery(),
+      openResonanceChoice: () => this.progression.openResonanceChoice()
     });
     this.playerMovement = new PlayerMovementSystem({
       time: () => this.time,
@@ -1601,7 +1445,7 @@ export class Simulation {
     return this.tick / this.hz;
   }
   get hasChoice() {
-    return this.choiceRuntime.hasChoice;
+    return this.progression.hasChoice;
   }
 
   private initObstacles() {
@@ -2637,42 +2481,29 @@ export class Simulation {
   }
 
   private checkProgression() {
-    this.progressionRuntime.check();
+    this.progression.check();
   }
   private allOwnedSkills() {
-    return this.buildLoadout.allOwnedSkills();
+    return this.progression.allOwnedSkills();
   }
   private allOwnedCatalysts() {
-    return this.buildLoadout.allOwnedCatalysts();
+    return this.progression.allOwnedCatalysts();
   }
   private catalystCompatibleEdges(id: CatalystId) {
-    return this.buildLoadout.catalystCompatibleEdges(id);
-  }
-  private generateDiscovery() {
-    this.choiceRuntime.openRewards(this.progressionOffers.discovery());
+    return this.progression.catalystCompatibleEdges(id);
   }
   /** v0.11: XP answers exactly one question — what kind of build is the hero becoming? */
-  private generateLevelOffers() {
-    this.choiceRuntime.openRewards(this.progressionOffers.levelOffers());
-  }
-  private generateMutationTargetOffers() {
-    const offers = this.progressionOffers.mutationTargetOffers();
-    if (offers.length) this.choiceRuntime.openRewards(offers);
-  }
-  private generateEliteCache() {
-    this.choiceRuntime.openRewards(this.progressionOffers.eliteCache());
-  }
   private placeCatalyst(id: CatalystId) {
-    return this.buildLoadout.placeCatalyst(id);
+    return this.progression.placeCatalyst(id);
   }
   private addSkill(id: SkillId) {
-    return this.buildLoadout.addSkill(id);
+    return this.progression.addSkill(id);
   }
   private swapInSkill(id: SkillId, slot: number) {
-    return this.buildLoadout.swapInSkill(id, slot);
+    return this.progression.swapInSkill(id, slot);
   }
   chooseReward(index: number) {
-    return this.progressionRuntime.chooseReward(index);
+    return this.progression.chooseReward(index);
   }
   /**
    * D7: of the cards the hero passed over, exactly one is conceded to the elites and the
@@ -2699,16 +2530,16 @@ export class Simulation {
     this.playerGrowth.applyGlobal(stat, amount);
   }
   chooseMutation(index: number) {
-    return this.mutationChoices.choose(index);
+    return this.progression.chooseMutation(index);
   }
   refuseMutation(index: number) {
-    return this.mutationChoices.refuse(index);
+    return this.progression.refuseMutation(index);
   }
   rerollRewards() {
-    return this.progressionRuntime.rerollRewards();
+    return this.progression.rerollRewards();
   }
   skipReward() {
-    return this.progressionRuntime.skipReward();
+    return this.progression.skipReward();
   }
 
   private isActiveSkill(id: SkillId) {
@@ -2721,10 +2552,10 @@ export class Simulation {
     return this.swapCatalystLocations('active', a, 'active', b);
   }
   swapSkillLocations(za: 'active' | 'reserve', a: number, zb: 'active' | 'reserve', b: number) {
-    return this.buildLoadout.swapSkillLocations(za, a, zb, b);
+    return this.progression.swapSkillLocations(za, a, zb, b);
   }
   swapCatalystLocations(za: 'active' | 'reserve', a: number, zb: 'active' | 'reserve', b: number) {
-    return this.buildLoadout.swapCatalystLocations(za, a, zb, b);
+    return this.progression.swapCatalystLocations(za, a, zb, b);
   }
 
   configureBenchmarkLoadout(cfg: BenchmarkLoadout) {
