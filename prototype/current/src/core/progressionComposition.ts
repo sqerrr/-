@@ -121,7 +121,8 @@ export class ProgressionComposition {
         mutationCores: port.mutationCores,
         catalystCompatibleEdges: (id) => this.loadout.catalystCompatibleEdges(id),
         hasFreeSkillPlace: () => this.loadout.hasFreeSkillPlace(),
-        hasFreeCatalystPlace: () => this.loadout.hasFreeCatalystPlace()
+        hasFreeCatalystPlace: () => this.loadout.hasFreeCatalystPlace(),
+        doctrineLevel: port.doctrineLevel
       },
       factory
     );

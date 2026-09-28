@@ -13,6 +13,8 @@ export interface ActivationPipelinePort {
   skillRuntime(skill: SkillId): SkillRuntime | undefined;
   incomingCatalyst(slot: number): CatalystId | null;
   conductivity(): number;
+  /** Damage scale for Catalyst 2.x payload casts (Catalyst power). */
+  catalystPayloadScale(): number;
 
   playerPosition(): ChoreographyPoint;
   aim(): ChoreographyPoint;
@@ -150,6 +152,8 @@ export class ActivationPipelineSystem {
     const previousChoreography = this.choreography.suspend();
 
     this.activation.begin(binding.toSlot, true);
+    // Catalyst power: a Catalyst-launched payload hits harder.
+    this.activation.scale = this.port.catalystPayloadScale();
 
     try {
       const source = this.port.choreographySource(x, z, aimX, aimZ);

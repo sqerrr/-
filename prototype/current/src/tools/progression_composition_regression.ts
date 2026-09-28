@@ -137,7 +137,7 @@ state.xp = state.xpNeed;
 composition.check();
 assert(state.level === 2, 'level progression did not advance');
 assert(state.xp === 0, 'level progression did not spend the old XP threshold');
-assert(state.xpNeed === 17, 'next XP threshold changed');
+assert(state.xpNeed === 20, 'next XP threshold changed');
 assert(state.levelEvents[0] === 2, 'level-up event wiring changed');
 assert(composition.hasChoice && composition.rewardOffers?.length === 3,
   'level progression did not open the composed offer window');

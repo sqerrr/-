@@ -289,7 +289,9 @@ export class ProjectileSystem {
         projectile.z = z0 + (z1 - z0) * coverT;
         pathEvent(projectile, x0, z0, projectile.x, projectile.z);
         contactEvent(projectile);
-        const destroyed = p.damageObstacle(cover, projectile.coverDamage);
+        // Impulse doctrine: hero projectiles break destructible cover faster (+25% per rank).
+        const coverMul = projectile.faction === 'hero' ? 1 + p.forceDoctrine() * 0.25 : 1;
+        const destroyed = p.damageObstacle(cover, projectile.coverDamage * coverMul);
         if (projectile.behavior === 'roller' && destroyed) {
           projectile.damage *= 1.06;
           projectile.radius = Math.min(2.2, projectile.radius + 0.09);

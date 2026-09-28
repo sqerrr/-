@@ -10,7 +10,6 @@ interface DamageSample {
 
 export interface EliteDamageResponsePort {
   time(): number;
-  conductivity(): number;
   corePower(): number;
   spawnReplicant(entity: Ent): void;
   emitOrder(entity: Ent, order: EliteOrderId, count?: number): void;
@@ -24,6 +23,7 @@ export interface EliteDamageResponsePort {
  * rolling damage signature used by Shepherd, so Simulation no longer stores adaptation telemetry.
  */
 export class EliteDamageResponseSystem {
+  static readonly BROOD_THRESHOLD = 8;
   private readonly samples: DamageSample[] = [];
 
   constructor(private readonly port: EliteDamageResponsePort) {}
@@ -65,8 +65,9 @@ export class EliteDamageResponseSystem {
 
     if (entity.chassis === 'broodmaker' && (skill || derived)) {
       entity.affixPulse++;
-      const threshold = Math.max(5, 8 - p.conductivity());
-      if (entity.affixPulse >= threshold) {
+      // The hero's Catalyst power used to lower this threshold, turning a hero upgrade into
+      // extra replicants. Broodmaker cadence is now a fixed chassis rule.
+      if (entity.affixPulse >= EliteDamageResponseSystem.BROOD_THRESHOLD) {
         entity.affixPulse = 0;
         p.spawnReplicant(entity);
       }

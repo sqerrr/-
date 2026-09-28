@@ -1,5 +1,8 @@
 import {
   activeSkillOrder,
+  catalystAttunement,
+  catalystAttunementScale,
+  catalystPayloadScale,
   catalysts,
   catalystPairCompatible,
   doctrines,
@@ -681,9 +684,10 @@ function updateChain(s: Snapshot) {
             right = s.chain.slots[i + 1],
             compatible = !!left && !!right && catalystPairCompatible(cid, left, right);
           edge.classList.add(compatible ? 'compatible' : 'incompatible');
-          edge.title = compatible
+          edge.title = (compatible
             ? `${cd.desc}\nРАБОТАЕТ: ${skills[left!].name} → ${skills[right!].name}`
-            : `${cd.desc}\nНЕСОВМЕСТИМО с текущей парой.`;
+            : `${cd.desc}\nНЕСОВМЕСТИМО с текущей парой.`) +
+            (catalystAttunement[cid] ? `\nГЕРОЮ: ${catalystAttunement[cid]!.text}` : '');
           edge.style.setProperty('--cat-color', cd.color);
           edge.innerHTML = compatible
             ? `<div class="catdot"></div><b>${esc(cd.shortName)}</b><span>связь работает</span>`
@@ -792,7 +796,10 @@ function plannerCatNode(
         : compatible
           ? `СВЯЗЬ РАБОТАЕТ · ${skills[left!].shortName} → ${skills[right!].shortName}`
           : '⚠ НЕСОВМЕСТИМО · переставьте феномены или катализатор';
-    el.innerHTML = `<div class="catdot"></div><div class="nm">${esc(d.name)}</div><div class="sm">${esc(state)}</div><div class="effect">${esc(d.desc)}</div>`;
+    const attune = catalystAttunement[id]
+      ? ` Герою на связи: ${catalystAttunement[id]!.text}${zone === 'active' ? '' : ' (не действует из резерва)'}.`
+      : '';
+    el.innerHTML = `<div class="catdot"></div><div class="nm">${esc(d.name)}</div><div class="sm">${esc(state)}</div><div class="effect">${esc(d.desc + attune)}</div>`;
   } else el.innerHTML = '<div>пустой<br>слот</div>';
   attachPlannerDnD(el);
   return el;
@@ -908,7 +915,7 @@ function updatePlanner(s: Snapshot) {
     ['Длительность', `×${duration.toFixed(2)}`],
     ['Доп. сущности', quantity ? `+${quantity}` : '—'],
     ['Темп ядра', r.tempo.toFixed(2)],
-    ['Катализаторы', r.conductivity.toFixed(2)]
+    ['Сила катализаторов', `удар ×${catalystPayloadScale(r.conductivity).toFixed(2)} · бонусы ×${catalystAttunementScale(r.conductivity).toFixed(2)}`]
   ].map(([k,v])=>`<div class="sheet-stat"><span>${esc(String(k))}</span><b>${esc(String(v))}</b></div>`).join('');
 }
 

@@ -1,5 +1,9 @@
 import {
   activeSkillOrder,
+  catalystAttunement,
+  catalystAttunementScale,
+  catalystPayloadScale,
+  type CatalystAttunementStat,
   doctrines,
   effectGrammar,
   initialCatalystReserve,
@@ -447,7 +451,7 @@ export class Simulation {
       dt: () => this.dt,
       playerX: () => this.px,
       playerZ: () => this.pz,
-      pickupRadius: () => this.pickupRadius,
+      pickupRadius: () => this.pickupRadius * (1 + this.catalystAttunement('pickup')),
       nextId: () => this.nextId++,
       grantXp: (amount) => { this.xp += amount; },
       grantEliteCore: (amount) => { this.eliteCore += amount; },
@@ -480,7 +484,7 @@ export class Simulation {
       randomFloat: () => this.rng.float(),
       nextU32: () => this.rng.nextU32(),
       refusalInt: (maxExclusive) => this.refusalLedger.pickIndex(maxExclusive),
-      fortune: () => this.fortune,
+      fortune: () => this.fortune + this.catalystAttunement('fortune'),
       resonanceLevel: (id) => this.resonance[id],
       doctrineLevel: (id) => this.doctrines[id],
       slots: () => this.slots,
@@ -639,8 +643,9 @@ export class Simulation {
       },
       aimX: () => this.aimX,
       aimZ: () => this.aimZ,
-      moveSpeed: () => this.moveSpeed,
-      dashCooldownMultiplier: () => this.dashCooldownMul,
+      moveSpeed: () => this.moveSpeed * (1 + this.catalystAttunement('moveSpeed')),
+      dashCooldownMultiplier: () =>
+        this.dashCooldownMul / (1 + this.catalystAttunement('dashRecovery')),
       dashIFrameMultiplier: () => this.dashIFrameMul,
       metrics: () => this.metrics,
       noteEncounterDash: (time) => this.eliteEncountersLedger.noteDash(time),
@@ -909,7 +914,6 @@ export class Simulation {
     });
     this.eliteDamageResponse = new EliteDamageResponseSystem({
       time: () => this.time,
-      conductivity: () => this.resonance.conductivity,
       corePower: () => this.corePower(),
       spawnReplicant: (entity) => this.spawnReplicant(entity),
       emitOrder: (entity, order, count) =>
@@ -927,7 +931,8 @@ export class Simulation {
       {
         time: () => this.time,
         itemDamageMultiplier: () => this.itemDamageMul,
-        itemEliteDamageMultiplier: () => this.itemEliteDamageMul,
+        itemEliteDamageMultiplier: () =>
+          this.itemEliteDamageMul * (1 + this.catalystAttunement('eliteDamage')),
         itemCritBonus: () => this.itemCrit,
         doctrinePrecision: () => this.doctrines.precision,
         resonancePrecision: () => this.resonance.precision,
@@ -964,7 +969,7 @@ export class Simulation {
       setBarrier: (value) => {
         this.barrier = value;
       },
-      armor: () => this.armor,
+      armor: () => this.armor + this.catalystAttunement('armor'),
       guardDoctrine: () => this.doctrines.guard,
       itemDamageTakenMultiplier: () => this.itemDamageTakenMul,
       itemRefusalDamageMultiplier: () => this.itemRefusalDamageMul,
@@ -1178,6 +1183,7 @@ export class Simulation {
         activeSpan: () => this.activeSpan(),
         incomingCatalyst: (slot) => this.incomingCatalyst(slot),
         conductivity: () => this.resonance.conductivity,
+        catalystPayloadScale: () => catalystPayloadScale(this.resonance.conductivity),
         playerPosition: () => ({ x: this.px, z: this.pz }),
         aim: () => ({ x: this.aimX, z: this.aimZ }),
         setAim: (x, z) => {
@@ -2062,8 +2068,15 @@ export class Simulation {
   private incomingCatalyst(slot: number) {
     return slot > 0 ? this.catalysts[slot - 1] : null;
   }
-  private catalystPotency(id: CatalystId | null) {
-    return id ? 1 + this.resonance.conductivity * 0.16 : 1;
+  /** Sum of the hero attunement granted by Catalysts standing on links, scaled by Catalyst power. */
+  private catalystAttunement(stat: CatalystAttunementStat) {
+    let total = 0;
+    for (const id of this.catalysts) {
+      if (!id) continue;
+      for (const effect of catalystAttunement[id]?.effects ?? [])
+        if (effect.stat === stat) total += effect.amount;
+    }
+    return total * catalystAttunementScale(this.resonance.conductivity);
   }
   private supportsAxis(id: SkillId, axis: ResonanceId) {
     return skills[id].axes?.includes(axis) ?? false;
@@ -2450,11 +2463,14 @@ export class Simulation {
     if (source === 'sentry') e.sentryTouchedUntil = this.time + 4;
     this.combatLedger.recordEnemyHit(e, source, actual, sourceSlot);
     this.eliteDamageResponse.noteResolvedDamage(source, actual, this.activation.derived);
-    if (source === 'cleaver' || source === 'orbit_blades') {
-      if (this.doctrines.guard > 0 && Math.hypot(e.x - this.px, e.z - this.pz) < 4.2)
-        this.grantBarrier(Math.min(3.5, actual * (0.0025 + this.doctrines.guard * 0.0014)));
-      this.eliteAffix.afterCloseDamage(e, actual, this.doctrines.force);
-    }
+    const closeSource =
+      source === 'cleaver' || source === 'orbit_blades' ||
+      source === 'frost_ring' || source === 'tether_drag';
+    if (closeSource && this.doctrines.guard > 0 && Math.hypot(e.x - this.px, e.z - this.pz) < 4.2)
+      this.grantBarrier(Math.min(3.5, actual * (0.0025 + this.doctrines.guard * 0.0014)));
+    // Impulse erodes elite shield stability from every Phenomenon hit; close work erodes twice as fast.
+    if (skill || closeSource)
+      this.eliteAffix.afterCloseDamage(e, closeSource ? actual : actual * 0.5, this.doctrines.force);
     if (skill && this.activation.slot >= 0) {
       this.activation.recordHit(e.id, actual);
       if (this.choreography.matchesSkill(skill.id))

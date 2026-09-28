@@ -66,8 +66,12 @@ export interface ProgressionRuntimePort {
 export class ProgressionRuntime {
   constructor(private readonly port: ProgressionRuntimePort) {}
 
+  /**
+   * Level cost. Tuned for ~30-35 levels in an 8-minute clean run: ~10 s per level in the first
+   * minute, ~15 s mid-run, ~30 s at the end (see tools/balance_progression_model).
+   */
   static nextXpNeed(level: number) {
-    return Math.round(12 + level * 1.5 + Math.pow(level, 1.25) * 0.7);
+    return Math.round(14 + 2.1 * Math.pow(level, 1.6));
   }
 
   check() {

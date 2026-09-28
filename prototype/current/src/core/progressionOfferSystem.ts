@@ -1,10 +1,13 @@
 import {
   activeSkillOrder,
   catalystOrder,
+  doctrineMaxRank,
   doctrineOrder,
+  doctrineRequiresAxis,
   mutationChildren,
   mutationRoots,
-  resonanceOrder
+  resonanceOrder,
+  skills
 } from '../content/definitions.js';
 import type {
   CatalystId,
@@ -28,6 +31,7 @@ export interface ProgressionOfferPort {
   catalystCompatibleEdges(id: CatalystId): number[];
   hasFreeSkillPlace(): boolean;
   hasFreeCatalystPlace(): boolean;
+  doctrineLevel(id: DoctrineId): number;
 }
 
 /**
@@ -77,7 +81,7 @@ export class ProgressionOfferSystem {
   }
 
   resonanceChoice(): RewardOffer[] {
-    return this.shuffle([...resonanceOrder])
+    return this.shuffle(this.usefulResonance())
       .slice(0, 3)
       .map((id) => this.factory.resonance(id));
   }
@@ -93,17 +97,21 @@ export class ProgressionOfferSystem {
   }
 
   levelOffers(): RewardOffer[] {
-    const ids = this.shuffle([...doctrineOrder]);
+    // Only doctrines whose next rank changes something for this build: below the ceiling and,
+    // for axis-bound doctrines, backed by at least one active Phenomenon with that axis.
+    const available = doctrineOrder.filter((id) => this.doctrineUseful(id));
+    const ids = this.shuffle([...available]);
 
     // Soft steering without a hard recipe: close builds see survival/reach more often,
     // projectile/construct builds retain wildcard access to the full doctrine pool.
     const close = this.port
       .slots()
       .filter((id) => id === 'cleaver' || id === 'orbit_blades').length;
-    const preferred: DoctrineId[] =
+    const preferred: DoctrineId[] = (
       close >= 2
-        ? ['size', 'guard', 'mobility', 'force']
-        : ['might', 'precision', 'quantity', 'duration'];
+        ? (['size', 'guard', 'mobility', 'force'] as DoctrineId[])
+        : (['might', 'precision', 'quantity', 'duration'] as DoctrineId[])
+    ).filter((id) => available.includes(id));
 
     const selected: DoctrineId[] = [];
     if (this.port.randomFloat() < 0.7) {
@@ -117,9 +125,28 @@ export class ProgressionOfferSystem {
       if (!selected.includes(id)) selected.push(id);
     }
 
-    return selected
+    const offers = selected
       .slice(0, 3)
       .map((id) => this.factory.doctrine(id));
+
+    // Exhausted doctrine pool: fill with rarity-rolled general cards instead of dead ranks.
+    while (offers.length < 3) offers.push(this.factory.global());
+    return offers;
+  }
+
+  /** Catalyst power does nothing until at least one Catalyst stands on a link. */
+  private usefulResonance() {
+    const linked = this.port.catalysts().some(Boolean);
+    return resonanceOrder.filter((id) => id !== 'conductivity' || linked);
+  }
+
+  private doctrineUseful(id: DoctrineId) {
+    if (this.port.doctrineLevel(id) >= doctrineMaxRank[id]) return false;
+    const axis = doctrineRequiresAxis[id];
+    if (!axis) return true;
+    return this.port
+      .slots()
+      .some((skill) => !!skill && (skills[skill].axes?.includes(axis) ?? false));
   }
 
   mutationTargetOffers(): RewardOffer[] {
@@ -176,7 +203,7 @@ export class ProgressionOfferSystem {
         .slice(0, 3)
         .map((id) => this.factory.eliteCatalyst(id));
     } else {
-      offers = this.shuffle([...resonanceOrder])
+      offers = this.shuffle(this.usefulResonance())
         .slice(0, 2)
         .map((id) => this.factory.eliteResonance(id));
 

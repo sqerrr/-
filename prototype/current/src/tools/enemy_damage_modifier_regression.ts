@@ -94,9 +94,10 @@ assert(result.scaledBase === 300, 'item/base elite scaling order changed');
 assert(randomCalls === 1, 'skill crit RNG cadence changed');
 assert(Math.abs(eliteInputs[0] - 693) < 1e-9,
   'elite chassis response moved before relic/skill/crit modifiers');
-assert(Math.abs(affixInputs[0] - 632.4318) < 1e-6,
+// Mark consumption: ×(1.35 + 0.08 per Precision doctrine rank) — precision 1 here → ×1.43.
+assert(Math.abs(affixInputs[0] - 669.9092) < 1e-3,
   'affix response moved before mark/exposed/binder modifiers');
-assert(Math.abs(result.actual - 316.2159) < 1e-6,
+assert(Math.abs(result.actual - 334.9546) < 1e-3,
   'full incoming-damage modifier order changed');
 assert(elite.markUntil === 0, 'non-Ember hit stopped consuming mark');
 assert(!result.crit,

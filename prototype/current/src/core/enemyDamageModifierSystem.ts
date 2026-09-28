@@ -94,7 +94,8 @@ export class EnemyDamageModifierSystem {
     );
 
     if (source !== 'ember_lance' && entity.markUntil > p.time()) {
-      actual *= 1.35;
+      // Precision doctrine sharpens marks: +8% per rank on the consuming hit.
+      actual *= 1.35 + p.doctrinePrecision() * 0.08;
       entity.markUntil = 0;
     }
 

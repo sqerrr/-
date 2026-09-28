@@ -9,14 +9,12 @@ function assert(ok: unknown, message: string): asserts ok {
 const numeric = (value: number): number => value;
 
 let now = 10;
-let conductivity = 0;
 let corePower = 1;
 const orders: { order: EliteOrderId; count?: number }[] = [];
 const replicated: number[] = [];
 
 const port: EliteDamageResponsePort = {
   time: () => now,
-  conductivity: () => conductivity,
   corePower: () => corePower,
   spawnReplicant: (entity) => replicated.push(entity.id),
   emitOrder: (_entity, order, count) => orders.push({ order, count })
@@ -74,18 +72,20 @@ function elite(chassis: EliteChassis, id: number): Ent {
   assert(numeric(entity.adaptStage) === 0, 'Harvester direct hit did not consume adaptation');
 }
 
-// Broodmaker counts authored damage events; conductivity lowers the threshold exactly as before.
+// Broodmaker counts authored damage events at a fixed cadence; hero Catalyst power no longer
+// lowers the threshold (it used to punish the hero for a Catalyst upgrade).
 {
   replicated.length = 0;
-  conductivity = 3;
   const entity = elite('broodmaker', 3);
   entity.affixPulse = 4;
-  const damage = system.beforeDamage(entity, 100, 'frost_ring', false);
+  let damage = system.beforeDamage(entity, 100, 'frost_ring', false);
   assert(damage === 100, 'Broodmaker reaction changed incoming damage');
+  assert(replicated.length === Number(0), 'Broodmaker spawned before its fixed threshold');
+  entity.affixPulse = EliteDamageResponseSystem.BROOD_THRESHOLD - 1;
+  damage = system.beforeDamage(entity, 100, 'frost_ring', false);
   assert(replicated.length === 1 && replicated[0] === entity.id,
     'Broodmaker threshold no longer spawns one replicant');
   assert(entity.affixPulse === 0, 'Broodmaker pulse did not reset after spawn');
-  conductivity = 0;
 }
 
 // Shepherd reads previous resolved damage, not the hit that crosses its transform threshold.
@@ -114,7 +114,6 @@ function elite(chassis: EliteChassis, id: number): Ent {
   const localOrders: { order: EliteOrderId; count?: number }[] = [];
   const localPort: EliteDamageResponsePort = {
     time: () => localNow,
-    conductivity: () => 0,
     corePower: () => corePower,
     spawnReplicant: (entity) => localReplicants.push(entity.id),
     emitOrder: (_entity, order, count) => localOrders.push({ order, count })

@@ -1,6 +1,9 @@
 import {
+  catalystAttunement,
   catalysts,
+  doctrineMaxRank,
   doctrineOrder,
+  doctrineRarityTier,
   doctrines,
   mutationDef,
   rarityMultiplier,
@@ -95,10 +98,11 @@ export class RewardOfferFactory {
         id: `g:f:${this.port.nextU32()}`,
         kind: 'global',
         title: 'Удача',
-        subtitle: `+${Math.round(8 * multiplier)}% к удаче`,
-        description: 'Редкие находки выпадают чаще.',
+        subtitle: `+${Math.round(25 * multiplier)} удачи`,
+        description:
+          'Чаще выпадают редкие карты: специализации сразу на +2 и +3 ранга и усиленные общие награды.',
         stat,
-        amount: 0.08 * multiplier,
+        amount: 0.25 * multiplier,
         rarity
       };
 
@@ -135,27 +139,41 @@ export class RewardOfferFactory {
         catalysts[id].desc +
         (examples.length
           ? ` Сейчас подходит: ${examples.join(' · ')}.`
-          : ' Поставьте его между совместимой парой феноменов.'),
+          : ' Поставьте его между совместимой парой феноменов.') +
+        (catalystAttunement[id]
+          ? ` Пока стоит на связи, герою: ${catalystAttunement[id]!.text}.`
+          : ''),
       catalyst: id
     };
   }
 
+  /**
+   * Doctrine cards roll rarity from fortune: a rare card grants two ranks, a legendary three,
+   * never past the doctrine's rank ceiling.
+   */
   doctrine(id?: DoctrineId): RewardOffer {
     const did = id ?? doctrineOrder[this.port.randomInt(doctrineOrder.length)];
     const definition = doctrines[did];
     const before = this.port.doctrineLevel(did);
-    const after = before + 1;
+    const tier = doctrineRarityTier(this.rollRarity());
+    const ranks = Math.max(1, Math.min(tier.ranks, doctrineMaxRank[did] - before));
+    const rarity = ranks === tier.ranks ? tier.rarity : ranks >= 2 ? 'rare' : 'common';
+    const after = before + ranks;
 
     return {
       id: `doctrine:${did}:${this.port.nextU32()}`,
       kind: 'doctrine',
       title: definition.name,
-      subtitle: `СПЕЦИАЛИЗАЦИЯ ${before} → ${after}`,
+      subtitle:
+        ranks > 1
+          ? `СПЕЦИАЛИЗАЦИЯ ${before} → ${after} · +${ranks} РАНГА`
+          : `СПЕЦИАЛИЗАЦИЯ ${before} → ${after}`,
       description: definition.description,
       doctrine: did,
-      amount: 1,
+      amount: ranks,
       before: String(before),
-      after: String(after)
+      after: String(after),
+      rarity
     };
   }
 

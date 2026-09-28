@@ -156,10 +156,10 @@ state.levels = 0;
 runtime.check();
 assert(state.xp === 6, 'XP threshold spend changed');
 assert(state.level === 2 && state.levels === 1, 'level accounting changed');
-assert(state.xpNeed === ProgressionRuntime.nextXpNeed(2) && state.xpNeed === 17,
+assert(state.xpNeed === ProgressionRuntime.nextXpNeed(2) && state.xpNeed === 20,
   'next XP threshold formula changed');
 assert(state.actions.join('|') ===
-  'spend-xp:14|set-level:2|note-level|set-xp-need:17|level-offers|level-up:2',
+  'spend-xp:14|set-level:2|note-level|set-xp-need:20|level-offers|level-up:2',
   'level-up operation ordering changed');
 clearTrace();
 

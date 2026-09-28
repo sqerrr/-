@@ -1289,6 +1289,46 @@ export interface CatalystDef {
   color: string;
   scope: string;
 }
+/**
+ * Second Catalyst layer: while a Catalyst stands on a link (not in reserve) it also attunes
+ * the hero. Scaled by "Сила катализаторов" (resonance conductivity), see catalystPowerScale.
+ */
+export type CatalystAttunementStat =
+  | 'eliteDamage'
+  | 'armor'
+  | 'moveSpeed'
+  | 'dashRecovery'
+  | 'fortune'
+  | 'pickup';
+export interface CatalystAttunementDef {
+  text: string;
+  effects: { stat: CatalystAttunementStat; amount: number }[];
+}
+export const catalystAttunement: Partial<Record<CatalystId, CatalystAttunementDef>> = {
+  source: { text: '+12% урона по элитам', effects: [{ stat: 'eliteDamage', amount: 0.12 }] },
+  carrier: { text: '+10 брони', effects: [{ stat: 'armor', amount: 10 }] },
+  trail: { text: '+7% скорости движения', effects: [{ stat: 'moveSpeed', amount: 0.07 }] },
+  reverse: {
+    text: 'рывок восстанавливается на 12% быстрее',
+    effects: [{ stat: 'dashRecovery', amount: 0.12 }]
+  },
+  collapse: {
+    text: '+30 удачи и +15% радиуса сбора',
+    effects: [
+      { stat: 'fortune', amount: 0.3 },
+      { stat: 'pickup', amount: 0.15 }
+    ]
+  }
+};
+/** Catalyst power: payload damage of Catalyst-launched casts. */
+export function catalystPayloadScale(conductivity: number) {
+  return 1 + 0.12 * conductivity;
+}
+/** Catalyst power: strength of the hero attunement layer. */
+export function catalystAttunementScale(conductivity: number) {
+  return 1 + 0.25 * conductivity;
+}
+
 export const catalysts: Record<CatalystId, CatalystDef> = {
   source: {
     id: 'source',
@@ -1603,10 +1643,10 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
   },
   conductivity: {
     id: 'conductivity',
-    name: 'Катализаторы',
+    name: 'Сила катализаторов',
     shortName: 'СВЯЗЬ',
     description:
-      'Катализаторы срабатывают легче и сильнее передают эффекты между феноменами.',
+      'Феномен, запущенный катализатором, бьёт на 12% сильнее за ранг; бонусы катализаторов герою растут на 25% за ранг.',
     color: '#75f0d2'
   },
   mobility: {
@@ -1614,7 +1654,7 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
     name: 'Скорость',
     shortName: 'СКОР',
     description:
-      'Герой двигается быстрее; некоторые феномены усиливаются от движения.',
+      'Герой двигается на 4.5% быстрее за ранг.',
     color: '#7de7f4'
   }
 };
@@ -1623,15 +1663,42 @@ export const resonance: Record<ResonanceId, ResonanceDef> = {
 export interface DoctrineDef { id: DoctrineId; name: string; shortName: string; description: string; glyph: string; color: string; }
 export const doctrineOrder: DoctrineId[] = ['might','size','quantity','duration','mobility','guard','force','precision'];
 export const doctrines: Record<DoctrineId, DoctrineDef> = {
-  might:{id:'might',name:'Мощь',shortName:'МОЩЬ',glyph:'✦',color:'#ffb66d',description:'Увеличивает общий урон феноменов. Надёжное усиление без изменения их формы.'},
-  size:{id:'size',name:'Масштаб',shortName:'РАЗМЕР',glyph:'◎',color:'#8fe8ff',description:'Увеличивает дальность ближних атак, радиус орбит и зон, а также размер физических эффектов.'},
-  quantity:{id:'quantity',name:'Количество',shortName:'КОЛ-ВО',glyph:'⁝',color:'#c89cff',description:'Добавляет снаряды, призванные объекты или другие действующие элементы там, где это поддерживает феномен.'},
-  duration:{id:'duration',name:'Длительность',shortName:'ВРЕМЯ',glyph:'◴',color:'#83df9b',description:'Продлевает поля, призванные объекты, следы и другие длительные эффекты.'},
-  mobility:{id:'mobility',name:'Подвижность',shortName:'ХОД',glyph:'➤',color:'#75e7f4',description:'Ускоряет героя и восстановление рывка; особенно полезно сборкам, которые сражаются вблизи.'},
-  guard:{id:'guard',name:'Оплот',shortName:'ЩИТ',glyph:'⬡',color:'#77bfff',description:'Попадания вблизи дают барьер, а входящий урон рядом с врагами немного снижается.'},
-  force:{id:'force',name:'Импульс',shortName:'ИМП',glyph:'✺',color:'#ffd36b',description:'Сильнее отбрасывает врагов, быстрее ломает стойкость щитов элит и хрупкие укрытия.'},
-  precision:{id:'precision',name:'Точность',shortName:'МЕТКА',glyph:'⌖',color:'#ff91ca',description:'Повышает шанс критического удара и пользу меток против приоритетных одиночных целей.'}
+  might:{id:'might',name:'Мощь',shortName:'МОЩЬ',glyph:'✦',color:'#ffb66d',description:'+11% урона всех феноменов за ранг. Надёжное усиление без изменения их формы.'},
+  size:{id:'size',name:'Масштаб',shortName:'РАЗМЕР',glyph:'◎',color:'#8fe8ff',description:'+12% радиуса за ранг: ближние удары, орбиты, зоны и физические эффекты. До 8 рангов.'},
+  quantity:{id:'quantity',name:'Количество',shortName:'КОЛ-ВО',glyph:'⁝',color:'#c89cff',description:'Каждые 2 ранга добавляют снаряд, призванный объект или лезвие феноменам с осью количества. До 6 рангов.'},
+  duration:{id:'duration',name:'Длительность',shortName:'ВРЕМЯ',glyph:'◴',color:'#83df9b',description:'+14% длительности за ранг полям, турелям, следам и другим длительным эффектам. До 8 рангов.'},
+  mobility:{id:'mobility',name:'Подвижность',shortName:'ХОД',glyph:'➤',color:'#75e7f4',description:'+5.5% скорости и −4% перезарядки рывка за ранг. До 5 рангов.'},
+  guard:{id:'guard',name:'Оплот',shortName:'ЩИТ',glyph:'⬡',color:'#77bfff',description:'+4 брони и разовый барьер за ранг; попадания ближних феноменов рядом с героем дают барьер, урон вплотную к врагам снижается. До 8 рангов.'},
+  force:{id:'force',name:'Импульс',shortName:'ИМП',glyph:'✺',color:'#ffd36b',description:'Сильнее отбрасывает врагов, любые попадания расшатывают щиты элит, снаряды героя ломают укрытия на 25% быстрее за ранг. До 6 рангов.'},
+  precision:{id:'precision',name:'Точность',shortName:'МЕТКА',glyph:'⌖',color:'#ff91ca',description:'+3% шанса крита и +8% урона по меткам за ранг. До 10 рангов.'}
 };
+
+/**
+ * Rank ceilings. A doctrine stops being offered once its next rank would change nothing
+ * (quantity adds +1 element per 2 ranks up to +3) or would stop being a meaningful choice.
+ * Might is the open-ended sink and stays uncapped.
+ */
+export const doctrineMaxRank: Record<DoctrineId, number> = {
+  might: Infinity,
+  size: 8,
+  quantity: 6,
+  duration: 8,
+  mobility: 5,
+  guard: 8,
+  force: 6,
+  precision: 10
+};
+/** Doctrines that only act through a Phenomenon axis; offered only when an active slot has it. */
+export const doctrineRequiresAxis: Partial<Record<DoctrineId, ResonanceId>> = {
+  quantity: 'multiplicity',
+  duration: 'persistence'
+};
+/** Fortune-rolled doctrine cards: rarer cards grant several ranks at once. */
+export function doctrineRarityTier(rarity: Rarity): { rarity: Rarity; ranks: number } {
+  if (rarity === 'legendary') return { rarity: 'legendary', ranks: 3 };
+  if (rarity === 'rare' || rarity === 'epic') return { rarity: 'rare', ranks: 2 };
+  return { rarity: 'common', ranks: 1 };
+}
 
 export const rarityOrder: Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
 export const rarityName: Record<Rarity, string> = {

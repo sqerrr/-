@@ -1,3 +1,4 @@
+import { doctrineMaxRank, doctrineOrder } from '../content/definitions.js';
 import { RewardOfferFactory } from '../core/rewardOfferFactory.js';
 import {
   ProgressionOfferSystem,
@@ -84,9 +85,51 @@ const port: ProgressionOfferPort = {
   catalystCompatibleEdges: compatibleEdges,
   hasFreeSkillPlace: () => slots.some((id) => !id) || reserve.some((id) => !id),
   hasFreeCatalystPlace: () =>
-    catalystSlots.some((id) => !id) || catalystReserve.some((id) => !id)
+    catalystSlots.some((id) => !id) || catalystReserve.some((id) => !id),
+  doctrineLevel: (id) => doctrineLevels[id] ?? 0
 };
+const doctrineLevels: Partial<Record<DoctrineId, number>> = {};
 const system = new ProgressionOfferSystem(port, factory);
+
+// Doctrine offers skip capped ranks and axis doctrines the active build cannot use.
+{
+  slots = ['cleaver', 'tether_drag', null, null]; // neither has multiplicity/persistence axes
+  for (let attempt = 0; attempt < 12; attempt++) {
+    mainInts.push(attempt % 5, (attempt * 3) % 7, attempt % 3);
+    mainFloats.push(attempt % 2 ? 0.9 : 0.1);
+    const offers = system.levelOffers();
+    assert(offers.length === 3, 'level window must still show three cards');
+    assert(offers.every((offer) => offer.doctrine !== 'quantity' && offer.doctrine !== 'duration'),
+      'axis doctrine offered to a build with no Phenomenon using that axis');
+  }
+  doctrineLevels.mobility = doctrineMaxRank.mobility;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    mainInts.push(attempt % 6, attempt % 4);
+    const offers = system.levelOffers();
+    assert(offers.every((offer) => offer.doctrine !== 'mobility'), 'capped doctrine still offered');
+  }
+  // Every doctrine exhausted except the uncapped Might: the window fills with general cards.
+  for (const id of doctrineOrder) if (id !== 'might') doctrineLevels[id] = doctrineMaxRank[id];
+  const exhausted = system.levelOffers();
+  assert(exhausted.length === 3, 'exhausted doctrine pool must still show three cards');
+  assert(exhausted.filter((offer) => offer.kind === 'doctrine').length === 1 &&
+    exhausted.some((offer) => offer.doctrine === 'might'),
+    'exhausted pool should keep Might and fill the rest with general cards');
+  assert(exhausted.filter((offer) => offer.kind === 'global').length === 2,
+    'exhausted pool no longer falls back to general cards');
+  for (const id of doctrineOrder) delete doctrineLevels[id];
+  slots = ['rail_spear', null, null, null];
+}
+
+// Catalyst power is not offered before any Catalyst stands on a link.
+{
+  catalystSlots = [null, null, null];
+  for (let attempt = 0; attempt < 10; attempt++) {
+    mainInts.push(attempt % 6, attempt % 5, attempt % 4, attempt % 3, attempt % 2);
+    assert(system.resonanceChoice().every((offer) => offer.resonance !== 'conductivity'),
+      'Catalyst power offered without a linked Catalyst');
+  }
+}
 
 // A free active/reserve position turns discovery into additions.
 {

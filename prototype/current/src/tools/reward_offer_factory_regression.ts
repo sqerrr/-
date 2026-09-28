@@ -54,13 +54,29 @@ assert(axis.before === '2' && axis.after === '3' && axis.amount === 1,
   'resonance before/after semantics changed');
 assert(calls.join(',') === 'u32', 'explicit resonance offer changed RNG cadence');
 
+// Doctrine cards roll fortune rarity (one float) before the id: common = +1 rank.
 calls.length = 0;
+floatQueue.push(0);
 const doctrine = factory.doctrine('guard');
 assert(doctrine.kind === 'doctrine' && doctrine.title === doctrines.guard.name,
   'doctrine offer identity changed');
-assert(doctrine.before === '3' && doctrine.after === '4',
+assert(doctrine.before === '3' && doctrine.after === '4' && doctrine.amount === 1,
   'doctrine before/after semantics changed');
-assert(calls.join(',') === 'u32', 'explicit doctrine offer changed RNG cadence');
+assert(calls.join(',') === 'float,u32', 'explicit doctrine offer changed RNG cadence');
+
+// A legendary roll grants three ranks, clamped by the doctrine ceiling.
+floatQueue.push(0.9999);
+const legendary = factory.doctrine('might');
+assert(legendary.amount === 3 && legendary.rarity === 'legendary' && legendary.after === '5',
+  'legendary doctrine card must grant +3 ranks');
+floatQueue.push(0.9999);
+const clamped = factory.doctrine('quantity'); // rank 1 of max 6: legendary still +3
+assert(clamped.amount === 3, 'doctrine rarity ranks changed below the ceiling');
+doctrineLevels.quantity = 5;
+floatQueue.push(0.9999);
+const nearCap = factory.doctrine('quantity');
+assert(nearCap.amount === 1 && nearCap.after === '6', 'doctrine rarity ranks exceeded the ceiling');
+doctrineLevels.quantity = 1;
 
 // Discovery cards keep concrete Russian player-facing text and stable skill identity.
 calls.length = 0;
