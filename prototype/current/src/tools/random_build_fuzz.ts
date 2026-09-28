@@ -1,4 +1,5 @@
 import { Simulation, type BenchmarkLoadout } from '../core/simulation.js';
+import { SimulationHarness } from '../testing/simulationHarness.js';
 import { activeSkillOrder, catalystOrder, catalystPairCompatible, skills } from '../content/definitions.js';
 import type { CatalystId, DoctrineRuntime, MutationId, SkillId, Snapshot } from '../core/types.js';
 
@@ -48,8 +49,9 @@ function steer(s:Snapshot,range:number,frame:number){
   return {moveX,moveZ,aimX,aimZ,dash:false};
 }
 function quiet(sim:any,time:number){
-  sim.tick=time*hz; sim.spawnCredits=-1e9; sim.eliteAcc=-1e9; sim.firstElite=true; sim.bossSpawned=true;
-  sim.relicAcc=-1e9; sim.pois=[]; sim.obstacles=[]; sim.obstacleGrid=new Map(); sim.ents=[]; sim.php=sim.maxHp;
+  sim.tick=time*hz; sim.bossSpawned=true;
+  const harness=new SimulationHarness(sim);
+  harness.silenceDirectors(); harness.obstacles=[]; harness.entities=[]; sim.php=sim.maxHp;
 }
 function spawnPack(sim:any){
   for(let i=0;i<72;i++){

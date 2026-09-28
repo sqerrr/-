@@ -1,6 +1,7 @@
 declare const process: { argv: string[]; exit(code?: number): never };
 import { Simulation, type BenchmarkLoadout } from '../core/simulation.js';
 import type { DoctrineRuntime, EliteAffix, SkillId } from '../core/types.js';
+import { SimulationHarness } from '../testing/simulationHarness.js';
 
 type Build = {
   name: string;
@@ -67,15 +68,10 @@ function setup(build: Build, seed: number, affix: EliteAffix): {sim:any; elite:a
   Object.assign(sim.doctrines, build.doctrines);
   // Mid-run combat state, but with all unrelated directors silenced.
   sim.tick = 180 * hz;
-  sim.spawnCredits = -1e9;
-  sim.eliteAcc = -1e9;
-  sim.firstElite = true;
-  sim.bossSpawned = true;
-  sim.relicAcc = -1e9;
-  sim.pois = [];
-  sim.obstacles = [];
-  sim.obstacleGrid = new Map();
-  sim.ents = [];
+  const harness = new SimulationHarness(sim);
+  harness.silenceDirectors();
+  harness.obstacles = [];
+  harness.entities = [];
   sim.px = 0; sim.pz = 0; sim.aimX = 1; sim.aimZ = 0;
   sim.spawnElite();
   const elite = sim.ents.find((e:any)=>e.kind==='elite');

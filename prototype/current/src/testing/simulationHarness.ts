@@ -56,6 +56,13 @@ interface SimulationInternals {
   blocked(x: number, z: number, radius: number): boolean;
   buildObstacleGrid(): void;
   rollEliteAffix(rarity: EliteRarity): EliteAffix;
+  encounterDirector: {
+    tickNormalSpawns(...args: unknown[]): void;
+    tickElite(...args: unknown[]): unknown;
+    shouldSpawnBoss(...args: unknown[]): boolean;
+  };
+  poiSystem: { replace(points: []): void };
+  relicAcc: number;
 }
 
 export class SimulationHarness {
@@ -204,5 +211,20 @@ export class SimulationHarness {
 
   rollEliteAffix(rarity: EliteRarity) {
     return this.internals.rollEliteAffix(rarity);
+  }
+
+  /**
+   * Isolated labs: stop trash waves, elite cadence, the boss, POIs and ground relics.
+   * EncounterDirector owns the spawn/elite accumulators, so labs must silence it here
+   * rather than poking the former Simulation fields (spawnCredits/eliteAcc).
+   */
+  silenceDirectors() {
+    const director = this.internals.encounterDirector;
+    director.tickNormalSpawns = () => undefined;
+    director.tickElite = () => null;
+    director.shouldSpawnBoss = () => false;
+    this.internals.poiSystem.replace([]);
+    this.internals.relicAcc = -1e9;
+    this.relics.length = 0;
   }
 }

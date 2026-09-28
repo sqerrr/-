@@ -1,5 +1,6 @@
 import { Simulation, type BenchmarkLoadout } from '../core/simulation.js';
 import type { DoctrineRuntime, Snapshot } from '../core/types.js';
+import { SimulationHarness } from '../testing/simulationHarness.js';
 
 type Build = { name:string; range:number; loadout:BenchmarkLoadout; doctrines:DoctrineRuntime };
 const hz=60;
@@ -39,8 +40,9 @@ const builds:Build[]=[
 ];
 
 function quiet(sim:any,time:number){
-  sim.tick=time*hz; sim.spawnCredits=-1e9; sim.eliteAcc=-1e9; sim.firstElite=true; sim.bossSpawned=true;
-  sim.relicAcc=-1e9; sim.pois=[]; sim.obstacles=[]; sim.obstacleGrid=new Map(); sim.ents=[]; sim.php=sim.maxHp;
+  sim.tick=time*hz; sim.bossSpawned=true;
+  const harness=new SimulationHarness(sim);
+  harness.silenceDirectors(); harness.obstacles=[]; harness.entities=[]; sim.php=sim.maxHp;
 }
 function apply(sim:any,b:Build){sim.configureBenchmarkLoadout(b.loadout);Object.assign(sim.doctrines,b.doctrines);}
 function steer(s:Snapshot,b:Build,frame:number){

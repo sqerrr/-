@@ -107,11 +107,7 @@ function duel(name: string, slots: SkillId[], time: number, level: number, seed:
   Object.assign(sim.doctrines, doctrineSpread(level - 1, slots));
 
   // Silence every director: this is a controlled duel.
-  const director = internals.encounterDirector;
-  director.tickNormalSpawns = () => undefined;
-  director.tickElite = () => null;
-  director.shouldSpawnBoss = () => false;
-  if (internals.poiSystem?.points) internals.poiSystem.points.length = 0;
+  harness.silenceDirectors();
   harness.obstacles = [];
   harness.entities = [];
   harness.setTime(time);
