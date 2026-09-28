@@ -13,6 +13,7 @@ const physicalActivation=readFileSync('src/core/physicalActivationSystem.ts','ut
 const physicalCatalyst=readFileSync('src/core/physicalCatalystSystem.ts','utf8');
 const projectileSystem=readFileSync('src/core/projectileSystem.ts','utf8');
 const phenomenonCastSystem=readFileSync('src/core/phenomenonCastSystem.ts','utf8');
+const phenomenonCastComposition=readFileSync('src/core/phenomenonCastComposition.ts','utf8');
 const phenomenonKillReaction=readFileSync('src/core/phenomenonKillReactionSystem.ts','utf8');
 const statefulPhenomenonCastSystem=readFileSync('src/core/statefulPhenomenonCastSystem.ts','utf8');
 const choreographyTraceSystem=readFileSync('src/core/choreographyTraceSystem.ts','utf8');
@@ -113,10 +114,22 @@ assert(simulation.includes('private physical = new PhysicalLifecycle()'),
   'Simulation no longer delegates causal activation bookkeeping');
 assert(phenomenonCastSystem.includes('export class PhenomenonCastSystem'),
   'Phenomenon cast behavior has no dedicated system');
-assert(simulation.includes('private phenomenonCasts!: PhenomenonCastSystem'),
-  'Simulation no longer delegates migrated Phenomenon casts');
-assert(simulation.includes('this.phenomenonCasts.cast(id, st, slot, src)'),
-  'dispatchSkill no longer routes through PhenomenonCastSystem');
+assert(phenomenonCastComposition.includes('export class PhenomenonCastComposition'),
+  'Phenomenon cast families have no composition boundary');
+assert(phenomenonCastComposition.includes('private readonly stateless: PhenomenonCastSystem') &&
+       phenomenonCastComposition.includes('this.stateless = new PhenomenonCastSystem(port)'),
+  'Phenomenon composition no longer owns stateless cast wiring');
+assert(simulation.includes('private phenomenonCasting!: PhenomenonCastComposition'),
+  'Simulation no longer delegates authored Phenomenon casting to its composition');
+assert(simulation.includes('this.phenomenonCasting.cast(id, st, slot, src)'),
+  'dispatchSkill no longer routes through PhenomenonCastComposition');
+for (const token of [
+  'private phenomenonCasts!: PhenomenonCastSystem',
+  'this.phenomenonCasts.',
+  'new PhenomenonCastSystem('
+])
+  assert(!simulation.includes(token),
+    'stateless Phenomenon cast implementation leaked back into Simulation: '+token);
 assert(phenomenonKillReaction.includes('export class PhenomenonKillReactionSystem'),
   'Phenomenon-specific kill reactions have no dedicated owner');
 assert(simulation.includes('private phenomenonKillReactions!: PhenomenonKillReactionSystem'),
@@ -132,10 +145,19 @@ assert(!genericDamageBlock.includes('ember_backdraft') &&
   'specific Phenomenon kill policy leaked back into Simulation.damage');
 assert(statefulPhenomenonCastSystem.includes('export class StatefulPhenomenonCastSystem'),
   'stateful Phenomenon behavior has no dedicated cast family');
-assert(simulation.includes('private statefulPhenomenonCasts!: StatefulPhenomenonCastSystem'),
-  'Simulation no longer delegates stateful Phenomenon casts');
-assert(simulation.includes('this.statefulPhenomenonCasts.cast(id, st, slot, src)'),
-  'dispatchSkill no longer routes through the stateful Phenomenon family');
+assert(phenomenonCastComposition.includes('private readonly stateful: StatefulPhenomenonCastSystem') &&
+       phenomenonCastComposition.includes('this.stateful = new StatefulPhenomenonCastSystem(port)'),
+  'Phenomenon composition no longer owns stateful cast wiring');
+assert(phenomenonCastComposition.includes('if (this.stateless.cast(id, runtime, slot, source)) return true') &&
+       phenomenonCastComposition.includes('return this.stateful.cast(id, runtime, slot, source)'),
+  'Phenomenon composition dispatch order changed');
+for (const token of [
+  'private statefulPhenomenonCasts!: StatefulPhenomenonCastSystem',
+  'this.statefulPhenomenonCasts.',
+  'new StatefulPhenomenonCastSystem('
+])
+  assert(!simulation.includes(token),
+    'stateful Phenomenon cast implementation leaked back into Simulation: '+token);
 assert(choiceRuntime.includes('export class ChoiceRuntime'),
   'progression choice window has no dedicated runtime owner');
 assert(mutationChoiceSystem.includes('export class MutationChoiceSystem'),
@@ -828,6 +850,7 @@ console.log('architecture-regression OK', {
   physicalActivationSystem:true,
   projectileSystem:true,
   phenomenonCastSystem:true,
+  phenomenonCastComposition:true,
   phenomenonKillReactionSystem:true,
   statefulPhenomenonCastSystem:true,
   choreographyTraceSystem:true,
